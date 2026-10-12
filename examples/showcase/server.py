@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Main entry point for the Showcase demonstration server (rsgi-wsrpc).
+Main entry point for the Showcase demonstration server (PyFerro).
 Run:
     python server.py
     or
@@ -18,27 +18,27 @@ from datetime import datetime, timezone
 SHOWCASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRAMEWORK_ROOT = os.path.abspath(os.path.join(SHOWCASE_DIR, "..", ".."))
 
-if os.path.isdir(os.path.join(FRAMEWORK_ROOT, "rsgi_wsrpc")) and FRAMEWORK_ROOT not in sys.path:
+if os.path.isdir(os.path.join(FRAMEWORK_ROOT, "pyferro")) and FRAMEWORK_ROOT not in sys.path:
     sys.path.insert(0, FRAMEWORK_ROOT)
 if SHOWCASE_DIR not in sys.path:
     sys.path.insert(0, SHOWCASE_DIR)
 
 # Framework core imports
-from rsgi_wsrpc import RsgiWsrpcApp
-from rsgi_wsrpc.core.logger import setup_logging, logger
-from rsgi_wsrpc.plugins.db import engine, Base, async_session
-from rsgi_wsrpc.plugins.smart_cache import version_registry
-from rsgi_wsrpc.plugins.crud import ModelRegistry
+from pyferro import FerroApp
+from pyferro.core.logger import setup_logging, logger
+from pyferro.plugins.db import engine, Base, async_session
+from pyferro.plugins.smart_cache import version_registry
+from pyferro.plugins.crud import ModelRegistry
 
 
 # Static directory and SQLite DB path
 PUBLIC_DIR = os.path.join(SHOWCASE_DIR, "public")
 DB_PATH = os.path.join(SHOWCASE_DIR, "showcase.db")
 
-# Create RsgiWsrpcApp application instance (SQLite + Zero-Copy Granian Static)
+# Create FerroApp application instance (SQLite + Zero-Copy Granian Static)
 # auto_auth_ws=True (по умолчанию): сокеты автоматически авторизуются по Cookie
 # auto_auth_models=True (по умолчанию): User, Role, RpcPermission регистрируются в CRUD автоматически
-app = RsgiWsrpcApp(
+app = FerroApp(
     secret_key="showcase-demo-secret-key-1234567890-secure-seed",
     database_url=f"sqlite+aiosqlite:///{DB_PATH}",
     login_rpc="",  # Public access for interactive showcase
@@ -54,8 +54,8 @@ ModelRegistry.register(Document)
 
 # Регистрация RPC-хендлеров и плагинов
 import handlers  # noqa: F401
-import rsgi_wsrpc.plugins.files  # Registers HTTP /upload and RPC files.*
-import rsgi_wsrpc.plugins.crud as crud  # noqa: F401
+import pyferro.plugins.files  # Registers HTTP /upload and RPC files.*
+import pyferro.plugins.crud as crud  # noqa: F401
 
 # Initialize logging
 setup_logging()
@@ -64,7 +64,7 @@ setup_logging()
 @app.on_startup
 async def init_database():
     """Asynchronously creates SQLite database tables and seeds demo data on server startup."""
-    from rsgi_wsrpc.plugins.auth import system_bypass_ctx, User, Role
+    from pyferro.plugins.auth import system_bypass_ctx, User, Role
     token = system_bypass_ctx.set(True)
     try:
         async with engine.begin() as conn:
@@ -91,7 +91,7 @@ async def init_database():
             count_tasks = (await db.execute(select(func.count(Task.id)))).scalar_one()
             if count_tasks == 0:
                 demo_tasks = [
-                    Task(title="Start rsgi-wsrpc showcase server (Admin)", priority="high", completed=True, owner_id=1),
+                    Task(title="Start PyFerro showcase server (Admin)", priority="high", completed=True, owner_id=1),
                     Task(title="Inspect traffic savings with RFC 0002 ($tabular) (Alice)", priority="high", completed=False, owner_id=2),
                     Task(title="Test Smart Cache tag invalidation across tabs (Alice)", priority="normal", completed=False, owner_id=2),
                     Task(title="Run multi-return streaming task with live chunks (Bob)", priority="normal", completed=False, owner_id=3),
@@ -102,7 +102,7 @@ async def init_database():
             count_docs = (await db.execute(select(func.count(Document.id)))).scalar_one()
             if count_docs == 0:
                 demo_docs = [
-                    Document(title="rsgi-wsrpc Architecture Manifesto", category="architecture", views=142, content="Granian RSGI + JSON-RPC 2.0 full duplex"),
+                    Document(title="PyFerro Architecture Manifesto", category="architecture", views=142, content="Granian RSGI + JSON-RPC 2.0 full duplex"),
                     Document(title="RFC 0002 Tabular Compression Specification", category="specs", views=98, content="40-70% wire traffic reduction"),
                     Document(title="Universal Reactive CRUD Guide", category="guides", views=64, content="Declarative class Crud: mapping"),
                 ]
@@ -148,7 +148,7 @@ async def health_handler(scope, proto):
     proto.response_str(
         status=200,
         headers=[("content-type", "application/json")],
-        body='{"status":"ok","framework":"rsgi-wsrpc","showcase":"ready","database":"sqlite"}'
+        body='{"status":"ok","framework":"PyFerro","showcase":"ready","database":"sqlite"}'
     )
 
 
@@ -201,7 +201,7 @@ if __name__ == "__main__":
     import argparse
     from granian import Granian
 
-    parser = argparse.ArgumentParser(description="rsgi-wsrpc Showcase Server")
+    parser = argparse.ArgumentParser(description="PyFerro Showcase Server")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8333, help="Port to bind (default: 8333)")
     args, _ = parser.parse_known_args()
@@ -212,7 +212,7 @@ if __name__ == "__main__":
     lan_ip = get_local_ip()
 
     print("=" * 70)
-    print(" ⚡ rsgi-wsrpc Showcase: Interactive Demo & Living Documentation")
+    print(" ⚡ PyFerro Showcase: Interactive Demo & Living Documentation")
     if port != requested_port:
         print(f" [!] Notice: Port {requested_port} is busy or restricted by OS.")
         print(f" [!] Automatically selected available port: {port}")
@@ -227,12 +227,9 @@ if __name__ == "__main__":
     print(" 📖 Press Ctrl+C to stop the server")
     print("=" * 70)
 
-    server = Granian(
-        "server:app",
-        address=host,
+    # Канонический запуск приложения PyFerro
+    app.run(
+        host=host,
         port=port,
-        interface="rsgi",
-        reload=False,
         workers=1,
     )
-    server.serve()

@@ -1,11 +1,11 @@
 # ==============================================================================
-# rsgi-wsrpc Showcase Launcher for Windows PowerShell
+# PyFerro Showcase Launcher for Windows PowerShell
 # ==============================================================================
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
 
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host " 🚀 [rsgi-wsrpc] Starting Showcase Demo Server" -ForegroundColor Cyan
+Write-Host " 🚀 [PyFerro] Starting Showcase Demo Server" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 
 # Locate Python 3.11+

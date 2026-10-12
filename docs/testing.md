@@ -1,6 +1,6 @@
 # Modular Backend Test Framework (Client Test Harness)
 
-The **rsgi-wsrpc** platform includes a professional, modular asynchronous testing framework (`tests/`) that validates backend behavior **from a real client perspective** (black-box) over **WSRPC (WebSocket)** and **HTTP**.
+The **PyFerro** platform includes a professional, modular asynchronous testing framework (`tests/`) that validates backend behavior **from a real client perspective** (black-box) over **WSRPC (WebSocket)** and **HTTP**.
 
 It resolves the core issues of manual and ad-hoc script testing:
 * **Eliminates repetitive authentication failures**: built-in personas (`Admin`, `User`, `Guest`) authenticate over WebSockets automatically without manual password hashing or token juggling.
@@ -33,7 +33,7 @@ python tests/run.py --target=stage
 
 ### Example Output:
 ```text
-=== rsgi-wsrpc Backend Test Harness ===
+=== PyFerro Backend Test Harness ===
   Target:    LOCAL (http://127.0.0.1:8080 | ws://127.0.0.1:8080/)
   Сьюты:     auth, smart_cache, forum, files, load
 
@@ -261,7 +261,7 @@ Throughput (Пропускная способность)           10,933.2 RPS
 
 ## 🛡️ Built-in DoS Protection & Rate Limiting (Token Bucket)
 
-When designing benchmarks or analyzing results, it is vital to understand the **native DoS protection built directly into the session loop** (`rsgi_wsrpc/core/session.py`):
+When designing benchmarks or analyzing results, it is vital to understand the **native DoS protection built directly into the session loop** (`pyferro/core/session.py`):
 
 ```python
 if self.rate_limit_enabled:
@@ -309,9 +309,9 @@ python scripts/security_audit.py --target http://127.0.0.1:8080
 
 ---
 
-## 🥊 Performance Comparison: `rsgi-wsrpc` vs Classic Stacks
+## 🥊 Performance Comparison: `PyFerro` vs Classic Stacks
 
-| Metric | Classic Django (WSGI/ASGI) | FastAPI (HTTP/1.1 REST) | **rsgi-wsrpc** (Rust RSGI + WSRPC) |
+| Metric | Classic Django (WSGI/ASGI) | FastAPI (HTTP/1.1 REST) | **PyFerro** (Rust RSGI + WSRPC) |
 | :--- | :--- | :--- | :--- |
 | **Network Overhead** | Full HTTP handshake on every call | Full HTTP handshake on every call | **Single persistent full-duplex socket** |
 | **Median Latency (p50)** | 15 – 45 ms | 8 – 20 ms | **0.9 – 2.8 ms (up to 30x faster)** |

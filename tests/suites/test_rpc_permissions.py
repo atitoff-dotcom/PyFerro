@@ -3,16 +3,16 @@ import pytest
 from unittest.mock import MagicMock
 from sqlalchemy import select
 
-from rsgi_wsrpc.core.session import (
+from pyferro.core.session import (
     JsonRpcSession, rpc_method, RPC_REGISTRY, RPCError,
     PUBLIC_RPC_METHODS, register_public_method, unregister_public_method, is_public_rpc_method
 )
-from rsgi_wsrpc.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, SYSTEM_ROLES
-from rsgi_wsrpc.plugins.auth.models import Role, RpcPermission, User
-from rsgi_wsrpc.plugins.auth.core import AuthSession
-from rsgi_wsrpc.plugins.auth.discovery import sync_rpc_permissions, reload_public_rpc_cache
-from rsgi_wsrpc.plugins.crud.handlers import handle_crud_delete, handle_crud_update_cell
-from rsgi_wsrpc.plugins.db import async_session, Base, engine
+from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, SYSTEM_ROLES
+from pyferro.plugins.auth.models import Role, RpcPermission, User
+from pyferro.plugins.auth.core import AuthSession
+from pyferro.plugins.auth.discovery import sync_rpc_permissions, reload_public_rpc_cache
+from pyferro.plugins.crud.handlers import handle_crud_delete, handle_crud_update_cell
+from pyferro.plugins.db import async_session, Base, engine
 
 
 class MockTransport:
@@ -80,8 +80,8 @@ async def test_auth_session_rpc_permissions():
 
 @pytest.mark.asyncio
 async def test_crud_immutable_roles_protection():
-    from rsgi_wsrpc.plugins.crud import ModelRegistry
-    from rsgi_wsrpc.plugins.auth.core import system_bypass_ctx
+    from pyferro.plugins.crud import ModelRegistry
+    from pyferro.plugins.auth.core import system_bypass_ctx
     ModelRegistry.register(Role)
     token = system_bypass_ctx.set(True)
     try:
@@ -140,7 +140,7 @@ async def test_crud_immutable_roles_protection():
 
 @pytest.mark.asyncio
 async def test_user_personal_permissions_merging():
-    from rsgi_wsrpc.plugins.auth.models import RolePermission, UserPermission, UserRpcPermission
+    from pyferro.plugins.auth.models import RolePermission, UserPermission, UserRpcPermission
 
     # 1. Роль с базовыми правами: чтение Task (только свои) и RPC reports.view
     role = Role(id=10, name="operator", description="Operator role")
@@ -198,12 +198,12 @@ async def test_user_personal_permissions_merging():
 
 @pytest.mark.asyncio
 async def test_permissions_api_flow():
-    from rsgi_wsrpc.plugins.auth.permission_handlers import (
+    from pyferro.plugins.auth.permission_handlers import (
         handle_permissions_get_schema,
         handle_permissions_get,
         handle_permissions_save
     )
-    from rsgi_wsrpc.plugins.auth.core import system_bypass_ctx
+    from pyferro.plugins.auth.core import system_bypass_ctx
 
     admin_session = MagicMock()
     admin_session.user_role = "admin"

@@ -1,7 +1,7 @@
-# Руководство по интеграции CRUD-панели в rsgi-wsrpc
+# Руководство по интеграции CRUD-панели в PyFerro
 
 > **Целевая аудитория:** Разработчики и ИИ-ассистенты (Cursor, Antigravity, Claude, ChatGPT, Windsurf, Copilot).  
-> **Цель документа:** Объяснить самый простой, правильный и идиоматичный способ подключения встроенной панели управления CRUD в любое приложение на базе `rsgi-wsrpc`, а также разобрать типичные ошибки (включая причину `404 Not Found`).
+> **Цель документа:** Объяснить самый простой, правильный и идиоматичный способ подключения встроенной панели управления CRUD в любое приложение на базе `PyFerro`, а также разобрать типичные ошибки (включая причину `404 Not Found`).
 
 ---
 
@@ -15,7 +15,7 @@
    Панель управления **намеренно скрыта от неавторизованных пользователей и сканеров уязвимостей**. Если в запросе нет валидной сессии администратора, сервер отвечает строгим `404 Not Found`, а не `401/403`, не выдавая самого факта существования админки. Отдельной HTML-формы `/crud/login` во фреймворке нет — вход реализован бесшовно через SSO/сессию приложения.
 
 2. **Симптом: методы `crud.*` или роут `/crud` отсутствуют в таблице маршрутов**  
-   *Реальность:* Плагин активируется **при первом импорте**. Если в коде приложения нигде не импортирован модуль `rsgi_wsrpc.plugins.crud` (или `ModelRegistry`), роуты и RPC-методы не регистрируются в приложении.
+   *Реальность:* Плагин активируется **при первом импорте**. Если в коде приложения нигде не импортирован модуль `pyferro.plugins.crud` (или `ModelRegistry`), роуты и RPC-методы не регистрируются в приложении.
 
 ---
 
@@ -26,9 +26,9 @@
 Достаточно импортировать плагин и передать базовый декларативный класс SQLAlchemy `Base` в `ModelRegistry`:
 
 ```python
-from rsgi_wsrpc import RsgiWsrpcApp
-from rsgi_wsrpc.plugins.db import Base
-import rsgi_wsrpc.plugins.crud as crud  # 👈 Активирует HTTP /crud и RPC crud.*
+from pyferro import FerroApp
+from pyferro.plugins.db import Base
+import pyferro.plugins.crud as crud  # 👈 Активирует HTTP /crud и RPC crud.*
 
 # Автоматически регистрирует все модели, унаследованные от Base
 crud.ModelRegistry.auto_discover(Base)
@@ -46,7 +46,7 @@ crud.ModelRegistry.auto_discover(Base)
 ```python
 from sqlalchemy import Integer, String, Boolean, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
-from rsgi_wsrpc.plugins.db import Base
+from pyferro.plugins.db import Base
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -73,7 +73,7 @@ class Task(Base):
 ### Шаг 3. Обеспечить доступ к панели (Преодоление Zero-Leakage 404)
 
 Чтобы панель открылась по адресу `/crud/` (или `/admin/`), браузер должен передать Cookie с сессией администратора:
-- `rsgi_crud_session=<token>` или `rsgi_session=<token>`
+- `ferro_crud_session=<token>` или `ferro_session=<token>`
 
 Выберите один из трех сценариев:
 
@@ -118,7 +118,7 @@ python server.py --set-admin-password "my_strong_pass" --login admin
    ```javascript
    const res = await rpc.call("auth.login", { username, password });
    if (res.token) {
-       document.cookie = `rsgi_crud_session=${res.token}; path=/; max-age=86400; SameSite=Lax`;
+       document.cookie = `ferro_crud_session=${res.token}; path=/; max-age=86400; SameSite=Lax`;
    }
    ```
 
@@ -131,7 +131,7 @@ python server.py --set-admin-password "my_strong_pass" --login admin
 Если в приложении уже есть готовое хранилище сессий (в БД, Redis или JWT), вам не нужно вызывать `create_crud_session` вручную. Достаточно один раз объявить функцию валидатора:
 
 ```python
-from rsgi_wsrpc.plugins.crud import set_crud_session_validator
+from pyferro.plugins.crud import set_crud_session_validator
 
 def validate_app_session(token: str):
     # Извлеките пользователя из вашего хранилища по токену
@@ -144,7 +144,7 @@ def validate_app_session(token: str):
 set_crud_session_validator(validate_app_session)
 ```
 
-Теперь любой запрос с кукой `rsgi_crud_session` или `rsgi_session` автоматически валидируется через ваш мост!
+Теперь любой запрос с кукой `ferro_crud_session` или `ferro_session` автоматически валидируется через ваш мост!
 
 ---
 
@@ -158,9 +158,9 @@ import asyncio
 from sqlalchemy import Integer, String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 
-from rsgi_wsrpc import RsgiWsrpcApp
-from rsgi_wsrpc.plugins.db import Base, engine
-import rsgi_wsrpc.plugins.crud as crud
+from pyferro import FerroApp
+from pyferro.plugins.db import Base, engine
+import pyferro.plugins.crud as crud
 
 # 1. Объявляем модель данных
 class Task(Base):
@@ -177,8 +177,8 @@ class Task(Base):
 # 2. Регистрируем модель в реестре CRUD
 crud.ModelRegistry.register(Task)
 
-# 3. Инициализируем приложение rsgi-wsrpc
-app = RsgiWsrpcApp(
+# 3. Инициализируем приложение PyFerro
+app = FerroApp(
     database_url="sqlite+aiosqlite:///dev.db",
     cors=True
 )
@@ -203,10 +203,10 @@ python minimal_admin.py --set-admin-password
 ## 4. Как CRUD-панель работает под капотом
 
 1. **Раздача статики (Rust Zero-Copy):**  
-   HTML, CSS и JS бандлы админки (Svelte 5 + Tailwind v4) скомпилированы и находятся внутри пакета `rsgi_wsrpc/plugins/crud/static/`.  
+   HTML, CSS и JS бандлы админки (Svelte 5 + Tailwind v4) скомпилированы и находятся внутри пакета `pyferro/plugins/crud/static/`.  
    Обработчик `static_handler.py` раздаёт их через `proto.response_file`, обеспечивая максимальную скорость и изоляцию.
 2. **WebSocket Соединение (WSRPC):**  
-   При загрузке страницы интерфейс открывает соединение по адресу `/ws`. Браузер автоматически отправляет сохраненную куку `rsgi_crud_session` в HTTP-заголовках рукопожатия WebSocket.
+   При загрузке страницы интерфейс открывает соединение по адресу `/ws`. Браузер автоматически отправляет сохраненную куку `ferro_crud_session` в HTTP-заголовках рукопожатия WebSocket.
 3. **Провайдер Идентификации (`DefaultIdentityProvider`):**  
    При каждом вызове RPC-методов (`crud.schema`, `crud.list`, `crud.update_cell`) провайдер проверяет куку в сокете и наделяет сессию правами `is_superuser = True`.
 4. **Сжатие трафика (RFC 0002 Tabular Compression):**  
@@ -218,8 +218,8 @@ python minimal_admin.py --set-admin-password
 
 | Проблема / Симптом | Причина | Решение |
 | :--- | :--- | :--- |
-| **`404 Not Found`** при переходе на `/crud` | Защита Zero-Leakage: нет Cookie администратора `rsgi_crud_session` | Авторизуйтесь под администратором в приложении или установите Cookie с токеном администратора. |
-| **`404 Not Found`** даже при наличии куки | Модуль `rsgi_wsrpc.plugins.crud` не был импортирован в Python | Добавьте `import rsgi_wsrpc.plugins.crud as crud` в основной файл запуска. |
+| **`404 Not Found`** при переходе на `/crud` | Защита Zero-Leakage: нет Cookie администратора `ferro_crud_session` | Авторизуйтесь под администратором в приложении или установите Cookie с токеном администратора. |
+| **`404 Not Found`** даже при наличии куки | Модуль `pyferro.plugins.crud` не был импортирован в Python | Добавьте `import pyferro.plugins.crud as crud` в основной файл запуска. |
 | **Пустой экран** в панели (нет таблиц) | Модели SQLAlchemy не зарегистрированы в `ModelRegistry` | Вызовите `crud.ModelRegistry.auto_discover(Base)` или `crud.ModelRegistry.register(MyModel)`. |
 | **Ошибка валидации** при редактировании ячейки | Введено значение, не соответствующее типу колонки | Плагин использует `coerce_value`. Убедитесь, что числа, булевы флаги и даты вводятся в корректном формате. |
 | **WebSocket Disconnected** в панели | Ошибки соединения или сервер завершил процесс | Проверьте консоль сервера и убедитесь, что порт `8080` доступен. |

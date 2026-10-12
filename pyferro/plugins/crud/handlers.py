@@ -1,0 +1,825 @@
+# -*- coding: utf-8 -*-
+"""
+JSON-RPC 2.0 обработчики для CRUD-плагина PyFerro (crud.*).
+Предоставляет полнофункциональный API для интроспекции, выборки ($tabular),
+детального просмотра, создания, обновления ячеек, пакетных действий и удаления.
+"""
+
+from __future__ import annotations
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional
+from sqlalchemy import select, update, delete, func, String, or_, and_, inspect
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from pyferro.core.session import rpc_method, RPCError, JsonRpcSession
+from pyferro.plugins.db import async_session
+
+try:
+    from pyferro.plugins.auth.core import system_bypass_ctx
+except ImportError:
+    from contextvars import ContextVar
+    system_bypass_ctx = ContextVar("system_bypass", default=False)
+
+from .identity import IdentityProvider, DefaultIdentityProvider, AccessContext, create_access_context
+from .meta import ModelMeta
+from .registry import ModelRegistry
+from .policy import AccessPolicy, DefaultAccessPolicy
+from .coerce import coerce_value
+from .events import notify_crud_change
+
+
+# Глобальные провайдеры для CRUD-плагина
+_identity_provider: IdentityProvider = DefaultIdentityProvider()
+_access_policy: AccessPolicy = DefaultAccessPolicy()
+
+
+def set_identity_provider(provider: IdentityProvider) -> None:
+    """Устанавливает провайдер идентификации для CRUD-плагина."""
+    global _identity_provider
+    _identity_provider = provider
+
+
+def set_access_policy(policy: AccessPolicy) -> None:
+    """Устанавливает политику доступа для CRUD-плагина."""
+    global _access_policy
+    _access_policy = policy
+
+
+def get_identity_provider() -> IdentityProvider:
+    return _identity_provider
+
+
+def get_access_policy() -> AccessPolicy:
+    return _access_policy
+
+
+def escape_like(s: str) -> str:
+    """Экранирует спецсимволы LIKE (%, _, \\) для поиска по точным строкам."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _get_model_meta(model_name: str) -> ModelMeta:
+    meta = ModelRegistry.get(model_name)
+    if not meta:
+        from pyferro.plugins.db import Base
+        ModelRegistry.auto_discover(Base)
+        meta = ModelRegistry.get(model_name)
+    if not meta:
+        for m in ModelRegistry.all().values():
+            if m.table_name == model_name:
+                return m
+    if not meta:
+        raise RPCError(-32602, f"Модель '{model_name}' не найдена или не опубликована в CRUD")
+    return meta
+
+
+# -----------------------------------------------------------------------------
+# Хендлеры логики CRUD
+# -----------------------------------------------------------------------------
+
+async def handle_crud_schema(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Возвращает схему одной или всех доступных пользователю моделей."""
+    provider = get_identity_provider()
+    uid = provider.user_id(session)
+    is_super = provider.is_superuser(uid)
+
+    from pyferro.core.constants import ADMIN_ROLE
+    from pyferro.core.lib.config import settings
+
+    role = getattr(session, "user_role", None) or getattr(getattr(session, "data", None), "user_role", None)
+    if hasattr(role, "value"):
+        role = role.value
+    if role in ("admin", "ADMIN", ADMIN_ROLE):
+        is_super = True
+    roles = getattr(session, "user_roles", [])
+    for r in roles:
+        val = r.value if hasattr(r, "value") else r
+        if val in ("admin", "ADMIN", ADMIN_ROLE):
+            is_super = True
+            break
+
+    if hasattr(session, "cookies") and session.cookies:
+        token = session.cookies.get("ferro_crud_session") or session.cookies.get("ferro_session")
+        if token:
+            from .auth import get_crud_session
+            sdata = get_crud_session(token)
+            if sdata and sdata.get("role") in ("admin", "ADMIN", ADMIN_ROLE):
+                is_super = True
+
+    target_model = params.get("model")
+
+    def make_perms(meta: ModelMeta) -> Dict[str, bool]:
+        name = meta.key
+        can_r = is_super or provider.has_permission(uid, f"{name}:read")
+        can_c = is_super or provider.has_permission(uid, f"{name}:create")
+        can_u = is_super or provider.has_permission(uid, f"{name}:update")
+        can_d = is_super or provider.has_permission(uid, f"{name}:delete")
+        row_level_only = not (is_super or provider.has_permission(uid, f"{name}:view_all"))
+        return {
+            "can_read": can_r,
+            "can_create": can_c,
+            "can_update": can_u,
+            "can_delete": can_d,
+            "row_level_only": row_level_only,
+        }
+
+    if target_model:
+        meta = _get_model_meta(target_model)
+        perms = make_perms(meta)
+        return {"model": meta.to_schema_dict(perms)}
+
+    if not ModelRegistry.all():
+        from pyferro.plugins.db import Base
+        ModelRegistry.auto_discover(Base)
+
+    models_list = []
+    for meta in ModelRegistry.all().values():
+        if meta.is_internal:
+            continue
+        perms = make_perms(meta)
+        if perms["can_read"]:
+            models_list.append(meta.to_schema_dict(perms))
+
+    allow_guests = bool(settings.security.get("allow_guests", True))
+    return {
+        "models": models_list,
+        "allow_guests": allow_guests
+    }
+
+
+async def handle_crud_get(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Детальная карточка сущности с проверкой RLS."""
+    model_name = params.get("model")
+    record_id = params.get("id")
+
+    if not model_name or record_id is None:
+        raise RPCError(-32602, "Параметры 'model' и 'id' обязательны")
+
+    meta = _get_model_meta(model_name)
+    cls = meta.model_cls
+    provider = get_identity_provider()
+    policy = get_access_policy()
+
+    token = system_bypass_ctx.set(True)
+    try:
+        async with async_session() as db:
+            ctx = await create_access_context(provider, session, model_name, db)
+            scope = await policy.scope(ctx, meta, "read", db)
+
+            mapper = inspect(cls)
+            pk_cols = list(mapper.primary_key)
+            if hasattr(cls, "id"):
+                pk_cond = (cls.id == record_id)
+            elif len(pk_cols) == 1:
+                pk_cond = (pk_cols[0] == record_id)
+            else:
+                parts = str(record_id).split("_") if "_" in str(record_id) else [record_id]
+                conds = [pk_cols[i] == int(parts[i]) for i in range(min(len(pk_cols), len(parts)))]
+                pk_cond = and_(*conds)
+
+            stmt = select(cls).where(pk_cond)
+            for m in meta.get_m2m_fields():
+                stmt = stmt.options(selectinload(getattr(cls, m.name)))
+            if scope is not None:
+                stmt = stmt.where(scope)
+
+            res = await db.execute(stmt)
+            obj = res.scalar_one_or_none()
+
+            if not obj:
+                raise RPCError(-32004, f"Запись #{record_id} не найдена или доступ ограничен")
+
+            result = {}
+            for f in meta.get_public_fields():
+                if f.type == "m2m":
+                    rel_items = getattr(obj, f.name, []) or []
+                    result[f.name] = [
+                        {"id": r.id, "label": getattr(r, "name", getattr(r, "login", getattr(r, "title", str(r.id))))}
+                        for r in rel_items
+                    ]
+                else:
+                    val = getattr(obj, f.name, None)
+                    if hasattr(val, "isoformat"):
+                        val = val.isoformat()
+                    result[f.name] = val
+
+            return {"record": result}
+    finally:
+        system_bypass_ctx.reset(token)
+
+
+async def handle_crud_list(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Выборка данных модели для DataGrid в сжатом формате $tabular."""
+    model_name = params.get("model")
+    if not model_name:
+        raise RPCError(-32602, "Параметр 'model' обязателен")
+
+    meta = _get_model_meta(model_name)
+    cls = meta.model_cls
+    provider = get_identity_provider()
+    policy = get_access_policy()
+
+    page = max(1, int(params.get("page", 1)))
+    page_size = min(500, max(1, int(params.get("page_size", 50))))
+    sort_field = params.get("sort_field")
+    sort_dir = str(params.get("sort_dir", "asc")).lower()
+    search = str(params.get("search", "")).strip()
+    filters = params.get("filters", {})
+    show_archived = bool(params.get("show_archived", False))
+
+    public_fields = meta.get_public_fields()
+    col_fields = meta.get_column_fields()
+    m2m_fields = meta.get_m2m_fields()
+    field_names = [f.name for f in public_fields]
+    fields_dict = {f.name: f for f in public_fields}
+
+    token = system_bypass_ctx.set(True)
+    try:
+        async with async_session() as db:
+            ctx = await create_access_context(provider, session, model_name, db)
+            scope = await policy.scope(ctx, meta, "read", db)
+
+            if m2m_fields:
+                query = select(cls)
+                for m in m2m_fields:
+                    query = query.options(selectinload(getattr(cls, m.name)))
+            else:
+                col_exprs = [getattr(cls, f.name) for f in col_fields]
+                query = select(*col_exprs)
+
+            if scope is not None:
+                query = query.where(scope)
+
+            # Фильтр архивации
+            if meta.is_archivable and not show_archived:
+                query = query.where(cls.is_archived == False)
+
+            # Поиск
+            if search:
+                escaped = escape_like(search)
+                search_conds = []
+                for f in col_fields:
+                    if f.searchable:
+                        col = getattr(cls, f.name, None)
+                        if col is not None:
+                            search_conds.append(col.cast(String).ilike(f"%{escaped}%", escape="\\"))
+                if search_conds:
+                    query = query.where(or_(*search_conds))
+
+            # Точные фильтры по полям схемы
+            if filters and isinstance(filters, dict):
+                for k, v in filters.items():
+                    if v is not None and k in fields_dict and fields_dict[k].type != "m2m":
+                        col = getattr(cls, k)
+                        coerced_v = coerce_value(fields_dict[k], v)
+                        query = query.where(col == coerced_v)
+
+            # Сортировка
+            if sort_field and sort_field in fields_dict and fields_dict[sort_field].type != "m2m":
+                col = getattr(cls, sort_field)
+                query = query.order_by(col.desc() if sort_dir == "desc" else col.asc())
+            elif hasattr(cls, "id"):
+                query = query.order_by(cls.id.desc())
+            elif col_fields:
+                first_col = getattr(cls, col_fields[0].name)
+                query = query.order_by(first_col.asc())
+
+            # Общее количество строк (Count)
+            count_stmt = select(func.count()).select_from(query.order_by(None).subquery())
+            total = (await db.execute(count_stmt)).scalar() or 0
+
+            # Пагинация
+            query = query.offset((page - 1) * page_size).limit(page_size)
+            res = await db.execute(query)
+
+            # Сериализация ячеек
+            rows = []
+            if m2m_fields:
+                raw_objs = res.scalars().all()
+                for obj in raw_objs:
+                    r_vals = []
+                    for f in public_fields:
+                        if f.type == "m2m":
+                            rel_items = getattr(obj, f.name, []) or []
+                            m2m_str_list = [
+                                getattr(r, "name", getattr(r, "login", getattr(r, "title", str(r.id))))
+                                for r in rel_items
+                            ]
+                            r_vals.append(m2m_str_list)
+                        else:
+                            val = getattr(obj, f.name, None)
+                            if hasattr(val, "isoformat"):
+                                val = val.isoformat()
+                            r_vals.append(val)
+                    rows.append(r_vals)
+            else:
+                raw_rows = res.all()
+                for row in raw_rows:
+                    r_vals = []
+                    for val in row:
+                        if hasattr(val, "isoformat"):
+                            val = val.isoformat()
+                        r_vals.append(val)
+                    rows.append(r_vals)
+
+            return {
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "$tabular": True,
+                "fields": field_names,
+                "rows": rows,
+            }
+    finally:
+        system_bypass_ctx.reset(token)
+
+
+async def handle_crud_update_cell(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Точечное атомарное редактирование одной ячейки с валидацией типов."""
+    model_name = params.get("model")
+    record_id = params.get("id")
+    field = params.get("field")
+    value = params.get("value")
+
+    if not all([model_name, record_id is not None, field]):
+        raise RPCError(-32602, "Параметры 'model', 'id' и 'field' обязательны")
+
+    meta = _get_model_meta(model_name)
+    cls = meta.model_cls
+    provider = get_identity_provider()
+    policy = get_access_policy()
+
+    token = system_bypass_ctx.set(True)
+    try:
+        async with async_session() as db:
+            ctx = await create_access_context(provider, session, model_name, db)
+            allowed = policy.allowed_fields(ctx, meta, "update")
+
+            if field not in allowed:
+                if field in meta.protected_fields:
+                    raise RPCError(-32003, f"Поле '{field}' защищено от изменения (требуется право transfer)")
+                if field in meta.readonly_fields:
+                    raise RPCError(-32602, f"Поле '{field}' защищено от записи (read-only)")
+                raise RPCError(-32602, f"Поле '{field}' недоступно для редактирования")
+
+            # Защита системных ролей от переименования
+            if model_name in ("auth_role", "Role") and field == "name":
+                from pyferro.core.constants import SYSTEM_ROLES
+                stmt_check = select(cls).where(cls.id == record_id)
+                role_obj = (await db.execute(stmt_check)).scalar_one_or_none()
+                if role_obj and role_obj.name in SYSTEM_ROLES:
+                    raise RPCError(-32602, f"Системная роль '{role_obj.name}' является встроенной (immutable) и не может быть переименована")
+
+            field_meta = meta.fields[field]
+
+            if field_meta.type == "m2m":
+                target_meta = ModelRegistry.get(field_meta.target_model) if field_meta.target_model else None
+                if not target_meta:
+                    raise RPCError(-32602, f"Целевая модель '{field_meta.target_model}' не зарегистрирована в CRUD")
+                target_cls = target_meta.model_cls
+                stmt_obj = select(cls).options(selectinload(getattr(cls, field))).where(cls.id == record_id)
+                obj = (await db.execute(stmt_obj)).scalar_one_or_none()
+                if not obj:
+                    raise RPCError(-32004, f"Запись #{record_id} не найдена")
+
+                val_list = [value] if not isinstance(value, (list, set, tuple)) else list(value)
+                id_vals = [int(v) for v in val_list if str(v).isdigit()]
+                str_vals = [str(v) for v in val_list if not str(v).isdigit()]
+                conds = []
+                if id_vals:
+                    conds.append(target_cls.id.in_(id_vals))
+                if str_vals and hasattr(target_cls, "name"):
+                    conds.append(target_cls.name.in_(str_vals))
+                elif str_vals and hasattr(target_cls, "login"):
+                    conds.append(target_cls.login.in_(str_vals))
+
+                target_objs = []
+                if conds:
+                    stmt_targets = select(target_cls).where(or_(*conds))
+                    target_objs = (await db.execute(stmt_targets)).scalars().all()
+
+                setattr(obj, field, list(target_objs))
+                await db.commit()
+                coerced_value = [getattr(r, "name", getattr(r, "login", str(r.id))) for r in target_objs]
+            else:
+                coerced_value = coerce_value(field_meta, value)
+                scope = await policy.scope(ctx, meta, "update", db)
+
+                stmt = update(cls).where(cls.id == record_id)
+                if scope is not None:
+                    stmt = stmt.where(scope)
+
+                values_to_update: Dict[str, Any] = {field: coerced_value}
+                if hasattr(cls, "updated_at"):
+                    values_to_update["updated_at"] = datetime.now(timezone.utc)
+
+                stmt = stmt.values(**values_to_update)
+                result = await db.execute(stmt)
+                await db.commit()
+
+                if result.rowcount == 0:
+                    raise RPCError(-32004, f"Запись #{record_id} не найдена или доступ ограничен")
+
+        # Безопасное оповещение без значений полей
+        await notify_crud_change(
+            model=model_name,
+            record_id=record_id,
+            kind="updated",
+            by_user=ctx.user_name,
+            exclude_session=session
+        )
+
+        if model_name in ("auth_rpc_permission", "RpcPermission"):
+            try:
+                from pyferro.plugins.auth.discovery import reload_public_rpc_cache
+                await reload_public_rpc_cache()
+            except Exception:
+                pass
+
+        return {"success": True, "field": field, "value": coerced_value}
+    finally:
+        system_bypass_ctx.reset(token)
+
+
+async def handle_crud_bulk_update(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Пакетное обновление или архивация набора строк с проверкой RLS."""
+    model_name = params.get("model")
+    record_ids = params.get("ids", [])
+    patch = params.get("patch", {})
+
+    if not model_name or not record_ids or not patch:
+        raise RPCError(-32602, "Параметры 'model', 'ids' и 'patch' обязательны")
+
+    if len(record_ids) > 500:
+        raise RPCError(-32602, "Пакетное обновление ограничено 500 записями за один вызов")
+
+    meta = _get_model_meta(model_name)
+    cls = meta.model_cls
+    provider = get_identity_provider()
+    policy = get_access_policy()
+
+    token = system_bypass_ctx.set(True)
+    try:
+        async with async_session() as db:
+            ctx = await create_access_context(provider, session, model_name, db)
+            allowed = policy.allowed_fields(ctx, meta, "update")
+
+            coerced_patch = {}
+            for k, v in patch.items():
+                if k not in allowed:
+                    if k in meta.protected_fields:
+                        raise RPCError(-32003, f"Поле '{k}' защищено от изменения (требуется право transfer)")
+                    raise RPCError(-32602, f"Поле '{k}' недоступно для изменения")
+                coerced_patch[k] = coerce_value(meta.fields[k], v)
+
+            if not coerced_patch:
+                raise RPCError(-32602, "Нет допустимых полей для обновления")
+
+            # Архивация
+            if coerced_patch.get("is_archived") is True and hasattr(cls, "archived_at"):
+                coerced_patch["archived_at"] = datetime.now(timezone.utc)
+            elif coerced_patch.get("is_archived") is False and hasattr(cls, "archived_at"):
+                coerced_patch["archived_at"] = None
+
+            if hasattr(cls, "updated_at"):
+                coerced_patch["updated_at"] = datetime.now(timezone.utc)
+
+            scope = await policy.scope(ctx, meta, "update", db)
+
+            stmt = update(cls).where(cls.id.in_(record_ids))
+            if scope is not None:
+                stmt = stmt.where(scope)
+
+            stmt = stmt.values(**coerced_patch)
+            result = await db.execute(stmt)
+            await db.commit()
+
+            updated_count = result.rowcount
+
+        await notify_crud_change(
+            model=model_name,
+            record_id=record_ids,
+            kind="updated",
+            by_user=ctx.user_name,
+            exclude_session=session
+        )
+
+        return {"success": True, "updated_count": updated_count}
+    finally:
+        system_bypass_ctx.reset(token)
+
+
+async def handle_crud_delete(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Удаление сущности с проверкой прав."""
+    model_name = params.get("model")
+    record_id = params.get("id")
+
+    if not model_name or record_id is None:
+        raise RPCError(-32602, "Параметры 'model' и 'id' обязательны")
+
+    meta = _get_model_meta(model_name)
+    cls = meta.model_cls
+    provider = get_identity_provider()
+    policy = get_access_policy()
+
+    token = system_bypass_ctx.set(True)
+    try:
+        async with async_session() as db:
+            ctx = await create_access_context(provider, session, model_name, db)
+            scope = await policy.scope(ctx, meta, "delete", db)
+
+            # Защита системных ролей от удаления
+            if model_name in ("auth_role", "Role"):
+                from pyferro.core.constants import SYSTEM_ROLES
+                stmt_check = select(cls).where(cls.id == record_id)
+                role_obj = (await db.execute(stmt_check)).scalar_one_or_none()
+                if role_obj and role_obj.name in SYSTEM_ROLES:
+                    raise RPCError(-32602, f"Системная роль '{role_obj.name}' является встроенной (immutable) и не может быть удалена")
+
+            mapper = inspect(cls)
+            pk_cols = list(mapper.primary_key)
+            if hasattr(cls, "id"):
+                pk_cond = (cls.id == record_id)
+            elif len(pk_cols) == 1:
+                pk_cond = (pk_cols[0] == record_id)
+            else:
+                parts = str(record_id).split("_") if "_" in str(record_id) else [record_id]
+                conds = [pk_cols[i] == int(parts[i]) for i in range(min(len(pk_cols), len(parts)))]
+                pk_cond = and_(*conds)
+
+            stmt = delete(cls).where(pk_cond)
+            if scope is not None:
+                stmt = stmt.where(scope)
+
+            result = await db.execute(stmt)
+            await db.commit()
+
+            if result.rowcount == 0:
+                raise RPCError(-32004, f"Запись #{record_id} не найдена или доступ ограничен")
+
+        await notify_crud_change(
+            model=model_name,
+            record_id=record_id,
+            kind="deleted",
+            by_user=ctx.user_name,
+            exclude_session=session
+        )
+
+        if model_name in ("auth_rpc_permission", "RpcPermission"):
+            try:
+                from pyferro.plugins.auth.discovery import reload_public_rpc_cache
+                await reload_public_rpc_cache()
+            except Exception:
+                pass
+
+        return {"success": True, "id": record_id}
+    finally:
+        system_bypass_ctx.reset(token)
+
+
+async def handle_crud_create(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Создание новой записи с проверкой полномочий и валидацией замещений."""
+    model_name = params.get("model")
+    data = params.get("data", {})
+    acting_for_id = params.get("acting_for_user_id")
+
+    if not model_name:
+        raise RPCError(-32602, "Параметр 'model' обязателен")
+
+    meta = _get_model_meta(model_name)
+    cls = meta.model_cls
+    provider = get_identity_provider()
+    policy = get_access_policy()
+
+    token = system_bypass_ctx.set(True)
+    try:
+        async with async_session() as db:
+            ctx = await create_access_context(provider, session, model_name, db)
+
+            # Проверка полномочия на создание
+            if not (ctx.is_superuser or ctx.has_permission(f"{model_name}:create")):
+                raise RPCError(-32003, f"Создание записей в модели '{model_name}' запрещено")
+
+            # Валидация acting_for_user_id
+            if acting_for_id is not None and acting_for_id != ctx.user_id:
+                can_transfer = ctx.is_superuser or ctx.has_permission(f"{model_name}:transfer")
+                if not (can_transfer or (acting_for_id in ctx.effective_user_ids)):
+                    raise RPCError(-32003, "Запрещено создавать запись от чужого имени без полномочий замещения")
+
+            m2m_inputs = {}
+            for m in meta.get_m2m_fields():
+                if m.name in data:
+                    m2m_inputs[m.name] = data[m.name]
+
+            allowed = policy.allowed_fields(ctx, meta, "create")
+            filtered_data = {}
+            for k, v in data.items():
+                if k in allowed and meta.fields[k].type != "m2m":
+                    filtered_data[k] = coerce_value(meta.fields[k], v)
+
+            # Авто-заполнение creator_id и owner_id
+            if meta.is_row_secure:
+                if hasattr(cls, "creator_id"):
+                    filtered_data["creator_id"] = ctx.user_id
+                if hasattr(cls, "owner_id") and "owner_id" not in filtered_data:
+                    filtered_data["owner_id"] = acting_for_id or ctx.user_id
+                if hasattr(cls, "team_id") and "team_id" not in filtered_data:
+                    if ctx.primary_team_id:
+                        filtered_data["team_id"] = ctx.primary_team_id
+
+            now = datetime.now(timezone.utc)
+            if hasattr(cls, "created_at") and "created_at" not in filtered_data:
+                filtered_data["created_at"] = now
+            if hasattr(cls, "updated_at") and "updated_at" not in filtered_data:
+                filtered_data["updated_at"] = now
+
+            obj = cls(**filtered_data)
+            db.add(obj)
+            await db.flush()
+
+            # Сохранение Many-to-Many связей
+            if m2m_inputs:
+                for m_name, raw_vals in m2m_inputs.items():
+                    target_m = meta.fields[m_name]
+                    target_meta = ModelRegistry.get(target_m.target_model) if target_m.target_model else None
+                    if target_meta and raw_vals:
+                        target_cls = target_meta.model_cls
+                        val_list = [raw_vals] if not isinstance(raw_vals, (list, set, tuple)) else list(raw_vals)
+                        id_vals = [int(v) for v in val_list if str(v).isdigit()]
+                        str_vals = [str(v) for v in val_list if not str(v).isdigit()]
+                        conds = []
+                        if id_vals:
+                            conds.append(target_cls.id.in_(id_vals))
+                        if str_vals and hasattr(target_cls, "name"):
+                            conds.append(target_cls.name.in_(str_vals))
+                        elif str_vals and hasattr(target_cls, "login"):
+                            conds.append(target_cls.login.in_(str_vals))
+                        if conds:
+                            target_objs = (await db.execute(select(target_cls).where(or_(*conds)))).scalars().all()
+                            setattr(obj, m_name, list(target_objs))
+
+            await db.commit()
+            await db.refresh(obj)
+            new_id = getattr(obj, "id", None)
+
+        await notify_crud_change(
+            model=model_name,
+            record_id=new_id,
+            kind="created",
+            by_user=ctx.user_name,
+            exclude_session=session
+        )
+
+        return {"success": True, "id": new_id}
+    finally:
+        system_bypass_ctx.reset(token)
+
+
+async def handle_crud_lookup(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Возвращает краткий список записей модели для селектов и FK/M2M-лукапов."""
+    model_name = params.get("model")
+    if not model_name:
+        raise RPCError(-32602, "Параметр 'model' обязателен")
+
+    meta = _get_model_meta(model_name)
+    cls = meta.model_cls
+
+    token = system_bypass_ctx.set(True)
+    try:
+        async with async_session() as db:
+            label_col = None
+            for candidate in ("name", "title", "login", "label", "key"):
+                if hasattr(cls, candidate):
+                    label_col = getattr(cls, candidate)
+                    break
+
+            if label_col is not None:
+                stmt = select(cls.id, label_col).order_by(label_col.asc()).limit(500)
+                res = await db.execute(stmt)
+                items = [{"id": r[0], "label": str(r[1]) if r[1] is not None else f"#{r[0]}"} for r in res.all()]
+            else:
+                stmt = select(cls.id).order_by(cls.id.asc()).limit(500)
+                res = await db.execute(stmt)
+                items = [{"id": r[0], "label": f"#{r[0]}"} for r in res.all()]
+
+            return {"items": items}
+    finally:
+        system_bypass_ctx.reset(token)
+
+
+# -----------------------------------------------------------------------------
+# Регистрация стандартных WSRPC RPC-методов crud.*
+# -----------------------------------------------------------------------------
+
+@rpc_method("crud.schema")
+async def crud_schema(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Получение схемы моделей данных и прав доступа.
+
+    Возвращает метаданные зарегистрированных CRUD-моделей, типы полей,
+    метки, вычисляемые колонки и матрицу прав текущего пользователя.
+
+    :param session: Текущая сессия RPC-клиента.
+    :param params: Опциональный словарь с ключом 'model' для получения схемы конкретной модели.
+    :return: Словарь с описанием моделей ('models' или 'model') и флагом 'allow_guests'.
+    """
+    return await handle_crud_schema(session, params)
+
+
+@rpc_method("crud.get")
+async def crud_get(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Получение детальной карточки записи по идентификатору.
+
+    Загружает полную запись сущности с проверкой прав доступа RLS
+    и подгрузкой связанных отношений (включая Many-to-Many).
+
+    :param session: Текущая сессия RPC-клиента.
+    :param params: Словарь с обязательными ключами 'model' (имя модели) и 'id' (первичный ключ).
+    :return: Словарь со всеми публичными полями записи и их значениями.
+    """
+    return await handle_crud_get(session, params)
+
+
+@rpc_method("crud.list")
+async def crud_list(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Просмотр списка записей с пагинацией и фильтрацией.
+
+    Возвращает сжатый табличный список записей с учетом контекста
+    безопасности RLS, параметров поиска, сортировки и пагинации.
+
+    :param session: Текущая сессия RPC-клиента.
+    :param params: Словарь с параметрами: 'model' (имя модели), 'page', 'limit', 'order_by', 'order_dir', 'filter'.
+    :return: Табличный ответ со списком записей, общим количеством строк ('total') и метаданными.
+    """
+    return await handle_crud_list(session, params)
+
+
+@rpc_method("crud.create")
+async def crud_create(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Создание новой записи в модели данных.
+
+    Выполняет валидацию переданных полей, сохраняет новую запись в базе данных
+    и рассылает реактивное уведомление об изменении через WebSocket.
+
+    :param session: Текущая сессия RPC-клиента.
+    :param params: Словарь с ключами 'model' (имя модели) и 'data' (значения полей новой записи).
+    :return: Словарь с флагом 'success' и идентификатором созданной записи 'id'.
+    """
+    return await handle_crud_create(session, params)
+
+
+@rpc_method("crud.update_cell")
+async def crud_update_cell(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Быстрое инлайн-обновление отдельного поля записи.
+
+    Атомарно изменяет значение одной ячейки (поля) указанной записи,
+    проверяя права на редактирование и рассылая уведомление сокетам.
+
+    :param session: Текущая сессия RPC-клиента.
+    :param params: Словарь с ключами 'model', 'id', 'field' (имя обновляемой колонки) и 'value' (новое значение).
+    :return: Словарь с результатом обновления 'success': True.
+    """
+    return await handle_crud_update_cell(session, params)
+
+
+@rpc_method("crud.bulk_update")
+async def crud_bulk_update(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Массовое обновление выбранных записей модели.
+
+    Применяет пакетные изменения к группе записей по списку идентификаторов
+    в рамках единой транзакции с валидацией прав доступа.
+
+    :param session: Текущая сессия RPC-клиента.
+    :param params: Словарь с ключами 'model', 'ids' (список идентификаторов) и 'values' (обновляемые поля).
+    :return: Словарь с результатом операции и количеством обновленных записей.
+    """
+    return await handle_crud_bulk_update(session, params)
+
+
+@rpc_method("crud.delete")
+async def crud_delete(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Удаление записи по первичному ключу.
+
+    Удаляет указанную запись из базы данных с проверкой политик удаления
+    и каскадной целостности, уведомляя подключенные клиенты.
+
+    :param session: Текущая сессия RPC-клиента.
+    :param params: Словарь с обязательными ключами 'model' (имя модели) и 'id' (первичный ключ).
+    :return: Словарь с флагом 'success': True.
+    """
+    return await handle_crud_delete(session, params)
+
+
+@rpc_method("crud.lookup")
+async def crud_lookup(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Поиск связанных записей для выпадающих списков.
+
+    Возвращает компактный список пар (id, label) для подстановки
+    в интерфейсные селекты внешних ключей (ForeignKey) и связей Many-to-Many.
+
+    :param session: Текущая сессия RPC-клиента.
+    :param params: Словарь с обязательным ключом 'model' (имя целевой связанной модели).
+    :return: Словарь со списком объектов 'items', содержащих 'id' и отображаемую метку 'label'.
+    """
+    return await handle_crud_lookup(session, params)
+

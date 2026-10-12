@@ -99,6 +99,23 @@ export function unpackTabular(data: any): any {
     return res;
 }
 
+/**
+ * WSRPC Tabular Payload Compression (RFC 0002).
+ * Упаковывает массив объектов в компактный табличный формат {$tabular: true, fields: [...], rows: [...]}.
+ */
+export function packTabular(items: any[], fields?: string[]): any {
+    if (!items || !items.length) {
+        return { $tabular: true, fields: fields || [], rows: [] };
+    }
+    const resolvedFields = fields || Object.keys(items[0]);
+    const rows = items.map((item) => resolvedFields.map((f) => item[f]));
+    return {
+        $tabular: true,
+        fields: resolvedFields,
+        rows
+    };
+}
+
 export class BinaryWSRPC {
     // Статус подключения
     public status: 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' = 'DISCONNECTED';
@@ -357,8 +374,18 @@ export class BinaryWSRPC {
     /**
      * Совместимость со старым rpc.call
      */
-    call<T = any>(rpcName: string, args: any = {}, timeoutMs = 15000): Promise<T> {
-        return this.request(rpcName, args, timeoutMs);
+    call<T = any>(
+        rpcName: string,
+        args: any = {},
+        timeoutOrOptions: number | { timeoutMs?: number; onChunk?: (chunk: any) => void } = 15000
+    ): Promise<T> {
+        if (typeof timeoutOrOptions === 'object' && timeoutOrOptions !== null) {
+            if (timeoutOrOptions.onChunk) {
+                return this.callStream(rpcName, args, timeoutOrOptions.onChunk, timeoutOrOptions.timeoutMs || 60000);
+            }
+            return this.request(rpcName, args, timeoutOrOptions.timeoutMs || 15000);
+        }
+        return this.request(rpcName, args, timeoutOrOptions);
     }
 
     /**
@@ -463,8 +490,14 @@ export class BinaryWSRPC {
             this.streamListeners.delete(rpcId);
 
             if ('error' in data) {
-                console.warn(`[WSRPC] ❌ Ошибка от сервера [ID: ${rpcId}]:`, data.error);
-                pending.reject(data.error.message || data.error);
+                const errMsg = typeof data.error === 'object' && data.error !== null 
+                    ? (data.error.message || JSON.stringify(data.error)) 
+                    : String(data.error);
+                console.warn(`[WSRPC] ❌ Ошибка от сервера [ID: ${rpcId}]:`, errMsg);
+                const err = new Error(errMsg);
+                (err as any).code = data.error?.code;
+                (err as any).data = data.error?.data;
+                pending.reject(err);
             } else {
                 console.debug(`[WSRPC] ✅ Ответ сервера [ID: ${rpcId}]:`, data.result);
                 pending.resolve(unpackTabular(data.result));

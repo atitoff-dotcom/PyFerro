@@ -1,6 +1,6 @@
 # ⚙️ Сетевое ядро (Core Engine): Руководство разработчика
 
-Сетевое ядро `rsgi-wsrpc` расположено в каталоге `core/`. Оно представляет собой высокопроизводительный асинхронный сокетный рантайм, работающий поверх протокола **Rust Granian RSGI**.
+Сетевое ядро `PyFerro` расположено в каталоге `core/`. Оно представляет собой высокопроизводительный асинхронный сокетный рантайм, работающий поверх протокола **Rust Granian RSGI**.
 
 Ядро спроектировано по принципам Clean Architecture:
 * **Нулевые внешние зависимости от бизнес-логики**: ядро ничего не знает о базе данных, моделях данных или пользователях конкретного проекта.
@@ -24,7 +24,7 @@
 6. [Безопасность и криптография: core/security.py](#6-безопасность-и-криптография-coresecuritypy)
 7. [Конфигурация: core/lib/config.py](#7-конфигурация-corelibconfigpy)
 8. [Клиент TypeScript/JavaScript: client/wsrpc.ts](#8-клиент-typescriptjavascript-clientwsrpcts)
-9. [Единый класс приложения: RsgiWsrpcApp](#9-единый-класс-приложения-rsgiwsrpcapp)
+9. [Единый класс приложения: FerroApp](#9-единый-класс-приложения-rsgiwsrpcapp)
 10. [Масштабирование и Backplane](#10-масштабирование-и-backplane)
 
 ---
@@ -71,10 +71,10 @@
 
 ### Регистрация методов (`@rpc_method`)
 
-Каждый RPC-метод регистрируется с помощью декоратора `@rpc_method` (или `@app.rpc` при использовании `RsgiWsrpcApp`):
+Каждый RPC-метод регистрируется с помощью декоратора `@rpc_method` (или `@app.rpc` при использовании `FerroApp`):
 
 ```python
-from rsgi_wsrpc import rpc_method, JsonRpcSession, RPCError
+from pyferro import rpc_method, JsonRpcSession, RPCError
 
 # 1. Автоматическая распаковка именованных параметров (kwargs)
 @rpc_method("calculator.add")
@@ -147,7 +147,7 @@ async def dispatch_order(order_id: int):
 5. **Первый запуск системы (CLI Bootstrap)**:
    * Для создания первого администратора системы используется встроенная CLI-утилита:
    ```bash
-   python -m rsgi_wsrpc createsuperuser --username admin --password secret
+   python -m pyferro createsuperuser --username admin --password secret
    ```
 
 ### Контекстные переменные (`ContextVars`)
@@ -194,7 +194,7 @@ async def cancel_order(session: JsonRpcSession, params: dict):
 
 ### Мультиретурн и стриминг прогресса
 
-В отличие от стандартного REST или плоского JSON-RPC, `rsgi-wsrpc` поддерживает нативный мультиретурн: на один запрос клиента сервер может отправить серию промежуточных чанков, завершив финальным `result`:
+В отличие от стандартного REST или плоского JSON-RPC, `PyFerro` поддерживает нативный мультиретурн: на один запрос клиента сервер может отправить серию промежуточных чанков, завершив финальным `result`:
 
 ```python
 @rpc_method("reports.generate")
@@ -282,7 +282,7 @@ async def health_check(scope, proto):
     proto.response_str(
         status=200,
         headers=[("content-type", "application/json")],
-        body='{"status":"healthy","engine":"rsgi-wsrpc"}'
+        body='{"status":"healthy","engine":"PyFerro"}'
     )
 
 @http_route("/webhook/payment", methods=["POST"])
@@ -325,7 +325,7 @@ async def get_recent_logs(session, params):
 
 ### Поддержка сокетных транзакций и отката (2PC Lifecycle Hooks)
 
-Сетевое ядро `rsgi-wsrpc` полностью изолировано от файловой системы и не содержит жестко зашитых временных путей (`/tmp/...`). Для реализации двухфазных транзакций (2PC, загрузка файлов, распределенные операции) ядро предоставляет универсальный сокетный хук закрытия сессии `session.register_on_close`:
+Сетевое ядро `PyFerro` полностью изолировано от файловой системы и не содержит жестко зашитых временных путей (`/tmp/...`). Для реализации двухфазных транзакций (2PC, загрузка файлов, распределенные операции) ядро предоставляет универсальный сокетный хук закрытия сессии `session.register_on_close`:
 
 ```python
 # Привязка отката транзакции к жизненному циклу WebSocket-соединения:
@@ -486,7 +486,7 @@ try {
 
 ### 3. Мультиретурн: Стриминг прогресса (`callStream`)
 
-Главная киллер-фича `rsgi-wsrpc`: клиент вызывает одну тяжелую операцию (экспорт базы, обучение модели, рендеринг видео, генерация PDF), сервер шлет серию промежуточных ответов с пометкой `stream: true`, а финальный результат разрешает основной промис!
+Главная киллер-фича `PyFerro`: клиент вызывает одну тяжелую операцию (экспорт базы, обучение модели, рендеринг видео, генерация PDF), сервер шлет серию промежуточных ответов с пометкой `stream: true`, а финальный результат разрешает основной промис!
 
 #### Реализация на бэкенде (Python):
 ```python
@@ -574,7 +574,7 @@ from app.system.broadcast import broadcast_event
 
 await broadcast_event("forum.new_topic", {
     "topic_id": 158,
-    "title": "Релиз rsgi-wsrpc 1.0!",
+    "title": "Релиз PyFerro 1.0!",
     "author": "Alex"
 })
 ```
@@ -681,15 +681,15 @@ rpc.authInterceptor = async () => {
 
 ---
 
-## 9. Единый класс приложения: RsgiWsrpcApp
+## 9. Единый класс приложения: FerroApp
 
-Начиная с версии `0.4.3`, создание и запуск приложений на `rsgi-wsrpc` унифицированы в классе `RsgiWsrpcApp`. Все настройки ядра и официальных плагинов передаются в **единой точке входа**:
+Начиная с версии `0.4.3`, создание и запуск приложений на `PyFerro` унифицированы в классе `FerroApp`. Все настройки ядра и официальных плагинов передаются в **единой точке входа**:
 
 ```python
 import os
-from rsgi_wsrpc import RsgiWsrpcApp, VkOAuth, YandexOAuth, tabular_response, RPCError
+from pyferro import FerroApp, VkOAuth, YandexOAuth, tabular_response, RPCError
 
-app = RsgiWsrpcApp(
+app = FerroApp(
     # --- Сеть и HTTP ---
     static_dir="./public",             # Нативная Zero-Copy раздача статики (Rust RSGI)
     index_file="index.html",           # Автоматическая отдача на GET /
@@ -738,7 +738,7 @@ if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8080, workers=1)
 ```
 
-### Справочник параметров конструктора `RsgiWsrpcApp`:
+### Справочник параметров конструктора `FerroApp`:
 
 | Параметр | Тип | По умолчанию | Описание |
 | :--- | :--- | :--- | :--- |
@@ -763,7 +763,7 @@ if __name__ == "__main__":
 | `enable_seo` | `bool` | `False` | Авто-определение поисковых ботов и отдача SSR HTML. |
 | `sitemap_host` | `str \| None` | `None` | Домен для генерации карты сайта `/sitemap.xml`. |
 
-### Ключевые преимущества `RsgiWsrpcApp`:
+### Ключевые преимущества `FerroApp`:
 1. **Rust Zero-Copy раздача статики**: Для файлов в `static_dir` используется нативный вызов Granian RSGI `proto.response_file`, минуя чтение байтов в Python-память.
 2. **Защита от Path Traversal**: Пути нормализуются с проверкой `resolve().startswith(static_dir)`. Попытки выйти за пределы каталога возвращают `403 Forbidden`.
 3. **Хуки жизненного цикла**: Автоматически реализует методы RSGI протокола `__rsgi_init__` и `__rsgi_del__`, выполняя зарегистрированные функции `@on_startup` и `@on_shutdown`.
@@ -775,7 +775,7 @@ if __name__ == "__main__":
 Для обеспечения горизонтального масштабирования в кластере или запуска нескольких воркеров Granian (`workers > 1`) используется шина сообщений:
 
 ```python
-from rsgi_wsrpc.core.backplane import BaseBackplane, MemoryBackplane
+from pyferro.core.backplane import BaseBackplane, MemoryBackplane
 ```
 
 * **`BaseBackplane`** — абстрактный контракт с методами `publish(channel, payload)`, `subscribe(channel, callback)`, `unsubscribe(channel)`.

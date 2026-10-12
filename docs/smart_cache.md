@@ -1,6 +1,6 @@
 # ⚡ Smart Cache: Event-Driven Feedback Caching
 
-Official system plugin for the `rsgi-wsrpc` framework (`plugins/smart_cache` + `client/smartCache.ts`).
+Official system plugin for the `PyFerro` framework (`plugins/smart_cache` + `client/smartCache.ts`).
 
 > **"The server knows when data changes. The client caches everything locally and updates with 0 ms latency only when the server explicitly commands it to do so."**
 
@@ -71,8 +71,8 @@ Conventional web applications are caught between two undesirable extremes:
 Decorates any mutating RPC method. Supports declarative string templates with automatic variable substitution from `params` and `result`:
 
 ```python
-from rsgi_wsrpc import rpc_method
-from rsgi_wsrpc.plugins.smart_cache import invalidates
+from pyferro import rpc_method
+from pyferro.plugins.smart_cache import invalidates
 
 # Static and dynamic string templates with (session, params):
 @rpc_method("forum.create_topic")
@@ -94,8 +94,8 @@ async def delete_topic(topic_id: int, category_id: int):
 For counters, likes, and chat streams, patch the client cache directly without re-querying the database:
 
 ```python
-from rsgi_wsrpc import rpc_method
-from rsgi_wsrpc.plugins.smart_cache import patch_tag
+from pyferro import rpc_method
+from pyferro.plugins.smart_cache import patch_tag
 
 @rpc_method("forum.like_post")
 async def like_post(session, params):

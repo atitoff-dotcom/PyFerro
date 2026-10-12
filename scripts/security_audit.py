@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Автономный инструмент внешнего аудита безопасности (Security Audit & Pentest)
-для фреймворка rsgi-wsrpc.
+для фреймворка PyFerro.
 
 Запуск:
     python scripts/security_audit.py
@@ -44,7 +44,7 @@ class SecurityAuditor:
         self.results: List[SecurityCheckResult] = []
 
     async def run_all(self) -> bool:
-        print(f"\n{BOLD}{CYAN}🛡️  Запуск внешнего аудита безопасности rsgi-wsrpc...{RESET}")
+        print(f"\n{BOLD}{CYAN}🛡️  Запуск внешнего аудита безопасности PyFerro...{RESET}")
         print(f"{DIM}Целевой сервер: {self.target} (WebSocket: {self.ws_target}){RESET}\n")
 
         client_timeout = aiohttp.ClientTimeout(total=self.timeout)
@@ -275,7 +275,7 @@ class SecurityAuditor:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Автономный Security-аудитор rsgi-wsrpc")
+    parser = argparse.ArgumentParser(description="Автономный Security-аудитор PyFerro")
     parser.add_argument("--target", default="http://127.0.0.1:8080", help="URL целевого сервера (default: http://127.0.0.1:8080)")
     parser.add_argument("--timeout", type=float, default=3.0, help="Таймаут проверки в секундах (default: 3.0)")
     args = parser.parse_args()

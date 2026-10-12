@@ -2,7 +2,7 @@
 
 * **Номер RFC:** 0005
 * **Название:** Подсистема хранения файлов и двухфазного коммита загрузок (`plugins.files`)
-* **Статус:** ✅ Принят и реализован (rsgi-wsrpc v0.2.0)
+* **Статус:** ✅ Принят и реализован (PyFerro v0.2.0)
 * **Автор:** Архитектурная команда
 * **Дата:** Сентябрь 2026
 
@@ -27,7 +27,7 @@
 
 ## 1. Краткое резюме
 
-Настоящий RFC специфицирует официальную подсистему работы с файлами и бинарными загрузками для фреймворка `rsgi-wsrpc`: **`plugins.files`**.
+Настоящий RFC специфицирует официальную подсистему работы с файлами и бинарными загрузками для фреймворка `PyFerro`: **`plugins.files`**.
 
 Подсистема разрешает классический архитектурный конфликт реактивных WebSocket-приложений: **как загружать тяжелые бинарные файлы эффективно, безопасно и надежно, не передавая Base64 через WebSockets, не переполняя оперативную память сервера (RAM) и не оставляя на диске "висячих" мусорных файлов при обрыве сети.**
 
@@ -71,7 +71,7 @@ flowchart TD
         StaticRoute[location /files/ -> Zero-Copy sendfile]
     end
 
-    subgraph Backend [Воркер rsgi-wsrpc]
+    subgraph Backend [Воркер PyFerro]
         TxCoord[Координатор загрузок и 2PC]
         HttpUpload[Потоковый обработчик POST /upload]
         FileService[FileStorageService и StoredFile ORM]
@@ -276,7 +276,7 @@ async def download_protected(scope, proto):
 
 ## 7. План внедрения
 
-1. Оформить каталог `plugins/files/` в `rsgi-wsrpc`:
+1. Оформить каталог `plugins/files/` в `PyFerro`:
    * `plugins/files/service.py`: `FileStorageService`
    * `plugins/files/upload.py`: `UploadCoordinator` и обработчики потоков
    * `plugins/files/models.py`: `StoredFile`

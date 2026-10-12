@@ -24,7 +24,7 @@
 
 ## 1. Summary
 
-This RFC proposes the design and implementation of an official system plugin, **`plugins/smart_cache`** (along with the companion frontend library `smartCache.ts`), for the `rsgi-wsrpc` framework.
+This RFC proposes the design and implementation of an official system plugin, **`plugins/smart_cache`** (along with the companion frontend library `smartCache.ts`), for the `PyFerro` framework.
 
 The primary objective is to achieve **0 ms perceived UI latency (instant screen transitions)** while maintaining **100% data consistency**, completely eliminating blind polling and stale state displays.
 
@@ -48,7 +48,7 @@ Fundamental axiom:
 3. **Ad-Hoc WebSocket State Management**:
    * Developers write disorganized event listeners (`socket.on("event", ...)`) and manually patch disparate state stores. This inevitably causes cache desynchronization, memory leaks, and race conditions.
 
-Because `rsgi-wsrpc` already maintains a persistent, symmetric WSRPC connection, Smart Cache turns it into an event-driven cache synchronization pipeline.
+Because `PyFerro` already maintains a persistent, symmetric WSRPC connection, Smart Cache turns it into an event-driven cache synchronization pipeline.
 
 ---
 
@@ -204,7 +204,7 @@ What happens when a user reopens their laptop in the morning or reconnects after
 
 ## 6. Comparison with Existing Solutions
 
-| Parameter | TanStack Query (React/Svelte Query) | Apollo GraphQL Cache | `rsgi-wsrpc` Smart Cache |
+| Parameter | TanStack Query (React/Svelte Query) | Apollo GraphQL Cache | `PyFerro` Smart Cache |
 | :--- | :--- | :--- | :--- |
 | **Transport** | REST HTTP | GraphQL HTTP | **WSRPC (WebSocket RSGI)** |
 | **Server Push** | ❌ None (Requires polling `refetchInterval`) | ⚠️ Requires GraphQL Subscriptions | ✅ **Native (`cache.invalidate`/`patch`)** |

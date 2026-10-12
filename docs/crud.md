@@ -2,7 +2,7 @@
 
 ## 1. Overview and Principles
 
-The **`rsgi_wsrpc.plugins.crud`** plugin is an official battery of the `rsgi-wsrpc` framework providing a high-performance, reactive, and type-safe administration layer for SQLAlchemy 2.0 async models.
+The **`pyferro.plugins.crud`** plugin is an official battery of the `PyFerro` framework providing a high-performance, reactive, and type-safe administration layer for SQLAlchemy 2.0 async models.
 
 Key architectural highlights:
 1. **Symmetric WSRPC Transport (JSON-RPC 2.0):**  
@@ -27,14 +27,14 @@ Key architectural highlights:
 ### Step 1. Register Models and Import Plugin
 
 ```python
-from rsgi_wsrpc import RsgiWsrpcApp
-from rsgi_wsrpc.plugins.db import Base
-import rsgi_wsrpc.plugins.crud as crud
+from pyferro import FerroApp
+from pyferro.plugins.db import Base
+import pyferro.plugins.crud as crud
 
 # Auto-discover all mapped models
 crud.ModelRegistry.auto_discover(Base)
 
-app = RsgiWsrpcApp(
+app = FerroApp(
     database_url="postgresql+asyncpg://user:pass@localhost:5432/app_db",
     cors=True
 )
@@ -46,7 +46,7 @@ if __name__ == "__main__":
 ```
 
 > **Important Security Note (Zero-Leakage 404):**  
-> Direct access to `http://127.0.0.1:8080/crud/` returns `404 Not Found` for unauthenticated requests and non-admins to prevent exposure to scanners. Access requires an admin session cookie (`rsgi_crud_session=<token>` or `rsgi_session=<token>`). For comprehensive integration patterns and troubleshooting, see [docs/crud_panel_guide.md](crud_panel_guide.md).
+> Direct access to `http://127.0.0.1:8080/crud/` returns `404 Not Found` for unauthenticated requests and non-admins to prevent exposure to scanners. Access requires an admin session cookie (`ferro_crud_session=<token>` or `ferro_session=<token>`). For comprehensive integration patterns and troubleshooting, see [docs/crud_panel_guide.md](crud_panel_guide.md).
 
 ---
 
@@ -57,7 +57,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import Integer, String, Boolean, DateTime, Numeric, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
-from rsgi_wsrpc.plugins.db import Base
+from pyferro.plugins.db import Base
 
 class Product(Base):
     __tablename__ = "products"
@@ -87,7 +87,7 @@ Sensitive columns matching `*password*`, `*_hash`, `*secret*`, `*token*`, `*priv
 ```python
 from typing import Optional, Set, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from rsgi_wsrpc.plugins.crud import IdentityProvider, set_identity_provider
+from pyferro.plugins.crud import IdentityProvider, set_identity_provider
 
 class CustomIdentityProvider:
     def user_id(self, session: Any) -> Optional[int]:

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-RPC handlers for the rsgi-wsrpc Showcase demonstration application.
+RPC handlers for the PyFerro Showcase demonstration application.
 Demonstrates framework core features and plugins:
 1. JSON-RPC 2.0 methods (@rpc_method / @app.rpc)
 2. RFC 0002 Tabular Data Compression (@tabular_response)
@@ -18,18 +18,20 @@ import platform
 import sys
 from typing import Dict, Any, List, Optional
 import orjson
-from sqlalchemy import select, delete, update
+from sqlalchemy import select, delete, update, or_
+from sqlalchemy.orm import selectinload
 
-from rsgi_wsrpc.core.session import (
+from pyferro.core.session import (
     rpc_method, JsonRpcSession, RPCError,
     ACTIVE_SESSIONS_SET, current_rpc_id_ctx, current_transport_ctx
 )
-from rsgi_wsrpc.core.tabular import tabular_response
-from rsgi_wsrpc.core.logger import logger
-from rsgi_wsrpc.plugins.db import async_session
-from rsgi_wsrpc.plugins.broadcast import broadcast_notification
-from rsgi_wsrpc.plugins.smart_cache import invalidates, version_registry, invalidate_tags
-from rsgi_wsrpc.plugins.seo import is_bot, is_search_bot
+from pyferro.core.tabular import tabular_response, pack_tabular
+from pyferro.core.logger import logger
+from pyferro.plugins.db import async_session
+from pyferro.plugins.broadcast import broadcast_notification
+from pyferro.plugins.smart_cache import invalidates, version_registry, invalidate_tags
+from pyferro.plugins.seo import is_bot, is_search_bot
+from pyferro.plugins.auth import User, system_bypass_ctx
 
 try:
     from .models import Task, Document
@@ -61,6 +63,19 @@ class DemoSessionData:
         else:
             self.user_role = None
             self.user_roles = []
+
+    @property
+    def role(self) -> str:
+        return self.user_role or self.role_name
+
+    @property
+    def roles(self) -> list:
+        return self.user_roles
+
+    def has_rpc_permission(self, method_name: str) -> bool:
+        if self.user_role == "admin" or "admin" in self.user_roles:
+            return True
+        return False
 
 
 def get_current_role(session) -> str:
@@ -94,7 +109,7 @@ async def system_info(session, params: dict):
     sid = getattr(transport, "session_id", getattr(session, "session_id", 1))
 
     return {
-        "framework": "rsgi-wsrpc",
+        "framework": "PyFerro",
         "rsgi_server": "Granian (Rust)",
         "python_version": sys.version.split()[0],
         "os_platform": platform.platform(),
@@ -106,6 +121,50 @@ async def system_info(session, params: dict):
 
 
 # --- 2. TABULAR COMPRESSION (RFC 0002) & TASKS ---
+
+# Заранее сгенерированный эталонный массив для наглядного сравнения сжатия
+BENCHMARK_TASKS = [
+    {
+        "id": i,
+        "title": f"Оптимизация сетевого протокола #{i} (WSRPC High Load)",
+        "completed": (i % 2 == 0),
+        "priority": ["low", "normal", "high"][i % 3],
+        "owner_id": (i % 3) + 1,
+        "created_at": f"2026-10-10T12:{i:02d}:00Z",
+    }
+    for i in range(1, 26)
+]
+
+
+@rpc_method("tasks.benchmark_tabular", public=True)
+@rpc_method("tasks.tabular_demo", public=True)
+@rpc_method("tasks.benchmark", public=True)
+async def benchmark_tabular(session: JsonRpcSession, params: dict = None):
+    """
+    Честное сравнение сетевого объема одного и того же заранее сгенерированного массива:
+    Raw JSON (список словарей) против RFC 0002 Tabular ($tabular: true, fields, rows).
+    """
+    import json
+    fields = ["id", "title", "completed", "priority", "owner_id", "created_at"]
+    tabular_payload = pack_tabular(BENCHMARK_TASKS, fields=fields)
+
+    raw_json_str = json.dumps(BENCHMARK_TASKS, ensure_ascii=False)
+    tabular_json_str = json.dumps(tabular_payload, ensure_ascii=False)
+
+    raw_bytes = len(raw_json_str.encode("utf-8"))
+    tabular_bytes = len(tabular_json_str.encode("utf-8"))
+    saved_percent = round((1.0 - (tabular_bytes / raw_bytes)) * 100, 1) if raw_bytes > 0 else 0
+
+    return {
+        "raw_json": raw_json_str,
+        "tabular_json": tabular_json_str,
+        "raw_bytes": raw_bytes,
+        "tabular_bytes": tabular_bytes,
+        "saved_percent": f"{saved_percent}%",
+        "count": len(BENCHMARK_TASKS),
+        "fields": fields
+    }
+
 
 @rpc_method("tasks.list", public=True)
 @tabular_response(fields=["id", "title", "completed", "priority", "owner_id", "created_at"])
@@ -161,6 +220,7 @@ async def list_tasks_raw_json(session: JsonRpcSession, params: dict = None):
 
 
 @rpc_method("tasks.add", public=True)
+@rpc_method("tasks.create", public=True)
 @invalidates(tags=["tasks"])
 async def add_task(session: JsonRpcSession, params: dict):
     """
@@ -191,11 +251,12 @@ async def add_task(session: JsonRpcSession, params: dict):
     return task_data
 
 
+@rpc_method("tasks.complete", public=True)
 @rpc_method("tasks.toggle", public=True)
-@invalidates(tags=["tasks", "task.{id}"])
-async def toggle_task(session: JsonRpcSession, params: dict):
-    """Toggles task completion status."""
-    task_id = params.get("id")
+@invalidates(tags=["tasks.list", "task.{id}"])
+async def complete_task(session: JsonRpcSession, params: dict):
+    """Toggles / completes task status and invalidates tags."""
+    task_id = params.get("id") or params.get("task_id")
     if not task_id:
         raise RPCError(-32602, "Task ID is required")
 
@@ -214,7 +275,7 @@ async def toggle_task(session: JsonRpcSession, params: dict):
 
 
 @rpc_method("tasks.delete", public=True)
-@invalidates(tags=["tasks", "task.{id}"])
+@invalidates(tags=["tasks.list", "task.{id}"])
 async def delete_task(session: JsonRpcSession, params: dict):
     """Deletes a task."""
     task_id = params.get("id")
@@ -237,15 +298,16 @@ async def delete_task(session: JsonRpcSession, params: dict):
 # --- 3. SMART CACHE (RFC 0001) & TAG INVALIDATION ---
 
 @rpc_method("cache.get_versions", public=True)
-async def cache_get_versions(session: JsonRpcSession, params: dict):
+async def cache_get_versions(session: JsonRpcSession, params: dict = None):
     """Returns current monotonic cache tag versions directly from server memory."""
     return version_registry.get_all_versions()
 
 
+@rpc_method("tasks.invalidate_cache", public=True)
 @rpc_method("cache.manual_invalidate", public=True)
 async def cache_manual_invalidate(session: JsonRpcSession, params: dict):
     """Manually invalidates specified tags for testing and UI demonstration."""
-    tags = params.get("tags") or ["tasks"]
+    tags = params.get("tags") or params.get("tag") or ["tasks.list"]
     if isinstance(tags, str):
         tags = [tags]
     new_versions = await invalidate_tags(tags, reason="manual_ui_trigger")
@@ -254,8 +316,9 @@ async def cache_manual_invalidate(session: JsonRpcSession, params: dict):
 
 # --- 4. MULTI-RETURN STREAMING ---
 
+@rpc_method("analytics.generate", public=True)
 @rpc_method("stream.heavy_job", public=True)
-async def heavy_job(session, params: dict):
+async def generate_analytics(session, params: dict = None):
     """
     Demonstrates multi-return streaming (stream: true).
     The server sends intermediate progress chunks to the client
@@ -264,10 +327,10 @@ async def heavy_job(session, params: dict):
     rpc_id = current_rpc_id_ctx.get()
     transport = current_transport_ctx.get() or session
     steps = [
-        (20, "1/4 Initializing structures and warming up cache..."),
-        (45, "2/4 Scanning SQLite indices..."),
-        (70, "3/4 Compressing deterministic tabular data (RFC 0002)..."),
-        (90, "4/4 Calculating SHA-256 checksums..."),
+        (25, "1/4 Инициализация структур и прогрев кэша..."),
+        (50, "2/4 Сканирование индексов SQLite..."),
+        (75, "3/4 Табличное сжатие данных (RFC 0002)..."),
+        (90, "4/4 Вычисление контрольных сумм SHA-256..."),
     ]
 
     for pct, message in steps:
@@ -275,72 +338,71 @@ async def heavy_job(session, params: dict):
         if hasattr(transport, "send_stream_chunk"):
             await transport.send_stream_chunk(rpc_id, {
                 "progress": pct,
+                "step": f"{pct}%",
                 "message": message,
                 "timestamp": time.strftime("%H:%M:%S")
             })
 
     await asyncio.sleep(0.3)
-    # Final return completes the RPC request
     return {
         "progress": 100,
-        "message": "Operation completed successfully!",
-        "summary": "Processed 1,000 records in 1.5s.",
+        "message": "Операция аналитики успешно завершена!",
+        "summary": "Обработано 1,000 записей за 1.5с.",
         "finished_at": time.strftime("%H:%M:%S")
     }
 
 
 # --- 5. REVERSE RPC (SERVER CALLS CLIENT) ---
 
+@rpc_method("admin.inspect_client", public=True)
 @rpc_method("reverse_rpc.ask_client", public=True)
-async def ask_client_info(session, params: dict):
+async def inspect_client(session, params: dict = None):
     """
     Symmetric JSON-RPC 2.0: The server initiates a request to the browser
     via session.send_request(...) and awaits the client's response!
     """
     transport = current_transport_ctx.get() or session
-    if hasattr(transport, "data") and not transport.data:
-        sid = getattr(transport, "session_id", 1)
-        transport.data = DemoSessionData(username="showcase_user", role="guest", session_id=sid)
 
     try:
         client_response = await transport.send_request(
             method="client.get_env",
-            params={"requested_by": "rsgi_wsrpc_server", "query_time": time.time()},
-            timeout=4.0
+            params={"requested_by": "pyferro_server", "query_time": time.time()},
+            timeout=5.0
         )
         return {
             "status": "success",
-            "message": "Server successfully received response from your browser!",
+            "message": "Сервер успешно получил ответ от вашего браузера!",
             "client_payload": client_response.get("result") or client_response
         }
     except asyncio.TimeoutError:
-        raise RPCError(-32000, "Timeout: Browser did not answer server request within 4 seconds")
+        raise RPCError(-32000, "Timeout: Браузер не ответил серверу в течение 5 секунд")
     except Exception as e:
         raise RPCError(-32000, f"Reverse RPC call error: {e}")
 
 
 # --- 6. REALTIME BROADCAST ---
 
+@rpc_method("alerts.publish", public=True)
 @rpc_method("broadcast.send_announcement", public=True)
-async def send_announcement(session, params: dict):
+async def publish_alert(session, params: dict):
     """
     Broadcasts message to all active WebSocket sessions in O(1)
     with single memory serialization.
     """
-    text = (params.get("text") or "").strip()
+    text = (params.get("message") or params.get("text") or "").strip()
     if not text:
         raise RPCError(-32602, "Message text cannot be empty")
 
     transport = current_transport_ctx.get() or session
     sid = getattr(transport, "session_id", getattr(session, "session_id", 1))
-    author = params.get("author") or f"Session #{sid}"
     payload = {
+        "message": text,
         "text": text,
-        "author": author,
+        "author": f"Session #{sid}",
         "timestamp": time.strftime("%H:%M:%S"),
         "session_id": sid,
     }
-    await broadcast_notification("community.alert", payload)
+    await broadcast_notification("system.alert", payload)
     return {"sent": True, "recipients_count": len(ACTIVE_SESSIONS_SET)}
 
 
@@ -355,39 +417,76 @@ DEMO_USERS = {
 DEMO_TOKENS: Dict[str, dict] = {}
 
 
-def authenticate_credentials(username: str, password: str) -> Optional[dict]:
-    """Validates login/password against showcase demo credentials."""
-    u = (username or "").strip().lower()
-    if u in DEMO_USERS:
-        expected = DEMO_USERS[u]
-        if password == expected["password"] or password == u:
-            return {"username": u, "role": expected["role"], "name": expected["name"], "user_id": expected["user_id"]}
+async def authenticate_credentials(username: str, password: str) -> Optional[dict]:
+    """
+    Валидирует учетные данные пользователя:
+    1. Сначала в базе данных (auth_user) через User.verify_password (поддержка PBKDF2-SHA256).
+    2. Если пользователь не найден в БД — проверяет встроенные demo-пресеты в памяти.
+    """
+    u = (username or "").strip()
+    if not u or not password:
+        return None
+
+    # 1. Проверка в реальной базе данных (auth_user)
+    token = system_bypass_ctx.set(True)
+    try:
+        async with async_session() as db:
+            stmt = select(User).options(selectinload(User.roles)).where(or_(User.login == u, User.email == u))
+            user = (await db.execute(stmt)).scalar_one_or_none()
+            if user:
+                if user.verify_password(password):
+                    roles = [r.name for r in user.roles] if user.roles else []
+                    role_name = "admin" if ("admin" in roles or getattr(user, "is_superadmin", False)) else (roles[0] if roles else "user")
+                    return {
+                        "username": user.login or u,
+                        "role": role_name,
+                        "name": user.name or user.login or u,
+                        "user_id": user.id,
+                    }
+                else:
+                    # Пользователь найден в БД, но пароль не подошел
+                    return None
+    except Exception as e:
+        logger.warning(f"[Showcase] Ошибка проверки учетных данных в БД: {e}")
+    finally:
+        system_bypass_ctx.reset(token)
+
+    # 2. Фолбэк на demo-аккаунты в памяти (например, быстрый логин 'user' -> Alice)
+    u_lower = u.lower()
+    if u_lower in DEMO_USERS:
+        expected = DEMO_USERS[u_lower]
+        if password == expected["password"] or password == u_lower:
+            return {"username": u_lower, "role": expected["role"], "name": expected["name"], "user_id": expected["user_id"]}
+
     return None
 
 
 @rpc_method("auth.login", public=True)
 async def auth_login(session, params: dict):
     """
-    Аутентификация с проверкой логина и пароля.
-    Доступны demo-аккаунты: admin / admin123, user / user123 (Alice), bob / bob123.
+    Аутентификация с проверкой логина и пароля в базе данных и demo-аккаунтах.
     """
     username = params.get("username", "")
     password = params.get("password", "")
 
-    user_info = authenticate_credentials(username, password)
+    user_info = await authenticate_credentials(username, password)
     if not user_info:
-        raise RPCError(-32602, "Неверный логин или пароль (используйте admin/admin123, user/user123 или bob/bob123)")
+        raise RPCError(-32602, "Неверный логин или пароль")
 
     transport = current_transport_ctx.get() or session
     sid = getattr(transport, "session_id", getattr(session, "session_id", 1))
 
-    import secrets
-    token = secrets.token_hex(24)
+    from pyferro.core.security import create_access_token
+    token, _, _ = create_access_token(
+        user_id=user_info["user_id"],
+        username=user_info["username"],
+        roles=[user_info["role"]],
+    )
     DEMO_TOKENS[token] = user_info
 
     # Если логинится администратор, регистрируем его также в сессиях CRUD-плагина
     if user_info["role"] == "admin":
-        from rsgi_wsrpc.plugins.crud import create_crud_session
+        from pyferro.plugins.crud import create_crud_session
         create_crud_session(user_info, token=token)
 
     demo_data = DemoSessionData(
@@ -500,7 +599,7 @@ async def admin_system_info(session: JsonRpcSession, params: dict):
             "active_sockets": len(ACTIVE_SESSIONS_SET),
             "cpu_count": os.cpu_count(),
             "python_implementation": platform.python_implementation(),
-            "security_guard": "RBAC Verified by rsgi_wsrpc decorator",
+            "security_guard": "RBAC Verified by pyferro decorator",
         }
     }
 
@@ -525,12 +624,17 @@ async def list_documents(session: JsonRpcSession, params: dict):
 # --- 9. SEO & BOT DETECTOR (PLUGINS.SEO) ---
 
 @rpc_method("seo.simulate_bot", public=True)
+@rpc_method("seo.simulate", public=True)
 async def simulate_bot_check(session: JsonRpcSession, params: dict):
     """
     Simulates User-Agent inspection using plugins.seo.detector.
     Determines whether a client is a search engine crawler or scraper.
     """
-    user_agent = params.get("user_agent") or "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+    bot_type = params.get("bot")
+    if bot_type == "browser":
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    else:
+        user_agent = params.get("user_agent") or "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
     is_a_bot = is_bot(user_agent)
     is_a_search_bot = is_search_bot(user_agent)
 
@@ -538,5 +642,7 @@ async def simulate_bot_check(session: JsonRpcSession, params: dict):
         "user_agent": user_agent,
         "is_bot": is_a_bot,
         "is_search_bot": is_a_search_bot,
+        "type": "SSR Static HTML" if is_a_bot else "Interactive SPA",
+        "content_preview": "Bot crawler detected" if is_a_bot else "Regular browser connection",
         "recommendation": "Render Static HTML with OpenGraph tags" if is_a_bot else "Serve Single-Page App WebSockets",
     }

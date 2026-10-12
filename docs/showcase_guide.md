@@ -1,4 +1,4 @@
-# rsgi-wsrpc Architecture Guide & Capabilities Showcase
+# PyFerro Architecture Guide & Capabilities Showcase
 
 > **Note:** This document is automatically generated from the Single Source of Truth of the interactive showcase (`examples/showcase/content/showcase_docs.json`). All examples and RPC contracts are verified and functional.
 
@@ -133,7 +133,7 @@ Simply register your SQLAlchemy model via ModelRegistry.register(MyModel), and c
 
 ### Backend (Python)
 ```python
-from rsgi_wsrpc.plugins.crud import ModelRegistry
+from pyferro.plugins.crud import ModelRegistry
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -238,7 +238,7 @@ broadcast_notification() serializes the message once via orjson, after which the
 
 ### Backend (Python)
 ```python
-from rsgi_wsrpc.plugins.broadcast import broadcast_notification
+from pyferro.plugins.broadcast import broadcast_notification
 
 @app.rpc("alerts.publish")
 async def publish_alert(message: str):
@@ -349,14 +349,14 @@ Search crawlers (Googlebot, Yandex, Telegram, Discord) receive clean SSR HTML, w
 
 ### Backend (Python)
 ```python
-from rsgi_wsrpc.plugins.seo import bot_page, render_seo_page
+from pyferro.plugins.seo import bot_page, render_seo_page
 
 @bot_page("/tasks/{task_id}")
 async def task_seo(task_id: int):
     task = await get_task_by_id(task_id)
     return render_seo_page(
         title=task.title,
-        description="Просмотр задачи на rsgi-wsrpc",
+        description="Просмотр задачи на PyFerro",
         og_image="/static/og.png"
     )
 ```

@@ -1,4 +1,4 @@
-# Архитектурное руководство и витрина возможностей rsgi-wsrpc
+# Архитектурное руководство и витрина возможностей PyFerro
 
 > **Примечание:** Данный документ автоматически сгенерирован из единого источника правды интерактивной витрины (`examples/showcase/content/showcase_docs.json`). Все приведенные примеры и RPC-контракты полностью рабочие.
 
@@ -133,7 +133,7 @@ rpc.on('cache.invalidate', (data) => {
 
 ### Бэкенд (Python)
 ```python
-from rsgi_wsrpc.plugins.crud import ModelRegistry
+from pyferro.plugins.crud import ModelRegistry
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -238,7 +238,7 @@ rpc.register('client.get_env', () => {
 
 ### Бэкенд (Python)
 ```python
-from rsgi_wsrpc.plugins.broadcast import broadcast_notification
+from pyferro.plugins.broadcast import broadcast_notification
 
 @app.rpc("alerts.publish")
 async def publish_alert(message: str):
@@ -349,14 +349,14 @@ console.log(me.role, me.permissions);
 
 ### Бэкенд (Python)
 ```python
-from rsgi_wsrpc.plugins.seo import bot_page, render_seo_page
+from pyferro.plugins.seo import bot_page, render_seo_page
 
 @bot_page("/tasks/{task_id}")
 async def task_seo(task_id: int):
     task = await get_task_by_id(task_id)
     return render_seo_page(
         title=task.title,
-        description="Просмотр задачи на rsgi-wsrpc",
+        description="Просмотр задачи на PyFerro",
         og_image="/static/og.png"
     )
 ```

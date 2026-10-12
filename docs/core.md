@@ -1,6 +1,6 @@
 # ⚙️ Core Engine: Developer Guide
 
-The `rsgi-wsrpc` network core is located in the `core/` directory. It is a high-performance asynchronous socket runtime running on top of the **Rust Granian RSGI** protocol.
+The `PyFerro` network core is located in the `core/` directory. It is a high-performance asynchronous socket runtime running on top of the **Rust Granian RSGI** protocol.
 
 The core is engineered following Clean Architecture principles:
 * **Zero external dependencies on business logic**: The core has no awareness of databases, data models, or specific application users.
@@ -24,7 +24,7 @@ The core is engineered following Clean Architecture principles:
 6. [Security & Cryptography: core/security.py](#6-security--cryptography-coresecuritypy)
 7. [Configuration: core/lib/config.py](#7-configuration-corelibconfigpy)
 8. [TypeScript/JavaScript Client: client/wsrpc.ts](#8-typescriptjavascript-client-clientwsrpcts)
-9. [Unified Application Class: RsgiWsrpcApp](#9-unified-application-class-rsgiwsrpcapp)
+9. [Unified Application Class: FerroApp](#9-unified-application-class-rsgiwsrpcapp)
 10. [Horizontal Scaling & Backplane](#10-horizontal-scaling--backplane)
 
 ---
@@ -71,10 +71,10 @@ The `core/session.py` module is the foundation of the framework. It upgrades raw
 
 ### Method Registration (`@rpc_method`)
 
-Each RPC method is registered using the `@rpc_method` decorator (or `@app.rpc` when using `RsgiWsrpcApp`):
+Each RPC method is registered using the `@rpc_method` decorator (or `@app.rpc` when using `FerroApp`):
 
 ```python
-from rsgi_wsrpc import rpc_method, JsonRpcSession, RPCError
+from pyferro import rpc_method, JsonRpcSession, RPCError
 
 # 1. Automatic kwargs unpacking
 @rpc_method("calculator.add")
@@ -147,7 +147,7 @@ async def dispatch_order(order_id: int):
 5. **First-Time Setup (CLI Bootstrap)**:
    * To provision the initial system administrator:
    ```bash
-   python -m rsgi_wsrpc createsuperuser --username admin --password secret
+   python -m pyferro createsuperuser --username admin --password secret
    ```
 
 ### Context Variables (`ContextVars`)
@@ -194,7 +194,7 @@ async def cancel_order(session: JsonRpcSession, params: dict):
 
 ### Multi-Return Streaming
 
-Unlike standard REST or flat JSON-RPC, `rsgi-wsrpc` provides native multi-return streaming: for a single client request, the server can emit intermediate progress chunks before returning the final `result`:
+Unlike standard REST or flat JSON-RPC, `PyFerro` provides native multi-return streaming: for a single client request, the server can emit intermediate progress chunks before returning the final `result`:
 
 ```python
 @rpc_method("reports.generate")
@@ -282,7 +282,7 @@ async def health_check(scope, proto):
     proto.response_str(
         status=200,
         headers=[("content-type", "application/json")],
-        body='{"status":"healthy","engine":"rsgi-wsrpc"}'
+        body='{"status":"healthy","engine":"PyFerro"}'
     )
 
 @http_route("/webhook/payment", methods=["POST"])
@@ -325,7 +325,7 @@ async def get_recent_logs(session, params):
 
 ### Socket Transaction Support & Rollback (2PC Lifecycle Hooks)
 
-The `rsgi-wsrpc` network core is strictly decoupled from the filesystem and contains no hardcoded temporary paths (`/tmp/...`). For two-phase transactions (such as file uploads or distributed tasks), the core exposes a universal session termination hook: `session.register_on_close`:
+The `PyFerro` network core is strictly decoupled from the filesystem and contains no hardcoded temporary paths (`/tmp/...`). For two-phase transactions (such as file uploads or distributed tasks), the core exposes a universal session termination hook: `session.register_on_close`:
 
 ```python
 # Bind transaction rollback to the WebSocket session lifetime:
@@ -486,7 +486,7 @@ try {
 
 ### 3. Multi-Return: Progress Streaming (`callStream`)
 
-A hallmark feature of `rsgi-wsrpc`: the client calls a long-running process (e.g. database dump, PDF compilation, AI model evaluation), the server emits sequential chunks tagged with `stream: true`, and the final return payload resolves the primary promise!
+A hallmark feature of `PyFerro`: the client calls a long-running process (e.g. database dump, PDF compilation, AI model evaluation), the server emits sequential chunks tagged with `stream: true`, and the final return payload resolves the primary promise!
 
 #### Backend Implementation (Python):
 ```python
@@ -574,7 +574,7 @@ from app.system.broadcast import broadcast_event
 
 await broadcast_event("forum.new_topic", {
     "topic_id": 158,
-    "title": "Announcing rsgi-wsrpc 1.0!",
+    "title": "Announcing PyFerro 1.0!",
     "author": "Alex"
 })
 ```
@@ -681,15 +681,15 @@ rpc.authInterceptor = async () => {
 
 ---
 
-## 9. Unified Application Class: RsgiWsrpcApp
+## 9. Unified Application Class: FerroApp
 
-Starting in version `0.4.3`, application configuration and bootstrapping are unified under `RsgiWsrpcApp`. All core and plugin settings are passed through a **single entrypoint**:
+Starting in version `0.4.3`, application configuration and bootstrapping are unified under `FerroApp`. All core and plugin settings are passed through a **single entrypoint**:
 
 ```python
 import os
-from rsgi_wsrpc import RsgiWsrpcApp, VkOAuth, YandexOAuth, tabular_response, RPCError
+from pyferro import FerroApp, VkOAuth, YandexOAuth, tabular_response, RPCError
 
-app = RsgiWsrpcApp(
+app = FerroApp(
     # --- Network & HTTP ---
     static_dir="./public",             # Zero-Copy static files via Rust RSGI
     index_file="index.html",           # Automatically served on GET /
@@ -738,7 +738,7 @@ if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8080, workers=1)
 ```
 
-### `RsgiWsrpcApp` Parameter Reference:
+### `FerroApp` Parameter Reference:
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -763,7 +763,7 @@ if __name__ == "__main__":
 | `enable_seo` | `bool` | `False` | Detect search crawler bots and serve SSR HTML. |
 | `sitemap_host` | `str \| None` | `None` | Host domain for generating `/sitemap.xml`. |
 
-### Features of `RsgiWsrpcApp`:
+### Features of `FerroApp`:
 1. **Rust Zero-Copy Static Serving**: For files in `static_dir`, Granian RSGI's native `proto.response_file` is invoked, bypassing Python byte buffering completely.
 2. **Path Traversal Protection**: Paths are strictly verified against `resolve().startswith(static_dir)`, returning `403 Forbidden` on escape attempts.
 3. **Lifecycle Management**: Automatically implements RSGI protocol hooks `__rsgi_init__` and `__rsgi_del__` to run registered `@on_startup` and `@on_shutdown` callbacks.
@@ -775,7 +775,7 @@ if __name__ == "__main__":
 For multi-worker Granian deployments (`workers > 1`) or clustering, the messaging backplane abstraction provides inter-process communication:
 
 ```python
-from rsgi_wsrpc.core.backplane import BaseBackplane, MemoryBackplane
+from pyferro.core.backplane import BaseBackplane, MemoryBackplane
 ```
 
 * **`BaseBackplane`**: Abstract contract with `publish(channel, payload)`, `subscribe(channel, callback)`, and `unsubscribe(channel)`.

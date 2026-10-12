@@ -2,7 +2,7 @@
 
 * **Номер RFC:** 0011
 * **Название:** Подсистема Dynamic Rendering, Sitemap, OpenGraph и IndexNow (`plugins.seo`)
-* **Статус:** ✅ Принят и расширен (rsgi-wsrpc v0.3.2)
+* **Статус:** ✅ Принят и расширен (PyFerro v0.3.2)
 * **Автор:** Архитектурная команда
 * **Дата:** Октябрь 2026
 
@@ -18,7 +18,7 @@
    * [4.3. Параметризованный диспетчер маршрутов (`router.py`)](#43-параметризованный-диспетчер-маршрутов-routerpy)
    * [4.4. Генератор карты сайта и пагинация (`sitemap.py`)](#44-генератор-карты-сайта-и-пагинация-sitemappy)
    * [4.5. Асинхронный протокол и файловый буфер IndexNow (`indexnow.py`)](#45-асинхронный-протокол-и-файловый-буфер-indexnow-indexnowpy)
-   * [4.6. Базовые утилиты ядра (`rsgi_wsrpc.core.http`)](#46-базовые-утилиты-ядра-rsgi_wsrpccorehttp)
+   * [4.6. Базовые утилиты ядра (`pyferro.core.http`)](#46-базовые-утилиты-ядра-pyferrocorehttp)
 5. [Пример интеграции в приложение](#5-пример-интеграции-в-приложение)
 6. [Производительность и безопасность](#6-производительность-и-безопасность)
 
@@ -26,7 +26,7 @@
 
 ## 1. Краткое резюме
 
-Настоящий RFC специфицирует официальный плагин **`rsgi_wsrpc.plugins.seo`** для фреймворка `rsgi-wsrpc`. 
+Настоящий RFC специфицирует официальный плагин **`pyferro.plugins.seo`** для фреймворка `PyFerro`. 
 
 Плагин решает фундаментальную проблему индексации современных реактивных веб-приложений (SPA/PWA) на базе WebSocket и RSGI через архитектурный паттерн **Dynamic Rendering (гибридный рендеринг)**:
 * **Для обычных пользователей:** сервер отдает статический легковесный SPA `index.html` и устанавливает высокоскоростное WebSocket-соединение WSRPC (JSON-RPC 2.0).
@@ -166,9 +166,9 @@ async def get_topic_seo(topic_id: int, slug: str) -> Optional[SeoPageData]:
 * **Уважение rate limits:** Корректная обработка `HTTP 429 (Too Many Requests)` в соответствии со спецификацией IndexNow.
 * Автоматическая отдача проверочного файла: `@http_route(f"/{key}.txt", ["GET"])` отдает текстовый ключ верификации.
 
-### 4.6. Базовые утилиты ядра (`rsgi_wsrpc.core.http`)
+### 4.6. Базовые утилиты ядра (`pyferro.core.http`)
 
-Для работы с RSGI HTTP-запросами в ядре реализован модуль [rsgi_wsrpc.core.http](file:///home/alex/rsgi-wsrpc/rsgi_wsrpc/core/http.py):
+Для работы с RSGI HTTP-запросами в ядре реализован модуль [pyferro.core.http](file:///home/alex/PyFerro/pyferro/core/http.py):
 * `extract_header(scope, header_name, default=None)`: надежное извлечение заголовка независимо от регистра из объектов Granian Headers, словарей и списков байтовых кортежей.
 * `extract_query_params(scope)`: быстрое декодирование строки запроса в словарь.
 
@@ -177,8 +177,8 @@ async def get_topic_seo(topic_id: int, slug: str) -> Optional[SeoPageData]:
 ## 5. Пример интеграции в приложение
 
 ```python
-from rsgi_wsrpc import http_route, HTTP_ROUTES, configure
-from rsgi_wsrpc.plugins.seo import (
+from pyferro import http_route, HTTP_ROUTES, configure
+from pyferro.plugins.seo import (
     configure_seo, bot_page, register_sitemap_provider,
     handle_bot_http, notify_indexnow, SeoPageData
 )

@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
-from rsgi_wsrpc.core.session import JsonRpcSession, rpc_method, RPC_REGISTRY, RPCError
+from pyferro.core.session import JsonRpcSession, rpc_method, RPC_REGISTRY, RPCError
 
 class MockWs:
     def __init__(self, incoming_messages=None):
@@ -89,7 +89,7 @@ async def test_session_multi_roles_access():
 
 @pytest.mark.asyncio
 async def test_rpc_method_with_invalidates_and_wrappers():
-    from rsgi_wsrpc.plugins.smart_cache import invalidates
+    from pyferro.plugins.smart_cache import invalidates
 
     called = {}
 
@@ -145,7 +145,7 @@ async def test_rpc_method_with_invalidates_and_wrappers():
 
 @pytest.mark.asyncio
 async def test_guest_vs_user_idle_and_auth_timeout():
-    from rsgi_wsrpc.core.lib.config import configure, settings
+    from pyferro.core.lib.config import configure, settings
 
     # 1. By default auth_timeout == 0 (guests not kicked)
     configure(auth_timeout=0, guest_idle_timeout=1, user_idle_timeout=5)

@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rsgi-wsrpc"
-version = "0.5.5"
+name = "pyferro"
+version = "0.5.8"
 
 description = "High-performance reactive fullstack Python framework on Rust RSGI (Granian) with symmetric WSRPC (JSON-RPC 2.0) and Tabular Data Compression."
 readme = "README.md"
@@ -13,7 +13,7 @@ license = "MIT"
 authors = [
     { name = "Alex Titoff", email = "a.tit.off@gmail.com" }
 ]
-keywords = ["rsgi", "granian", "wsrpc", "json-rpc", "websocket", "reactive", "fastapi-alternative", "django-alternative"]
+keywords = ["pyferro", "rsgi", "granian", "wsrpc", "json-rpc", "websocket", "reactive", "fastapi-alternative", "django-alternative"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Framework :: AsyncIO",
@@ -59,24 +59,21 @@ full = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/atitoff-dotcom/rsgi-wsrpc"
-Documentation = "https://github.com/atitoff-dotcom/rsgi-wsrpc/blob/main/docs/readme.md"
-Repository = "https://github.com/atitoff-dotcom/rsgi-wsrpc.git"
+Homepage = "https://github.com/atitoff-dotcom/PyFerro"
+Documentation = "https://github.com/atitoff-dotcom/PyFerro/blob/main/docs/readme.md"
+Repository = "https://github.com/atitoff-dotcom/PyFerro.git"
 
 [tool.setuptools.packages.find]
-include = ["rsgi_wsrpc*"]
+include = ["pyferro*"]
 
 [tool.setuptools.package-data]
-"rsgi_wsrpc.plugins.crud" = ["static/*", "static/**/*"]
-
+"pyferro.plugins.crud" = ["static/*", "static/**/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "e2e: End-to-end integration tests requiring a live running server (deselect with '-m \"not e2e\"')",
 ]
 addopts = "-m 'not e2e'"
-
-
-

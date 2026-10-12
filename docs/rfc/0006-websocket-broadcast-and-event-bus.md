@@ -26,7 +26,7 @@
 
 ## 1. Summary
 
-This RFC specifies the architecture of **`plugins.broadcast`** — the official real-time event distribution and push notification plugin for the `rsgi-wsrpc` framework.
+This RFC specifies the architecture of **`plugins.broadcast`** — the official real-time event distribution and push notification plugin for the `PyFerro` framework.
 
 While standard WSRPC requests operate within a strict request-response or client-initiated stream paradigm, reactive modern web applications frequently require the server to **proactively dispatch events** to one, several, or all connected clients:
 * Live cache invalidation frames (`cache.invalidate`, `cache.patch`).
@@ -179,7 +179,7 @@ async def on_product_updated(product_id: int):
 
 ## 7. Horizontal Scaling & Cluster Readiness (Redis/NATS Bridge)
 
-When running `rsgi-wsrpc` in multi-worker or multi-node clusters:
+When running `PyFerro` in multi-worker or multi-node clusters:
 * In-process broadcast distributes across active sockets attached to the **local worker**.
 * For distributed nodes, `plugins.broadcast` provides an optional backend adapter:
   * `BroadcastEngine(adapter=RedisPubSubAdapter("redis://..."))`

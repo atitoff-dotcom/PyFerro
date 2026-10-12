@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# rsgi-wsrpc Showcase 1-Click Launcher for macOS (Finder Double-Click)
+# PyFerro Showcase 1-Click Launcher for macOS (Finder Double-Click)
 # ==============================================================================
 # macOS открывает .command файлы в домашней папке пользователя,
 # поэтому сначала обязательно переходим в каталог размещения файла.

@@ -12,14 +12,14 @@
 import pytest
 import os
 from unittest.mock import AsyncMock, MagicMock
-from rsgi_wsrpc import RsgiWsrpcApp, configure
-from rsgi_wsrpc.plugins.db import engine, async_session
-from rsgi_wsrpc.plugins.db.session import configure_db
-from rsgi_wsrpc.plugins.crud.auth import (
+from pyferro import FerroApp, configure
+from pyferro.plugins.db import engine, async_session
+from pyferro.plugins.db.session import configure_db
+from pyferro.plugins.crud.auth import (
     get_crud_session, create_crud_session, set_crud_session_validator
 )
-from rsgi_wsrpc.plugins.auth.core import AuthSession
-from rsgi_wsrpc.core.security import create_access_token
+from pyferro.plugins.auth.core import AuthSession
+from pyferro.core.security import create_access_token
 
 
 @pytest.mark.asyncio
@@ -105,8 +105,8 @@ async def test_auth_session_send_stream_chunk_alias():
 @pytest.mark.asyncio
 async def test_set_admin_password_and_cli():
     """Проверяет утилиту смены пароля администратора и отсутствие бэкдора /dev-admin."""
-    from rsgi_wsrpc.plugins.db import async_session, engine, Base
-    from rsgi_wsrpc.plugins.auth import User, Role, system_bypass_ctx
+    from pyferro.plugins.db import async_session, engine, Base
+    from pyferro.plugins.auth import User, Role, system_bypass_ctx
     from sqlalchemy import select
 
     # Инициализация тестовой БД
@@ -124,7 +124,7 @@ async def test_set_admin_password_and_cli():
     finally:
         system_bypass_ctx.reset(token)
 
-    app = RsgiWsrpcApp()
+    app = FerroApp()
 
     # 1. Проверяем, что роут /dev-admin больше не существует (возвращает 404)
     proto = MagicMock()
@@ -155,7 +155,7 @@ async def test_set_admin_password_and_cli():
 def test_handle_cli():
     """Проверяет обработку CLI-флагов handle_cli."""
     from unittest.mock import patch, AsyncMock
-    app = RsgiWsrpcApp()
+    app = FerroApp()
     # 1. Нецелевые флаги возвращают False
     assert app.handle_cli(["--host", "0.0.0.0"]) is False
     assert app.handle_cli([]) is False
@@ -172,7 +172,7 @@ def test_handle_cli():
 @pytest.mark.asyncio
 async def test_auto_auth_ws_on_connect():
     """Проверяет автоматическую авторизацию сокета по кукам при auto_auth_ws=True."""
-    app = RsgiWsrpcApp(auto_auth_ws=True)
+    app = FerroApp(auto_auth_ws=True)
     
     # Создаем токен админа в памяти CRUD
     token = create_crud_session({"username": "boss", "role": "admin"})
@@ -182,7 +182,7 @@ async def test_auto_auth_ws_on_connect():
         "proto": "websocket",
         "client": ("127.0.0.1", 12345),
         "headers": [
-            (b"cookie", f"rsgi_crud_session={token}".encode("latin1"))
+            (b"cookie", f"ferro_crud_session={token}".encode("latin1"))
         ]
     }
     
@@ -208,9 +208,9 @@ async def test_auto_auth_ws_on_connect():
 
 
 def test_app_picklability():
-    """Проверяет, что RsgiWsrpcApp успешно сериализуется через pickle (для multiprocessing spawn в Python 3.14 / Granian)."""
+    """Проверяет, что FerroApp успешно сериализуется через pickle (для multiprocessing spawn в Python 3.14 / Granian)."""
     import pickle
-    app = RsgiWsrpcApp()
+    app = FerroApp()
     id1 = next(app._session_counter)
     serialized = pickle.dumps(app)
     restored_app = pickle.loads(serialized)

@@ -10,17 +10,18 @@
 6. Защиту прав доступа (доступ только администратору)
 """
 
+import time
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
-from rsgi_wsrpc.core.session import (
+from pyferro.core.session import (
     JsonRpcSession,
     ACTIVE_SESSIONS_SET,
     RPC_REGISTRY,
     RPCError,
 )
-from rsgi_wsrpc.core.logger import logger, get_recent_logs
-from rsgi_wsrpc.plugins.crud.admin_handlers import (
+from pyferro.core.logger import logger, get_recent_logs
+from pyferro.plugins.crud.admin_handlers import (
     list_active_sessions,
     kill_session,
     get_cache_stats,
@@ -28,6 +29,8 @@ from rsgi_wsrpc.plugins.crud.admin_handlers import (
     send_system_broadcast,
     stream_recent_logs,
     get_system_config,
+    get_plugin_matrix,
+    update_hot_config,
 )
 
 
@@ -133,10 +136,14 @@ async def test_system_recent_logs():
     """Проверяет чтение логов из оперативной памяти сервера."""
     admin = MockAdminSession()
 
-    logger.info("Test admin log entry for memory buffer")
+    unique_msg = f"Test admin log entry unique {time.time()}"
+    logger.info(unique_msg)
     logs = await stream_recent_logs(admin, limit=50)
     assert isinstance(logs, list)
     assert len(logs) > 0
+
+    matching = [l for l in logs if l.get("message") == unique_msg]
+    assert len(matching) == 1, "Лог не должен дублироваться в буфере памяти!"
     
     last = logs[-1]
     assert "message" in last
@@ -154,3 +161,79 @@ async def test_system_get_config_masks_secrets():
     assert "security" in conf
     secret_key = conf["security"].get("secret_key", "")
     assert "••••••••" in secret_key, "Secret key must be masked!"
+
+
+@pytest.mark.asyncio
+async def test_system_plugin_matrix():
+    """Проверяет получение сводной матрицы состояния плагинов платформы."""
+    admin = MockAdminSession()
+    user = MockUserSession()
+
+    # 1. Защита доступа
+    with pytest.raises(RPCError) as exc:
+        await get_plugin_matrix(user)
+    assert exc.value.code == -32003
+
+    # 2. Успешный вызов администратором
+    matrix = await get_plugin_matrix(admin)
+    assert isinstance(matrix, dict)
+    assert "plugins" in matrix
+    assert "runtime" in matrix
+
+    plugins = matrix["plugins"]
+    for key in ("db", "smart_cache", "crud", "files", "seo", "broadcast", "auth"):
+        assert key in plugins
+        assert plugins[key]["active"] is True
+
+    # Проверка ключевых полей плагинов
+    assert "dialect" in plugins["db"]
+    assert "tag_count" in plugins["smart_cache"]
+    assert "models_count" in plugins["crud"]
+
+    runtime = matrix["runtime"]
+    assert "log_level" in runtime
+    assert "db_echo" in runtime
+    assert "python_version" in runtime
+
+
+@pytest.mark.asyncio
+async def test_system_update_hot_config():
+    """Проверяет безопасное горячее обновление параметров ядра в рантайме."""
+    admin = MockAdminSession()
+    user = MockUserSession()
+
+    # 1. Защита доступа
+    with pytest.raises(RPCError) as exc:
+        await update_hot_config(user, log_level="DEBUG")
+    assert exc.value.code == -32003
+
+    # 2. Невалидные аргументы (защита от ошибок)
+    with pytest.raises(RPCError) as exc:
+        await update_hot_config(admin, log_level="INVALID_LEVEL")
+    assert exc.value.code == -32602
+
+    with pytest.raises(RPCError) as exc:
+        await update_hot_config(admin, guest_idle_timeout=-10)
+    assert exc.value.code == -32602
+
+    # 3. Успешное применение настроек
+    res = await update_hot_config(
+        admin,
+        log_level="DEBUG",
+        db_echo=True,
+        guest_idle_timeout=600,
+        user_idle_timeout=1200,
+        allow_guests=True,
+    )
+    assert res["status"] == "ok"
+    assert res["applied"]["log_level"] == "DEBUG"
+    assert res["applied"]["db_echo"] is True
+    assert res["applied"]["guest_idle_timeout"] == 600
+    assert res["applied"]["user_idle_timeout"] == 1200
+
+    # Проверяем, что runtime обновился
+    assert res["runtime"]["log_level"] == "DEBUG"
+    assert res["runtime"]["db_echo"] is True
+
+    # Возвращаем дефолты
+    await update_hot_config(admin, log_level="INFO", db_echo=False)

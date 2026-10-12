@@ -21,7 +21,7 @@
 
 ## 1. Summary
 
-This RFC establishes standard support for deterministic, transparent **Tabular Payload Compression** in the `rsgi-wsrpc` platform.
+This RFC establishes standard support for deterministic, transparent **Tabular Payload Compression** in the `PyFerro` platform.
 
 When transferring collections of records across WebSocket/JSON-RPC (such as forum topics, categories, database query rows, analytics, or user directories), conventional JSON serializes each record as a key-value dictionary. This causes extreme repetition of property names (`"id"`, `"title"`, `"category_id"`, `"created_at"`), inflating network bandwidth by 50–70% and placing high CPU and memory garbage collection pressure on the backend.
 

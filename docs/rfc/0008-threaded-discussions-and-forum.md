@@ -26,7 +26,7 @@
 
 ## 1. Summary
 
-This RFC specifies **`plugins.discussions`** — an official, domain-agnostic community discussion, forum, and Q&A engine for the `rsgi-wsrpc` framework.
+This RFC specifies **`plugins.discussions`** — an official, domain-agnostic community discussion, forum, and Q&A engine for the `PyFerro` framework.
 
 Modern business applications increasingly demand integrated collaborative features: support communities, internal knowledge sharing, incident post-mortems, feedback forums, and structured Q&A threads.
 
@@ -159,7 +159,7 @@ When a new reply is submitted:
 
 ## 8. Implementation Roadmap
 
-1. Package `plugins/discussions/` in `rsgi-wsrpc`:
+1. Package `plugins/discussions/` in `PyFerro`:
    * `plugins/discussions/models.py`: Declarative ORM models
    * `plugins/discussions/handlers.py`: WSRPC methods
    * `plugins/discussions/service.py`: Business logic & reaction aggregator

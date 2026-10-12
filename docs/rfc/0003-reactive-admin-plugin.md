@@ -1,7 +1,7 @@
 # RFC 0003: Reactive Admin Plugin & Enterprise Delegation Architecture
 
 * **RFC Number:** 0003
-* **Title:** Reactive Admin Plugin & Enterprise Delegation Architecture (`rsgi-wsrpc-admin`)
+* **Title:** Reactive Admin Plugin & Enterprise Delegation Architecture (`PyFerro-admin`)
 * **Status:** 📝 Proposed / Draft
 * **Author:** Core Architecture Team
 * **Date:** September 2026
@@ -23,9 +23,9 @@
 
 ## 1. Summary
 
-This RFC specifies the architecture of **`rsgi-wsrpc-admin`** — an official, domain-agnostic first-party plugin for the `rsgi-wsrpc` framework that delivers a next-generation enterprise administration interface and CRUD engine.
+This RFC specifies the architecture of **`PyFerro-admin`** — an official, domain-agnostic first-party plugin for the `PyFerro` framework that delivers a next-generation enterprise administration interface and CRUD engine.
 
-Unlike legacy administration systems (such as Django Admin) built around synchronous WSGI, full-page reloads, and flat model-level permissions, `rsgi-wsrpc-admin` leverages the core strengths of the `rsgi-wsrpc` runtime:
+Unlike legacy administration systems (such as Django Admin) built around synchronous WSGI, full-page reloads, and flat model-level permissions, `PyFerro-admin` leverages the core strengths of the `PyFerro` runtime:
 * **Reactive bidirectional transport (WSRPC)** with real-time push synchronization across active operators.
 * **Native Row-Level Security (RLS) & Multi-Tenancy** powered by `RowSecureModel` (`creator_id` and `team_id`).
 * **Dynamic Enterprise Delegation Engine**: automated temporary portfolio/client reassignment during employee vacation, sick leave, or duty delegation.
@@ -37,7 +37,7 @@ Unlike legacy administration systems (such as Django Admin) built around synchro
 ## 2. Motivation & Background
 
 ### The Origin: Enterprise & Banking Heritage
-The `rsgi-wsrpc` framework core was extracted from a high-security banking enterprise platform. In that environment, records (credit applications, accounts, corporate clients, portfolios) are fundamentally bound to **Teams** and **Ownership**:
+The `PyFerro` framework core was extracted from a high-security banking enterprise platform. In that environment, records (credit applications, accounts, corporate clients, portfolios) are fundamentally bound to **Teams** and **Ownership**:
 1. A front-office manager only has visibility into clients assigned to their specific team or branch (`row_level_only = True`).
 2. When a manager departs on vacation or business travel, their assigned clients must be transparently delegated to a substitute colleague without manual data migration or re-keying database rows.
 3. Supervisors and audit officers need to switch viewing contexts ("View as Team X") instantly without logging out.
@@ -53,17 +53,17 @@ While Django Admin pioneered rapid web administration in 2005, its paradigm fail
 
 ## 3. Architectural Separation: Core Engine vs Plugin
 
-To preserve the minimalism, raw performance, and headless capabilities of the `rsgi-wsrpc` core, the administration system is decoupled into a **Thin Core Contract** and a **Pluggable Admin Extension**:
+To preserve the minimalism, raw performance, and headless capabilities of the `PyFerro` core, the administration system is decoupled into a **Thin Core Contract** and a **Pluggable Admin Extension**:
 
 ```mermaid
 graph TD
-    subgraph Core ["Core Runtime (rsgi-wsrpc)"]
+    subgraph Core ["Core Runtime (PyFerro)"]
         Kernel[RSGI / WSRPC Engine]
         Auth[Security Context & Session Gatekeeper]
         Introspect[Protocol: Model Introspection Contract]
     end
 
-    subgraph Plugin ["First-Party Plugin (rsgi-wsrpc-admin)"]
+    subgraph Plugin ["First-Party Plugin (PyFerro-admin)"]
         AdminHandlers[WSRPC Dispatcher: admin.*]
         DelegationEngine[Delegation & Vacation Engine]
         DataGridUI[Svelte 5 Reactive Grid & UI Bundle]
@@ -81,12 +81,12 @@ graph TD
     Plugin --> ERPApp
 ```
 
-### Core Responsibilities (`rsgi-wsrpc`):
+### Core Responsibilities (`PyFerro`):
 1. **Introspection Contract**: Base protocols to reflect model fields, types, constraints, and relationships.
 2. **Context Resolution**: Invariant propagation of `UserContext` (`user_id`, `roles`, `team_ids`) to all handlers.
 3. **Session Interception**: WSRPC Session Gatekeeper ensuring zero unauthorized socket leakage.
 
-### Plugin Responsibilities (`rsgi-wsrpc-admin`):
+### Plugin Responsibilities (`PyFerro-admin`):
 1. **Schema Exposer (`admin.schema`)**: Translates ORM models into UI column definitions, field widgets, and validation schemas.
 2. **Tabular CRUD Handlers (`admin.list`, `admin.update_cell`, `admin.bulk_action`)**.
 3. **Delegation Controller**: Manages substitute mappings, schedule bounds, and dynamic RLS query expansion.
@@ -217,7 +217,7 @@ For massive operations (e.g., reassigning 5,000 contracts or recalculating commi
 
 ## 7. Frontend Architecture (Svelte 5 & Command Palette)
 
-The frontend companion package (`@rsgi-wsrpc/admin-ui`) is built on Svelte 5 and modern UI paradigms:
+The frontend companion package (`@PyFerro/admin-ui`) is built on Svelte 5 and modern UI paradigms:
 * **Virtual DataGrid**: Renders only visible rows in the viewport, effortlessly supporting 50,000+ records in DOM.
 * **Contextual Team Switcher**: A header widget displaying the active team, delegator badges (*"🏖️ Substituting Petrov A. (until Sep 25)"*), and fast switching.
 * **Universal Command Palette (Cmd + K)**:
@@ -239,11 +239,11 @@ For compliance in banking, healthcare, and enterprise environments:
 
 ## 9. Integration Example
 
-Registering `rsgi-wsrpc-admin` into any application takes seconds:
+Registering `PyFerro-admin` into any application takes seconds:
 
 ```python
-from rsgi_wsrpc import App
-from rsgi_wsrpc_admin import AdminPlugin, ModelAdmin
+from pyferro import App
+from pyferro_admin import AdminPlugin, ModelAdmin
 from my_app.models import Client, Account, Team, User
 
 app = App()
@@ -270,4 +270,4 @@ app.register_plugin(admin)
 ---
 
 ## 10. Conclusion & Roadmap
-RFC 0003 establishes the blueprint for an open, reactive, and enterprise-ready administration standard. By separating model introspection contracts in the core from the rich interactive plugin, `rsgi-wsrpc` gains best-in-class administrative tooling without compromising its lightweight runtime architecture.
+RFC 0003 establishes the blueprint for an open, reactive, and enterprise-ready administration standard. By separating model introspection contracts in the core from the rich interactive plugin, `PyFerro` gains best-in-class administrative tooling without compromising its lightweight runtime architecture.

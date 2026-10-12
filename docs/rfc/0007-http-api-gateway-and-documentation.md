@@ -26,9 +26,9 @@
 
 ## 1. Summary
 
-This RFC specifies **`plugins.gateway`** — the official HTTP gateway and interactive API documentation plugin for the `rsgi-wsrpc` framework.
+This RFC specifies **`plugins.gateway`** — the official HTTP gateway and interactive API documentation plugin for the `PyFerro` framework.
 
-While client browsers and mobile apps communicate with `rsgi-wsrpc` via symmetric bidirectional WebSockets, modern systems invariably require interoperability with the broader web:
+While client browsers and mobile apps communicate with `PyFerro` via symmetric bidirectional WebSockets, modern systems invariably require interoperability with the broader web:
 * Third-party webhooks (Stripe, GitHub, payment systems).
 * Backend-to-backend automation scripts, scheduled ETL jobs, and legacy curl integrations.
 * Instant interactive API exploration without requiring third-party tools like Postman or custom WebSocket clients.
@@ -65,7 +65,7 @@ flowchart TD
         SwaggerUI[Self-Contained api.html]
     end
 
-    subgraph Core [rsgi-wsrpc Core]
+    subgraph Core [PyFerro Core]
         Registry[(RPC_REGISTRY)]
         MethodExec[RPC Method Execution]
     end

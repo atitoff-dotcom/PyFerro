@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-tests/suites/test_seo.py: Модульные тесты для плагина rsgi_wsrpc.plugins.seo.
+tests/suites/test_seo.py: Модульные тесты для плагина pyferro.plugins.seo.
 """
 
 import asyncio
@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from rsgi_wsrpc.plugins.seo import (
+from pyferro.plugins.seo import (
     HtmlBuilder,
     SeoPageData,
     bot_page,
@@ -27,8 +27,8 @@ from rsgi_wsrpc.plugins.seo import (
     register_sitemap_provider,
     render_seo_page,
 )
-from rsgi_wsrpc.plugins.seo.router import BOT_ROUTES, BotRoute
-from rsgi_wsrpc.plugins.seo.sitemap import SITEMAP_PROVIDERS
+from pyferro.plugins.seo.router import BOT_ROUTES, BotRoute
+from pyferro.plugins.seo.sitemap import SITEMAP_PROVIDERS
 
 
 
@@ -401,7 +401,7 @@ def test_indexnow_file_queue_and_flushing(tmp_path, monkeypatch):
         async def mock_send(urls, host, key, key_location=None):
             sent_batches.append(list(urls))
 
-        monkeypatch.setattr("rsgi_wsrpc.plugins.seo.indexnow._send_indexnow_background", mock_send)
+        monkeypatch.setattr("pyferro.plugins.seo.indexnow._send_indexnow_background", mock_send)
 
         configure_seo(
             site_url="https://example.com",

@@ -25,11 +25,11 @@
 
 ## 1. Summary
 
-This RFC specifies **`plugins.articles`** — the official lightweight Knowledge Base, Documentation, and Content Management System (CMS) plugin for the `rsgi-wsrpc` framework.
+This RFC specifies **`plugins.articles`** — the official lightweight Knowledge Base, Documentation, and Content Management System (CMS) plugin for the `PyFerro` framework.
 
 Practically all modern SaaS, portal, and enterprise applications require structured content delivery: technical documentation, product guides, onboarding tutorials, release changelogs, FAQs, and marketing knowledge bases.
 
-`plugins.articles` provides a high-speed, markdown-native CMS engineered around `rsgi-wsrpc` core tenets:
+`plugins.articles` provides a high-speed, markdown-native CMS engineered around `PyFerro` core tenets:
 * **0 ms Perceived Latency:** Full integration with `plugins.smart_cache` ensures instant article switching without network wait.
 * **Compact Media Attachments:** Tight coupling with `plugins.files` for banner covers and in-text image uploads.
 * **RFC 0002 Tabular Grid Payloads:** Efficient indexing of thousands of articles.
@@ -153,7 +153,7 @@ For public search engine indexing (Googlebot, Yandex):
 
 ## 8. Implementation Roadmap
 
-1. Package `plugins/articles/` in `rsgi-wsrpc`:
+1. Package `plugins/articles/` in `PyFerro`:
    * `plugins/articles/models.py`: Declarative ORM models
    * `plugins/articles/handlers.py`: WSRPC methods
    * `plugins/articles/service.py`: Slug generator, view counter buffer, SSR renderer

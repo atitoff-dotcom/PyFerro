@@ -1,8 +1,8 @@
-# Core File & Upload Subsystem (rsgi-wsrpc)
+# Core File & Upload Subsystem (PyFerro)
 
 ## 1. Overview and Paradigm
 
-In the **rsgi-wsrpc** reactive framework, file management is designed around a high-performance hybrid architecture:
+In the **PyFerro** reactive framework, file management is designed around a high-performance hybrid architecture:
 1. **WSRPC (JSON-RPC 2.0)** acts as the orchestrator for transactions, access control, reactive progress, and metadata.
 2. **HTTP POST (RSGI)** functions as a streaming data pipeline for transferring raw binary bytes.
 3. **Nginx** handles high-throughput, zero-copy static distribution of committed files without burdening Python worker threads.
@@ -119,7 +119,7 @@ Public images and assets are served directly by Nginx without touching Python wo
 
 ```nginx
 location /files/ {
-    alias /var/www/rsgi-wsrpc/files/;
+    alias /var/www/PyFerro/files/;
     expires 1y;
     add_header Cache-Control "public, max-age=31536000, immutable";
     access_log off;

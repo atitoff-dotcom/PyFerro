@@ -9,12 +9,12 @@ import sys
 import os
 import unittest
 
-# Добавляем корень rsgi-wsrpc в sys.path при прямом запуске
+# Добавляем корень PyFerro в sys.path при прямом запуске
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from rsgi_wsrpc.plugins.raw_ws import (
+from pyferro.plugins.raw_ws import (
     generate_session_id,
     raw_ws_route,
     dispatch_raw_ws,

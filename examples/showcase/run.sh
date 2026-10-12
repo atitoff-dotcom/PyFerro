@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# rsgi-wsrpc Showcase Launcher for Linux and macOS (Terminal)
+# PyFerro Showcase Launcher for Linux and macOS (Terminal)
 # ==============================================================================
 set -e
 
@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "============================================================"
-echo " 🚀 [rsgi-wsrpc] Starting Showcase Demo Server"
+echo " 🚀 [PyFerro] Starting Showcase Demo Server"
 echo "============================================================"
 
 # Locate Python 3.11+

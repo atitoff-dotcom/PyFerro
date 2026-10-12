@@ -1,18 +1,18 @@
-# AI Agent Guide: Разработка на фреймворке `rsgi-wsrpc`
+# AI Agent Guide: Разработка на фреймворке `PyFerro`
 
 > **Инструкция для ИИ-ассистентов (Cursor, Antigravity, Claude, ChatGPT, Windsurf, Copilot)**  
-> Этот документ содержит актуальные контракты, архитектурные правила и анти-паттерны для генерации кода на базе фреймворка `rsgi-wsrpc`.
+> Этот документ содержит актуальные контракты, архитектурные правила и анти-паттерны для генерации кода на базе фреймворка `PyFerro`.
 
 ---
 
 ## 1. Концепция и Архитектура
 
-`rsgi-wsrpc` — высокопроизводительный реактивный Python-фреймворк:
+`PyFerro` — высокопроизводительный реактивный Python-фреймворк:
 - **Сетевой уровень:** Rust RSGI сервер **Granian** (не ASGI и не WSGI!).
 - **Протокол:** Симметричный **JSON-RPC 2.0 (WSRPC)** поверх постоянного WebSocket-соединения + опциональный HTTP.
 - **Сжатие данных:** Табличный формат **RFC 0002 (Tabular Data Compression)** — экономит 40–70% трафика в списках.
 - **Безопасность:** По умолчанию гостям разрешены только методы `login.*`. Доступ к остальным требует авторизации или явного флага `public=True`.
-- **Эталонный пример:** Живой интерактивный стенд со всеми плагинами находится в [examples/showcase](file:///home/alex/rsgi-wsrpc/examples/showcase).
+- **Эталонный пример:** Живой интерактивный стенд со всеми плагинами находится в [examples/showcase](file:///home/alex/PyFerro/examples/showcase).
 
 ---
 
@@ -20,11 +20,11 @@
 
 ```python
 import os
-from rsgi_wsrpc import RsgiWsrpcApp, rpc_method, tabular_response, RPCError
-from rsgi_wsrpc.plugins.broadcast import broadcast_notification
+from pyferro import FerroApp, rpc_method, tabular_response, RPCError
+from pyferro.plugins.broadcast import broadcast_notification
 
 # 1. Инициализация приложения со всеми настройками (Code-First)
-app = RsgiWsrpcApp(
+app = FerroApp(
     secret_key=os.getenv("SECRET_KEY", "dev-secret-key-change-in-production"),
     database_url=os.getenv("DATABASE_URL", "sqlite+aiosqlite:///app.db"),
     static_dir="./public",       # Раздача статики через нативный Rust Zero-Copy (proto.response_file)
@@ -69,7 +69,7 @@ granian --rsgi server:app --host 127.0.0.1 --port 8080 --workers 1
 
 ### 3.1. Декоратор `@rpc_method` / `@app.rpc`
 ```python
-from rsgi_wsrpc.core.session import rpc_method, RPCError
+from pyferro.core.session import rpc_method, RPCError
 
 @rpc_method("items.create")
 async def create_item(session, title: str, count: int = 1):
@@ -117,7 +117,7 @@ async def create_item(session, title: str, count: int = 1):
 
 Всегда используйте `@tabular_response` для списков однотипных объектов:
 ```python
-from rsgi_wsrpc.core.tabular import tabular_response
+from pyferro.core.tabular import tabular_response
 
 @rpc_method("users.get_all")
 @tabular_response(fields=["id", "username", "email", "role"])
@@ -133,7 +133,7 @@ async def get_users():
 
 Для реактивной инвалидации кэша на клиентах при мутациях используйте `@invalidates`:
 ```python
-from rsgi_wsrpc.plugins.smart_cache import invalidates
+from pyferro.plugins.smart_cache import invalidates
 
 @rpc_method("topics.delete")
 @invalidates(tags=["forum.topics", "forum.category.{category_id}", "forum.topic.{topic_id}"])
@@ -149,7 +149,7 @@ async def delete_topic(topic_id: int, category_id: int):
 
 Для длительных задач отправляйте промежуточный прогресс без блокировки сокета:
 ```python
-from rsgi_wsrpc.core.session import current_rpc_id_ctx
+from pyferro.core.session import current_rpc_id_ctx
 
 @app.rpc("analytics.generate")
 async def generate_report(session):
@@ -182,7 +182,7 @@ async def inspect_client(session):
 
 Неблокирующая O(1) рассылка уведомлений всем подключенным сокетам:
 ```python
-from rsgi_wsrpc.plugins.broadcast import broadcast_notification
+from pyferro.plugins.broadcast import broadcast_notification
 
 # Сериализация происходит 1 раз в память, после чего фрейм отправляется всем сокетам
 await broadcast_notification("order.updated", {"order_id": 105, "status": "shipped"})
@@ -199,12 +199,12 @@ await broadcast_notification("order.updated", {"order_id": 105, "status": "shipp
 
 ---
 
-## 10. Универсальный реактивный CRUD (`rsgi_wsrpc.plugins.crud`)
+## 10. Универсальный реактивный CRUD (`pyferro.plugins.crud`)
 
 Авто-генерация API и встроенная панель управления на `/crud`:
 1. Регистрация моделей:
    ```python
-   from rsgi_wsrpc.plugins.crud import ModelRegistry
+   from pyferro.plugins.crud import ModelRegistry
    ModelRegistry.register(Task)
    # или ModelRegistry.auto_discover(Base)
    ```
@@ -223,18 +223,18 @@ await broadcast_notification("order.updated", {"order_id": 105, "status": "shipp
    ```
 3. Контракт методов WSRPC: `crud.schema`, `crud.list` ($tabular), `crud.get`, `crud.create`, `crud.update_cell`, `crud.bulk_update`, `crud.delete`.
 4. ⚠️ **Безопасность панели (Zero-Leakage 404):**
-   - Переход на `http://localhost:8080/crud` вернет **404 Not Found**, если в запросе нет Cookie сессии администратора (`rsgi_crud_session` или `rsgi_session`). Это защитная мера, а не ошибка роутинга!
+   - Переход на `http://localhost:8080/crud` вернет **404 Not Found**, если в запросе нет Cookie сессии администратора (`ferro_crud_session` или `ferro_session`). Это защитная мера, а не ошибка роутинга!
    - **Управление паролем администратора:** утилита командной строки `python server.py --set-admin-password [пароль] --login admin` безопасно обновляет пароль в БД (строго DML, PBKDF2-SHA256).
    - **В приложении:** сокеты и панель управления нативно авторизуются по Cookie/JWT (`auto_auth_ws=True`), а при сторонней авторизации поддерживается `set_crud_session_validator(func)`.
    - Подробное руководство: [docs/crud_panel_guide.md](docs/crud_panel_guide.md).
 
 ---
 
-## 11. SEO & Dynamic Rendering (`rsgi_wsrpc.plugins.seo`)
+## 11. SEO & Dynamic Rendering (`pyferro.plugins.seo`)
 
 Автоматическое определение краулеров и отдача SSR HTML с мета-тегами:
 ```python
-from rsgi_wsrpc.plugins.seo import bot_page, render_seo_page
+from pyferro.plugins.seo import bot_page, render_seo_page
 
 @bot_page("/articles/{slug}")
 async def article_seo(slug: str):
@@ -248,7 +248,29 @@ async def article_seo(slug: str):
 
 ---
 
-## 12. 🚫 КРИТИЧЕСКИЕ АНТИ-ПАТТЕРНЫ (Anti-Hallucination Guardrails)
+## 12. Аутентификация и управление паролями (Frontend & Backend)
+
+Подробное руководство: [docs/auth_guide.md](file:///home/alex/PyFerro/docs/auth_guide.md).
+
+1. **Формат хэширования паролей в БД:**
+   - Канонический стандарт: **PBKDF2-SHA256** с Base64 кодированием соли и ключа:
+     `pbkdf2_sha256$<iterations>$<salt_b64>$<key_b64>`
+   - Любые отклонения (хранение в hex, двоеточие `:` вместо `$`, сырой текст) приводят к ошибке «пароль не совпадает».
+   - Утилита командной строки: `python server.py --set-admin-password [пароль] --login admin`.
+2. **Контракт RPC-методов (Default Deny):**
+   - Все методы с префиксом `login.` (`login.submit`, `login.get_key`, `login.refresh`, `login.whoami`) автоматически открыты неавторизованным гостям.
+   - Любые кастомные методы вроде `auth.login` или `user.login` **обязаны** иметь `@app.rpc("auth.login", public=True)`, иначе гость получит `RPCError(-32000, "Permission Denied")`.
+3. **Авторизация сокета и сессия:**
+   - При успешном входе хендлер устанавливает `session.data = AuthSession(...)` (или через `current_transport_ctx.get().data`).
+   - Для администраторов обязательно вызывать `create_crud_session(user_info, token=token)` для открытия `/crud`.
+   - При реконнекте сервер автоматически авторизует сокет по Cookie (`auto_auth_ws=True`).
+4. **Фронтенд и шлюз `authInterceptor` (Gatekeeper):**
+   - В клиенте `client/wsrpc.ts` настроен шлюз `authInterceptor`. Он удерживает отправку бизнес-запросов до восстановления сессии.
+   - Токен сессии обязательно сохраняется в `document.cookie` (`ferro_session`, `ferro_crud_session`) для HTTP/SSO и в `localStorage` (`refresh_token`).
+
+---
+
+## 13. 🚫 КРИТИЧЕСКИЕ АНТИ-ПАТТЕРНЫ (Anti-Hallucination Guardrails)
 
 1. ❌ **НЕ ИМПОРТИРУЙТЕ `fastapi`, `starlette` или ASGI-модули.**
    - Сервер работает на **Granian RSGI**, где `scope.proto` — `"http"` или `"websocket"`.
@@ -273,7 +295,7 @@ async def article_seo(slug: str):
    - Любая функциональность, реализованная во фреймворке (разделение доступа RLS, 2PC-загрузка файлов, Smart Cache, динамические роли и права в БД, стриминг, Reverse RPC), **обязана быть доходчиво, интерактивно и наглядно представлена в `examples/showcase`**.
    - Если фича есть в коде библиотеки, но её нельзя опробовать на демонстрационном стенде в браузере в один клик — реализация считается неполной. Стенд — это живая спецификация платформы.
 10. 📦 **ОБЯЗАТЕЛЬНЫЙ РЕЛИЗ НА PYPI ПРИ ИЗМЕНЕНИИ БИБЛИОТЕКИ.**
-   - Если изменен код самой библиотеки (`rsgi_wsrpc/`), **всегда обязательно бампится версия (`pyproject.toml`, `rsgi_wsrpc/__init__.py`) и публикуется новый релиз на PyPI**. Пользователь должен всегда иметь актуальную версию пакета без рассинхрона между репозиторием и PyPI.
+   - Если изменен код самой библиотеки (`pyferro/`), **всегда обязательно бампится версия (`pyproject.toml`, `pyferro/__init__.py`) и публикуется новый релиз на PyPI**. Пользователь должен всегда иметь актуальную версию пакета без рассинхрона между репозиторием и PyPI.
 11. 📋 **ВЕДЕНИЕ И ОБЯЗАТЕЛЬНОЕ ЧТЕНИЕ БЭКЛОГА (`NEXT_RELEASE.md`).**
    - Любые выявленные задачи на следующий релиз (рефакторинг, удаление рудиментов, новые фичи) немедленно заносятся в [NEXT_RELEASE.md](NEXT_RELEASE.md).
    - **Перед каждым бампом версии и публикацией пакета в PyPI агент ОБЯЗАН прочитать `NEXT_RELEASE.md`** и учесть/закрыть запланированные пункты перед релизом.
@@ -282,7 +304,7 @@ async def article_seo(slug: str):
    - Категорически запрещено глушить диссонанс, действовать на автопилоте или замазывать проблему локальными заплатками / костылями.
    - **Поэтому спрашивай:** немедленно остановись, честно изложи пользователю сомнения и диссонанс, и спроси перед тем, как совершать действия.
 13. 🚫 **НЕ РЕДАКТИРОВАТЬ БИБЛИОТЕЧНЫЕ ФАЙЛЫ СПОНТАННО / КОГДА ЗАХОЧЕТСЯ.**
-   - Костылей не делать, но и библиотечные файлы (`rsgi_wsrpc/`, `client/`) запрещено редактировать бесконтрольно, спонтанно или на скорую руку.
+   - Костылей не делать, но и библиотечные файлы (`pyferro/`, `client/`) запрещено редактировать бесконтрольно, спонтанно или на скорую руку.
    - Всегда проверять, нет ли уже готового канонического инструмента в репозитории (например, канонический клиент `client/wsrpc.ts` вместо создания ad-hoc дубликатов).
    - Любые изменения в кодовой базе библиотеки должны быть осознанными, системными и архитектурно выверенными.
 14. ❌ **НЕ ГОВОРИТЕ О ТОМ, ЧЕГО НЕТ В КОДЕ.**

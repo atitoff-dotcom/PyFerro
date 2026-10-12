@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { rpc, wsStatus as canonicalWsStatus, unpackTabular } from "@wsrpc/wsrpc";
+  import { rpc, wsStatus as canonicalWsStatus, unpackTabular, packTabular } from "@wsrpc/wsrpc";
   import docsManifest from "@content/showcase_docs.json";
 
   import Button from "./components/ui/Button.svelte";
@@ -8,6 +8,7 @@
   import Badge from "./components/ui/Badge.svelte";
   import Modal from "./components/ui/Modal.svelte";
   import CodeInspector from "./components/CodeInspector.svelte";
+  import PyFerroLogo from "./components/PyFerroLogo.svelte";
 
   // Язык витрины (RU / EN)
   type Lang = "ru" | "en";
@@ -58,12 +59,31 @@
   // Состояния песочниц
   // 1. Overview
   let overviewLogs = $state<LogItem[]>([]);
-  // 2. Tabular
-  let tabularTasks = $state<any[]>([]);
-  let rawJsonBytes = $state<number>(0);
-  let tabularWireBytes = $state<number>(0);
-  let compressionRatio = $state<string>("0%");
-  let tabularWireSnippet = $state<string>("");
+  // 2. Tabular (Заранее сгенерированный эталонный массив для наглядного доказательства)
+  const BENCHMARK_FIELDS = ["id", "title", "completed", "priority", "owner_id", "created_at"];
+  const PRESET_BENCHMARK_TASKS = Array.from({ length: 25 }, (_, idx) => {
+    const i = idx + 1;
+    return {
+      id: i,
+      title: `Оптимизация сетевого протокола #${i} (WSRPC High Load)`,
+      completed: i % 2 === 0,
+      priority: ["low", "normal", "high"][i % 3],
+      owner_id: (i % 3) + 1,
+      created_at: `2026-10-10T12:${String(i).padStart(2, "0")}:00Z`
+    };
+  });
+  const initialRawStr = JSON.stringify(PRESET_BENCHMARK_TASKS);
+  const initialTabularObj = packTabular(PRESET_BENCHMARK_TASKS, BENCHMARK_FIELDS);
+  const initialTabularStr = JSON.stringify(initialTabularObj);
+
+  let rawJsonBytes = $state<number>(new Blob([initialRawStr]).size);
+  let tabularWireBytes = $state<number>(new Blob([initialTabularStr]).size);
+  let compressionRatio = $state<string>(
+    `${Math.round(((new Blob([initialRawStr]).size - new Blob([initialTabularStr]).size) / new Blob([initialRawStr]).size) * 100)}%`
+  );
+  let rawJsonSnippet = $state<string>(JSON.stringify(PRESET_BENCHMARK_TASKS, null, 2));
+  let tabularWireSnippet = $state<string>(JSON.stringify(initialTabularObj, null, 2));
+  let activeTabularView = $state<"tabular" | "raw">("tabular");
   // 3. Cache
   let cacheLogs = $state<LogItem[]>([]);
   let cacheVersion = $state<number>(1);
@@ -125,7 +145,7 @@
       quickPresets: "Быстрый выбор роли:",
       cancel: "Отмена",
       loginSubmit: "Войти",
-      footerText: "rsgi-wsrpc framework • На базе Granian (Rust) и SQLAlchemy 2.0 • 2026",
+      footerText: "PyFerro framework • На базе Granian (Rust) и SQLAlchemy 2.0 • 2026",
       wireFrame: "Сырой сетевой пакет:",
       trafficComparison: "Сравнение сетевого трафика:"
     },
@@ -165,7 +185,7 @@
       quickPresets: "Quick Role Presets:",
       cancel: "Cancel",
       loginSubmit: "Sign In",
-      footerText: "rsgi-wsrpc framework • Powered by Granian (Rust) & SQLAlchemy 2.0 • 2026",
+      footerText: "PyFerro framework • Powered by Granian (Rust) & SQLAlchemy 2.0 • 2026",
       wireFrame: "Raw Network Frame:",
       trafficComparison: "Network Traffic Comparison:"
     }
@@ -285,18 +305,12 @@
 
   async function loadTabularTasks() {
     try {
-      const rawRes = await rpc.call("tasks.list_raw_json");
-      const rawStr = JSON.stringify(rawRes);
-      rawJsonBytes = new Blob([rawStr]).size;
-
-      const tabRes = await rpc.call("tasks.list");
-      tabularWireSnippet = JSON.stringify(tabRes);
-      tabularWireBytes = new Blob([tabularWireSnippet]).size;
-
-      const saved = rawJsonBytes > 0 ? Math.round(((rawJsonBytes - tabularWireBytes) / rawJsonBytes) * 100) : 0;
-      compressionRatio = `${saved}%`;
-
-      tabularTasks = unpackTabular(tabRes);
+      const res = await rpc.call("tasks.benchmark_tabular");
+      rawJsonBytes = res.raw_bytes;
+      tabularWireBytes = res.tabular_bytes;
+      compressionRatio = res.saved_percent;
+      rawJsonSnippet = JSON.stringify(JSON.parse(res.raw_json), null, 2);
+      tabularWireSnippet = JSON.stringify(JSON.parse(res.tabular_json), null, 2);
     } catch (e: any) {
       tabularWireSnippet = `Ошибка: ${e.message}`;
     }
@@ -344,18 +358,23 @@
     if (isStreaming) return;
     isStreaming = true;
     streamProgress = 0;
-    streamLogs = [{ time: getTimeStr(), text: `🚀 Запуск потоковой аналитики analytics.generate...`, type: "info" }];
+    streamLogs = [{ time: getTimeStr(), text: `🚀 Запуск потоковой аналитики stream.heavy_job...`, type: "info" }];
 
     try {
-      await rpc.call("analytics.generate", {}, {
-        onChunk: (chunk: any) => {
-          streamProgress = chunk.progress || streamProgress;
-          streamLogs = [
-            ...streamLogs,
-            { time: getTimeStr(), text: `🌊 Чанк: шаг ${chunk.step}, прогресс ${chunk.progress}%`, type: "info" }
-          ];
+      await rpc.call(
+        "stream.heavy_job",
+        {},
+        {
+          onChunk: (chunk: any) => {
+            streamProgress = chunk.progress || streamProgress;
+            streamLogs = [
+              ...streamLogs,
+              { time: getTimeStr(), text: `🌊 Чанк: ${chunk.message || `шаг ${chunk.step || ''}, прогресс ${chunk.progress}%`}`, type: "info" }
+            ];
+          },
+          timeoutMs: 60000
         }
-      });
+      );
       streamProgress = 100;
       streamLogs = [
         ...streamLogs,
@@ -373,10 +392,10 @@
       const res = await rpc.call("admin.inspect_client");
       reverseRpcLogs = [
         ...reverseRpcLogs,
-        { time: getTimeStr(), text: `✔ Бэкенд успешно опросил браузер: ${JSON.stringify(res)}`, type: "success" }
+        { time: getTimeStr(), text: `✔ Бэкенд опросил браузер: ${JSON.stringify(res.client_payload || res)}`, type: "success" }
       ];
     } catch (e: any) {
-      reverseRpcLogs = [...reverseRpcLogs, { time: getTimeStr(), text: `✖ Ошибка: ${e.message}`, type: "error" }];
+      reverseRpcLogs = [...reverseRpcLogs, { time: getTimeStr(), text: `✖ Ошибка: ${e?.message || String(e)}`, type: "error" }];
     }
   }
 
@@ -384,7 +403,7 @@
     try {
       await rpc.call("alerts.publish", { message: alertMessage });
     } catch (e: any) {
-      broadcastLogs = [...broadcastLogs, { time: getTimeStr(), text: `✖ Ошибка: ${e.message}`, type: "error" }];
+      broadcastLogs = [...broadcastLogs, { time: getTimeStr(), text: `✖ Ошибка: ${e?.message || String(e)}`, type: "error" }];
     }
   }
 
@@ -408,10 +427,10 @@
       const res = await rpc.call("seo.simulate", { bot: botType });
       seoLogs = [
         ...seoLogs,
-        { time: getTimeStr(), text: `✔ [${botType}] Ответ: ${res.type} (${res.content_preview})`, type: "info" }
+        { time: getTimeStr(), text: `✔ [${botType}] ${res.type || (res.is_bot ? 'Бот/Краулер' : 'Браузер')}: ${res.recommendation || JSON.stringify(res)}`, type: "info" }
       ];
     } catch (e: any) {
-      seoLogs = [...seoLogs, { time: getTimeStr(), text: `✖ Ошибка: ${e.message}`, type: "error" }];
+      seoLogs = [...seoLogs, { time: getTimeStr(), text: `✖ Ошибка: ${e?.message || String(e)}`, type: "error" }];
     }
   }
 
@@ -425,8 +444,8 @@
         password: loginPassword
       });
       if (res && res.token) {
-        document.cookie = `rsgi_crud_session=${res.token}; path=/; max-age=86400; SameSite=Lax`;
-        document.cookie = `rsgi_session=${res.token}; path=/; max-age=86400; SameSite=Lax`;
+        document.cookie = `ferro_crud_session=${res.token}; path=/; max-age=86400; SameSite=Lax`;
+        document.cookie = `ferro_session=${res.token}; path=/; max-age=86400; SameSite=Lax`;
       }
       await checkAuthMe();
       isLoginModalOpen = false;
@@ -441,8 +460,8 @@
     try {
       await rpc.call("auth.logout", {});
     } catch {}
-    document.cookie = "rsgi_crud_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    document.cookie = "rsgi_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    document.cookie = "ferro_crud_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    document.cookie = "ferro_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
     auth = { authenticated: false, role: "guest", username: t.guest, userId: null };
   }
 
@@ -466,9 +485,10 @@
     <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
       <!-- Brand -->
       <div class="flex items-center gap-3">
-        <span class="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
-          <span>⚡ rsgi-wsrpc</span>
-          <span class="text-xs px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 border border-blue-500/30 font-mono">Showcase</span>
+        <span class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+          <PyFerroLogo size={28} />
+          <span>PyFerro</span>
+          <span class="text-xs px-2 py-0.5 rounded bg-red-600/20 text-red-400 border border-red-500/30 font-mono">Showcase</span>
         </span>
         <span class="hidden md:inline-block text-xs text-slate-400 border-l border-slate-700 pl-3">
           {t.brandSub}
@@ -609,9 +629,15 @@
 
               <!-- 2. TABULAR -->
               {:else if section.id === "tabular"}
-                <div class="flex gap-2">
-                  <Button variant="primary" size="sm" onclick={loadTabularTasks}>{t.btnTabular}</Button>
+                <div class="flex items-center justify-between gap-2">
+                  <Button variant="primary" size="sm" onclick={loadTabularTasks}>
+                    {t.btnTabular}
+                  </Button>
+                  <span class="text-[11px] text-slate-400 font-mono">
+                    25 записей (1 эталонный массив)
+                  </span>
                 </div>
+
                 <div class="grid grid-cols-3 gap-2 text-xs text-center font-mono">
                   <div class="p-2 bg-slate-900 border border-slate-800 rounded">
                     <div class="text-[10px] text-slate-500">Raw JSON</div>
@@ -621,16 +647,34 @@
                     <div class="text-[10px] text-slate-500">Tabular Wire</div>
                     <div class="font-bold text-blue-400">{tabularWireBytes} B</div>
                   </div>
-                  <div class="p-2 bg-slate-900 border border-slate-800 rounded">
-                    <div class="text-[10px] text-slate-500">Saved</div>
-                    <div class="font-bold text-emerald-400">{compressionRatio}</div>
+                  <div class="p-2 bg-slate-900 border border-emerald-950/60 rounded bg-emerald-950/20">
+                    <div class="text-[10px] text-emerald-400 font-semibold">Сэкономлено</div>
+                    <div class="font-bold text-emerald-300 text-sm">{compressionRatio}</div>
                   </div>
                 </div>
-                {#if tabularWireSnippet}
-                  <div class="bg-slate-900 border border-slate-800 rounded p-2 text-[11px] font-mono text-slate-300 truncate">
-                    {tabularWireSnippet}
-                  </div>
-                {/if}
+
+                <!-- Переключатель для сравнения обоих форматов одного массива -->
+                <div class="flex items-center gap-1.5 border-b border-slate-800 pb-1.5">
+                  <Button
+                    variant={activeTabularView === "tabular" ? "primary" : "ghost"}
+                    size="sm"
+                    onclick={() => (activeTabularView = "tabular")}
+                  >
+                    ⚡ Tabular Wire (RFC 0002)
+                  </Button>
+                  <Button
+                    variant={activeTabularView === "raw" ? "primary" : "ghost"}
+                    size="sm"
+                    onclick={() => (activeTabularView = "raw")}
+                  >
+                    📄 Raw JSON (Без сжатия)
+                  </Button>
+                </div>
+
+                <!-- Просмотр выбранного формата -->
+                <div class="bg-slate-900 border border-slate-800 rounded p-2.5 max-h-48 overflow-y-auto">
+                  <pre class="m-0 text-[11px] font-mono leading-relaxed text-slate-300 whitespace-pre">{activeTabularView === "tabular" ? tabularWireSnippet : rawJsonSnippet}</pre>
+                </div>
 
               <!-- 3. CACHE -->
               {:else if section.id === "cache"}

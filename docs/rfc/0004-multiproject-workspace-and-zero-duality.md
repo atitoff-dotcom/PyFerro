@@ -14,7 +14,7 @@
 3. [The Single Source of Truth (SSOT) Principle](#3-the-single-source-of-truth-ssot-principle)
 4. [Domain Autonomy: Users Belong to Applications, Core Has None](#4-domain-autonomy-users-belong-to-applications-core-has-none)
 5. [Target Workspace Architecture (Umbrella Workspace)](#5-target-workspace-architecture-umbrella-workspace)
-6. [Backend Namespace & Packaging (`rsgi_wsrpc`)](#6-backend-namespace--packaging-rsgi_wsrpc)
+6. [Backend Namespace & Packaging (`pyferro`)](#6-backend-namespace--packaging-pyferro)
 7. [Frontend Client Integration & Vite `fs.allow`](#7-frontend-client-integration--vite-fsallow)
 8. [Stage & Production Server Symmetry (`195.133.5.32`)](#8-stage--production-server-symmetry-195133532)
 9. [Step-by-Step Migration Plan](#9-step-by-step-migration-plan)
@@ -24,14 +24,14 @@
 
 ## 1. Summary
 
-This RFC establishes the target architectural standard for organizing multi-project solutions built on top of the **`rsgi-wsrpc`** framework.
+This RFC establishes the target architectural standard for organizing multi-project solutions built on top of the **`PyFerro`** framework.
 
 The primary objective is the total elimination of **duality** — removing all duplicate codebases, mirrored documentation folders, and desynchronized client libraries. Under RFC 0004:
-* **The Core Framework (`rsgi-wsrpc`)** lives strictly as an autonomous, self-contained Git repository and Python package.
+* **The Core Framework (`PyFerro`)** lives strictly as an autonomous, self-contained Git repository and Python package.
 * **Domain Applications (e.g. `agrita`, future banking CRM, ERP)** reside in dedicated project directories (`apps/<app_name>`) with zero internal copies of the framework runtime.
 * **Users Belong to Applications, Core Has None**: the framework core enforces zero database schemas or opinionated user models; it deals solely with an abstract transport `UserContext`.
-* **Canonical Python Namespace (`rsgi_wsrpc`)**: all framework primitives are imported explicitly from `rsgi_wsrpc` (with a transient backward-compatibility alias `core`), completely eliminating namespace collisions.
-* **Single Source of Truth for Frontend**: the TypeScript client (`wsrpc.ts`, `smartCache.ts`) resides only inside `rsgi-wsrpc/client/` and is linked directly into applications via Vite aliases and `fs.allow`.
+* **Canonical Python Namespace (`pyferro`)**: all framework primitives are imported explicitly from `pyferro` (with a transient backward-compatibility alias `core`), completely eliminating namespace collisions.
+* **Single Source of Truth for Frontend**: the TypeScript client (`wsrpc.ts`, `smartCache.ts`) resides only inside `PyFerro/client/` and is linked directly into applications via Vite aliases and `fs.allow`.
 * **Exact Server-Local Symmetry**: the staging server layout mirrors the developer's local workspace layout 1:1.
 
 ---
@@ -39,11 +39,11 @@ The primary objective is the total elimination of **duality** — removing all d
 ## 2. Motivation & The Problem of Duality
 
 ### 2.1 The Historical Compromise
-During early development, the `rsgi-wsrpc` runtime was embedded directly inside the `hydro_calc` application repository under a local `core/` folder. While convenient for bootstrapping, this resulted in severe architectural friction as the framework matured into an independent open-source platform:
+During early development, the `PyFerro` runtime was embedded directly inside the `hydro_calc` application repository under a local `core/` folder. While convenient for bootstrapping, this resulted in severe architectural friction as the framework matured into an independent open-source platform:
 
-1. **Dual Core Copies:** `hydro_calc/core/` and `/home/alex/rsgi-wsrpc/core/` existed simultaneously, creating risk of diverged code or missed bugfixes.
-2. **Dual Documentation ("The Twins Overhead"):** Documentation was maintained inside `docs_core/` within the application, requiring continuous manual or scripted replication to the standalone `rsgi-wsrpc` repository.
-3. **Dual Client Implementations:** Frontend fixes in `frontend/src/lib/wsrpc.ts` had to be manually backported to `rsgi-wsrpc/client/wsrpc.ts`.
+1. **Dual Core Copies:** `hydro_calc/core/` and `/home/alex/PyFerro/core/` existed simultaneously, creating risk of diverged code or missed bugfixes.
+2. **Dual Documentation ("The Twins Overhead"):** Documentation was maintained inside `docs_core/` within the application, requiring continuous manual or scripted replication to the standalone `PyFerro` repository.
+3. **Dual Client Implementations:** Frontend fixes in `frontend/src/lib/wsrpc.ts` had to be manually backported to `PyFerro/client/wsrpc.ts`.
 4. **Namespace Ambiguity:** Importing `from core.session import ...` is overly generic in Python and collides with standard library or third-party packages.
 5. **Git Contamination:** Application-level agronomy commits and core networking protocol commits were tangled in local development trees.
 
@@ -61,18 +61,18 @@ RFC 0004 mandates strict adherence to the **Single Source of Truth (SSOT)**:
 
 | Asset | Current State (Duality) | Target State (RFC 0004 SSOT) |
 | :--- | :--- | :--- |
-| **Core Python Code** | Mirrored in `hydro_calc/core/` and `rsgi-wsrpc/core/` | **Strictly in `rsgi-wsrpc/`**, installed via `pip install -e` |
-| **Framework Docs & RFCs** | Mirrored in `docs_core/` and `rsgi-wsrpc/docs/` | **Strictly in `rsgi-wsrpc/docs/` & `docs_ru/`** |
-| **Frontend Client** | Mirrored in `frontend/src/lib/` and `rsgi-wsrpc/client/` | **Strictly in `rsgi-wsrpc/client/`**, resolved via Vite alias |
+| **Core Python Code** | Mirrored in `hydro_calc/core/` and `PyFerro/core/` | **Strictly in `PyFerro/`**, installed via `pip install -e` |
+| **Framework Docs & RFCs** | Mirrored in `docs_core/` and `PyFerro/docs/` | **Strictly in `PyFerro/docs/` & `docs_ru/`** |
+| **Frontend Client** | Mirrored in `frontend/src/lib/` and `PyFerro/client/` | **Strictly in `PyFerro/client/`**, resolved via Vite alias |
 | **User & Identity Schema** | Unclear boundary between app and core | **Strictly in application domain**; core has NO user schema |
-| **Python Namespace** | Ambiguous `from core...` | Canonical **`from rsgi_wsrpc...`** |
+| **Python Namespace** | Ambiguous `from core...` | Canonical **`from pyferro...`** |
 | **Domain Docs** | Mixed in application root | **Strictly application-specific** (`apps/agrita/docs/`) |
 
 ---
 
 ## 4. Domain Autonomy: Users Belong to Applications, Core Has None
 
-A cornerstone architectural principle of `rsgi-wsrpc` is the complete separation between **Session Context** and **User Identity**:
+A cornerstone architectural principle of `PyFerro` is the complete separation between **Session Context** and **User Identity**:
 
 > **"Users belong to the application. The Core does not have them."**
 
@@ -86,7 +86,7 @@ Frameworks that enforce an opinionated `User` table (such as early Django's rigi
 The Core framework has no database tables for users, no password hashing opinions, and no email columns. The Core deals solely with the in-memory **Transport Session Context**:
 
 ```python
-# The only entity rsgi-wsrpc cares about during connection lifecycle
+# The only entity PyFerro cares about during connection lifecycle
 @dataclass
 class UserContext:
     user_id: Any                    # int, UUID, string, or device ID
@@ -118,8 +118,8 @@ The development environment is unified under a root workspace directory (e.g. `/
 workspace/                                  # Root Umbrella Workspace
 ├── .venv/                                  # Shared Virtual Environment (Python 3.11+)
 │
-├── rsgi-wsrpc/                             # REPOSITORY 1: The Core Framework (Git: origin/main)
-│   ├── rsgi_wsrpc/                         # Canonical Python package (engine, router, tabular, auth)
+├── PyFerro/                             # REPOSITORY 1: The Core Framework (Git: origin/main)
+│   ├── pyferro/                         # Canonical Python package (engine, router, tabular, auth)
 │   │   ├── __init__.py
 │   │   ├── session.py
 │   │   ├── tabular.py
@@ -132,7 +132,7 @@ workspace/                                  # Root Umbrella Workspace
 │   ├── tests/                              # Framework standalone test harness
 │   └── pyproject.toml                      # Standard Python packaging configuration
 │
-├── rsgi-wsrpc-admin/                       # REPOSITORY 2 (Optional): Reactive Admin Plugin (RFC 0003)
+├── PyFerro-admin/                       # REPOSITORY 2 (Optional): Reactive Admin Plugin (RFC 0003)
 │   ├── backend/
 │   └── frontend/
 │
@@ -150,10 +150,10 @@ workspace/                                  # Root Umbrella Workspace
 
 ---
 
-## 6. Backend Namespace & Packaging (`rsgi_wsrpc`)
+## 6. Backend Namespace & Packaging (`pyferro`)
 
-### 6.1 Package Definition in `rsgi-wsrpc/pyproject.toml`
-The core framework packages its modules under the unambiguous top-level namespace `rsgi_wsrpc`:
+### 6.1 Package Definition in `PyFerro/pyproject.toml`
+The core framework packages its modules under the unambiguous top-level namespace `pyferro`:
 
 ```toml
 [build-system]
@@ -161,7 +161,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rsgi-wsrpc"
+name = "PyFerro"
 version = "0.2.0"
 dependencies = [
     "granian>=1.6.0",
@@ -179,19 +179,19 @@ Developers import framework capabilities cleanly and expressively:
 
 ```python
 # Modern canonical import style
-from rsgi_wsrpc import rpc_method, RPCError, pack_tabular
-from rsgi_wsrpc.logger import logger
-from rsgi_wsrpc.security import current_user_ctx
-from rsgi_wsrpc.tabular import tabular_response
+from pyferro import rpc_method, RPCError, pack_tabular
+from pyferro.logger import logger
+from pyferro.security import current_user_ctx
+from pyferro.tabular import tabular_response
 ```
 
 ### 6.3 Zero-Breakage Compatibility Bridge
-To allow existing applications to transition smoothly without rewriting hundreds of files overnight, `rsgi-wsrpc` provides a top-level `core` compatibility alias during the transition phase:
+To allow existing applications to transition smoothly without rewriting hundreds of files overnight, `PyFerro` provides a top-level `core` compatibility alias during the transition phase:
 
 ```python
-# rsgi_wsrpc/__init__.py
+# pyferro/__init__.py
 import sys
-from rsgi_wsrpc import session, tabular, logger, security, constants
+from pyferro import session, tabular, logger, security, constants
 
 # Backward-compatibility alias
 sys.modules["core"] = sys.modules[__name__]
@@ -222,7 +222,7 @@ export default defineConfig({
     resolve: {
         alias: {
             // Direct reference to the canonical framework client
-            '@wsrpc': path.resolve(__dirname, '../../../rsgi-wsrpc/client')
+            '@wsrpc': path.resolve(__dirname, '../../../PyFerro/client')
         }
     },
     server: {
@@ -230,7 +230,7 @@ export default defineConfig({
             // Permit Vite dev server to read canonical client files outside app root
             allow: [
                 '..',
-                path.resolve(__dirname, '../../../rsgi-wsrpc/client')
+                path.resolve(__dirname, '../../../PyFerro/client')
             ]
         }
     }
@@ -244,14 +244,14 @@ import { rpc, wsConnected } from '@wsrpc/wsrpc';
 import { smartCache } from '@wsrpc/smartCache';
 ```
 
-When an engineer enhances performance or fixes an issue in `rsgi-wsrpc/client/wsrpc.ts`:
+When an engineer enhances performance or fixes an issue in `PyFerro/client/wsrpc.ts`:
 1. Vite HMR (Hot Module Replacement) instantly updates the running browser tab.
 2. Zero file copying or npm republishing is needed during local development.
 3. Every application in `apps/` immediately benefits from upstream improvements.
 
 ---
 
-## 8. Server Symmetry: `rsgi-wsrpc`, `apps/agrita`, and `apps/agrita-stage`
+## 8. Server Symmetry: `PyFerro`, `apps/agrita`, and `apps/agrita-stage`
 
 To eliminate deployment surprises, the layout on staging and production servers mirrors the local workspace with 100% fidelity, harmoniously supporting both **Production** and **Staging** instances.
 
@@ -259,7 +259,7 @@ To eliminate deployment surprises, the layout on staging and production servers 
 ```text
 /home/alex/workspace/                       # Unified root on Server
 ├── .venv/                                  # Shared virtual environment across Core and all apps
-├── rsgi-wsrpc/                             # Single Core repository (cloned from GitHub)
+├── PyFerro/                             # Single Core repository (cloned from GitHub)
 └── apps/
     ├── agrita/                             # Production instance (agrita.ru, port 8090, DB agrita_prod)
     │   ├── backend/
@@ -333,7 +333,7 @@ WantedBy=multi-user.target
 set -e
 
 WORKSPACE="/home/alex/workspace"
-CORE_DIR="$WORKSPACE/rsgi-wsrpc"
+CORE_DIR="$WORKSPACE/PyFerro"
 STAGE_DIR="$WORKSPACE/apps/agrita-stage"
 
 echo "=== 1. Pulling Core Updates ==="
@@ -359,7 +359,7 @@ echo "✅ Stage deployment successfully completed!"
 set -e
 
 WORKSPACE="/home/alex/workspace"
-CORE_DIR="$WORKSPACE/rsgi-wsrpc"
+CORE_DIR="$WORKSPACE/PyFerro"
 PROD_DIR="$WORKSPACE/apps/agrita"
 
 echo "=== 1. Pulling Core Updates ==="
@@ -387,14 +387,14 @@ To ensure 100% service continuity with zero downtime, the decoupling is executed
 
 ```mermaid
 graph TD
-    Step1[1. Package rsgi-wsrpc as library with core alias] --> Step2[2. Install rsgi-wsrpc in editable mode into .venv]
+    Step1[1. Package PyFerro as library with core alias] --> Step2[2. Install PyFerro in editable mode into .venv]
     Step2 --> Step3[3. Configure Vite alias and fs.allow in frontend]
     Step3 --> Step4[4. Remove redundant core/ and docs_core/ from app]
     Step4 --> Step5[5. Replicate layout & deploy to Stage server]
 ```
 
 1. **Phase 1: Packaging & Alias Bridge**
-   * Structure `rsgi-wsrpc` with the canonical `rsgi_wsrpc` package and compatibility alias `core`.
+   * Structure `PyFerro` with the canonical `pyferro` package and compatibility alias `core`.
    * Test standalone packaging via `pip install -e .`.
 2. **Phase 2: Virtualenv Linking**
    * Register editable package in `.venv`.
@@ -414,6 +414,6 @@ graph TD
 
 ## 10. Conclusion
 
-RFC 0004 permanently resolves architectural friction by decoupling the general-purpose `rsgi-wsrpc` runtime from domain applications. 
+RFC 0004 permanently resolves architectural friction by decoupling the general-purpose `PyFerro` runtime from domain applications. 
 
 By eliminating duplicate code, establishing that users belong strictly to applications, unifying documentation at the framework level, and guaranteeing exact server symmetry, the architecture achieves complete clarity, developer velocity, and enterprise-grade maintainability.

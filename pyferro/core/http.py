@@ -1,0 +1,118 @@
+# -*- coding: utf-8 -*-
+"""
+pyferro.core.http: Базовые протокольные утилиты для работы с RSGI HTTP-запросами.
+"""
+
+from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs
+
+
+def extract_header(scope: Any, header_name: str, default: Optional[str] = None) -> Optional[str]:
+    """
+    Извлекает HTTP-заголовок из RSGI scope в независимом от регистра формате.
+    Поддерживает Granian Headers, dict, список кортежей (строк или байтов).
+    """
+    target = header_name.lower()
+    headers = getattr(scope, "headers", None)
+    if headers is None and isinstance(scope, dict):
+        headers = scope.get("headers")
+
+    if headers is None:
+        return default
+
+    # 1. Если это dict или Granian Headers с методом .get()
+    if hasattr(headers, "get"):
+        try:
+            val = headers.get(target)
+            if val is not None:
+                return val.decode("latin1") if isinstance(val, bytes) else str(val)
+        except (TypeError, KeyError, AttributeError):
+            pass
+
+        # Fallback по байтовому ключу только для стандартных python dict
+        if isinstance(headers, dict):
+            try:
+                val = headers.get(target.encode("latin1"))
+                if val is not None:
+                    return val.decode("latin1") if isinstance(val, bytes) else str(val)
+            except (TypeError, KeyError, AttributeError):
+                pass
+
+    # 2. Если это список/кортеж пар (k, v) или объект с .items()
+    items = headers.items() if hasattr(headers, "items") else headers
+    try:
+        for k, v in items:
+            k_str = k.decode("latin1").lower() if isinstance(k, bytes) else str(k).lower()
+            if k_str == target:
+                return v.decode("latin1") if isinstance(v, bytes) else str(v)
+    except Exception:
+        pass
+
+    return default
+
+
+def extract_query_params(scope: Any) -> Dict[str, str]:
+    """
+    Извлекает query-параметры из RSGI scope в виде плоского словаря {param: first_value}.
+    """
+    qs = getattr(scope, "query_string", None)
+    if qs is None and isinstance(scope, dict):
+        qs = scope.get("query_string", "")
+
+    if isinstance(qs, bytes):
+        qs = qs.decode("utf-8", errors="replace")
+    elif not isinstance(qs, str):
+        qs = str(qs or "")
+
+    parsed = parse_qs(qs)
+    return {k: v[0] if v else "" for k, v in parsed.items()}
+
+
+async def read_request_body(proto: Any) -> bytes:
+    """
+    Асинхронно считывает тело HTTP-запроса из RSGI proto.
+    Поддерживает потоковый асинхронный итератор Granian RSGI (__aiter__),
+    callable-протокол, метод .read() и fallback для тестов.
+    """
+    if hasattr(proto, "__aiter__"):
+        chunks = []
+        async for chunk in proto:
+            if chunk:
+                chunks.append(chunk if isinstance(chunk, bytes) else str(chunk).encode("utf-8"))
+        return b"".join(chunks)
+
+    if callable(proto):
+        b = await proto()
+        return b if isinstance(b, bytes) else str(b).encode("utf-8")
+
+    if hasattr(proto, "read"):
+        b = await proto.read()
+        return b if isinstance(b, bytes) else str(b).encode("utf-8")
+
+    if hasattr(proto, "receive_bytes"):
+        chunks = []
+        while True:
+            c = await proto.receive_bytes()
+            if not c:
+                break
+            chunks.append(c)
+        return b"".join(chunks)
+
+    if hasattr(proto, "receive"):
+        chunks = []
+        while True:
+            m = await proto.receive()
+            c = m if isinstance(m, bytes) else (m.get("body", b"") if isinstance(m, dict) else b"")
+            if not c:
+                break
+            chunks.append(c)
+        return b"".join(chunks)
+
+    return b""
+
+
+__all__ = [
+    "extract_header",
+    "extract_query_params",
+    "read_request_body",
+]

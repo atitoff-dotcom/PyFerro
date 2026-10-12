@@ -15,9 +15,9 @@ from sqlalchemy import Integer, String, Boolean, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-from rsgi_wsrpc.core.session import RPCError, JsonRpcSession
-from rsgi_wsrpc.plugins.db import Base
-from rsgi_wsrpc.plugins.crud import (
+from pyferro.core.session import RPCError, JsonRpcSession
+from pyferro.plugins.db import Base
+from pyferro.plugins.crud import (
     ModelRegistry,
     ModelMeta,
     FieldMeta,
@@ -138,7 +138,7 @@ class MockIdentityProvider:
 @pytest.mark.asyncio
 async def test_crud_lifecycle_in_memory():
     """Тестирует полный цикл CRUD на in-memory SQLite базе."""
-    from rsgi_wsrpc.plugins.db import async_session
+    from pyferro.plugins.db import async_session
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async_session.configure(bind=engine)
 
@@ -210,14 +210,14 @@ async def test_crud_lifecycle_in_memory():
     finally:
         set_identity_provider(DefaultIdentityProvider())
         await engine.dispose()
-        from rsgi_wsrpc.plugins.db import engine as orig_engine
+        from pyferro.plugins.db import engine as orig_engine
         async_session.configure(bind=orig_engine)
 
 
 @pytest.mark.asyncio
 async def test_crud_schema_strict_admin_isolation():
     from unittest.mock import MagicMock
-    from rsgi_wsrpc.plugins.crud.auth import create_crud_session, revoke_crud_session
+    from pyferro.plugins.crud.auth import create_crud_session, revoke_crud_session
 
     set_identity_provider(DefaultIdentityProvider())
 
@@ -247,13 +247,13 @@ async def test_crud_schema_strict_admin_isolation():
     assert task_schema["permissions"]["can_update"] is True
     assert task_schema["permissions"]["can_delete"] is True
 
-    # 3. Аутентификация через Cookie сессии (rsgi_crud_session)
+    # 3. Аутентификация через Cookie сессии (ferro_crud_session)
     token = create_crud_session({"username": "admin", "role": "admin"})
     cookie_ws = MagicMock()
     cookie_ws.data = None
     cookie_ws.user_role = None
     cookie_ws.user_roles = []
-    cookie_ws.cookies = {"rsgi_crud_session": token}
+    cookie_ws.cookies = {"ferro_crud_session": token}
 
     res_cookie = await handle_crud_schema(cookie_ws, {})
     cookie_model_keys = [m["key"] for m in res_cookie["models"]]
@@ -263,8 +263,8 @@ async def test_crud_schema_strict_admin_isolation():
 
 @pytest.mark.asyncio
 async def test_crud_sso_and_zero_leakage_404():
-    from rsgi_wsrpc.plugins.crud.static_handler import serve_crud_static
-    from rsgi_wsrpc.plugins.crud.auth import set_crud_session_validator, create_crud_session
+    from pyferro.plugins.crud.static_handler import serve_crud_static
+    from pyferro.plugins.crud.auth import set_crud_session_validator, create_crud_session
 
     class MockRsgiProto:
         def __init__(self):
@@ -297,14 +297,14 @@ async def test_crud_sso_and_zero_leakage_404():
 
     # 2. Запрос обычного пользователя (не admin) -> 404 Not Found
     user_token = create_crud_session({"username": "user", "role": "user"})
-    scope_user = MockScope(path="/crud/", cookie=f"rsgi_crud_session={user_token}")
+    scope_user = MockScope(path="/crud/", cookie=f"ferro_crud_session={user_token}")
     proto_user = MockRsgiProto()
     await serve_crud_static(scope_user, proto_user)
     assert proto_user.status == 404
 
     # 3. Запрос админа -> 200 OK (отдает index.html)
     admin_token = create_crud_session({"username": "admin", "role": "admin"})
-    scope_admin = MockScope(path="/crud/", cookie=f"rsgi_crud_session={admin_token}")
+    scope_admin = MockScope(path="/crud/", cookie=f"ferro_crud_session={admin_token}")
     proto_admin = MockRsgiProto()
     await serve_crud_static(scope_admin, proto_admin)
     assert proto_admin.status == 200
@@ -312,7 +312,7 @@ async def test_crud_sso_and_zero_leakage_404():
 
     # 4. Проверка внешнего SSO валидатора
     set_crud_session_validator(lambda t: {"username": "sso_admin", "role": "admin"} if t == "valid_sso" else None)
-    scope_sso = MockScope(path="/crud/", cookie="rsgi_crud_session=valid_sso")
+    scope_sso = MockScope(path="/crud/", cookie="ferro_crud_session=valid_sso")
     proto_sso = MockRsgiProto()
     await serve_crud_static(scope_sso, proto_sso)
     assert proto_sso.status == 200
@@ -321,9 +321,9 @@ async def test_crud_sso_and_zero_leakage_404():
 @pytest.mark.asyncio
 async def test_crud_m2m_update_cell():
     """Тестирует редактирование ячейки M2M связи (User -> roles) через crud.update_cell."""
-    from rsgi_wsrpc.plugins.db import async_session
-    from rsgi_wsrpc.plugins.auth.models import User, Role
-    from rsgi_wsrpc.plugins.auth.models import _register_internal_auth_models
+    from pyferro.plugins.db import async_session
+    from pyferro.plugins.auth.models import User, Role
+    from pyferro.plugins.auth.models import _register_internal_auth_models
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async_session.configure(bind=engine)
@@ -376,7 +376,7 @@ async def test_crud_m2m_update_cell():
     finally:
         set_identity_provider(DefaultIdentityProvider())
         await engine.dispose()
-        from rsgi_wsrpc.plugins.db import engine as orig_engine
+        from pyferro.plugins.db import engine as orig_engine
         async_session.configure(bind=orig_engine)
 
 

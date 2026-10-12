@@ -30,7 +30,7 @@ def generate_markdown(manifest: dict, lang: str) -> str:
     sections = manifest.get("sections", [])
     is_ru = lang == "ru"
 
-    title = "Архитектурное руководство и витрина возможностей rsgi-wsrpc" if is_ru else "rsgi-wsrpc Architecture Guide & Capabilities Showcase"
+    title = "Архитектурное руководство и витрина возможностей PyFerro" if is_ru else "PyFerro Architecture Guide & Capabilities Showcase"
     intro = (
         "> **Примечание:** Данный документ автоматически сгенерирован из единого источника правды интерактивной витрины "
         "(`examples/showcase/content/showcase_docs.json`). Все приведенные примеры и RPC-контракты полностью рабочие."

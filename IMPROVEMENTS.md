@@ -1,6 +1,6 @@
 # Журнал доработок и улучшений (IMPROVEMENTS.md)
 
-> Данный документ фиксирует выявленные замечания, архитектурные шероховатости, избыточный шум и ход их устранения в фреймворке `rsgi-wsrpc` и его демонстрационных стендах.
+> Данный документ фиксирует выявленные замечания, архитектурные шероховатости, избыточный шум и ход их устранения в фреймворке `PyFerro` и его демонстрационных стендах.
 
 ---
 
@@ -20,34 +20,34 @@
 ### 1. Очистка меню CRUD от визуального и технического шума
 - **Проблема:** В выпадающем меню админки CRUD (`/crud`) отображались тестовые демо-записи витрины («Задачи» для тестирования RFC 0002, «Документы»), а также 5 технических связующих таблиц Many-to-Many (`UserRole`, `RoleRpcPermission`, `UserPermission` и др.).
 - **Решение:**
-  - В `rsgi_wsrpc/plugins/crud/meta.py` внедрён системный флаг `is_internal`: любая модель с `class Crud: internal = True` или `visible = False` скрывается из меню админки, оставаясь доступной в БД для связей.
-  - В `rsgi_wsrpc/plugins/auth/models.py` все промежуточные junction-таблицы помечены как `internal = True`.
+  - В `pyferro/plugins/crud/meta.py` внедрён системный флаг `is_internal`: любая модель с `class Crud: internal = True` или `visible = False` скрывается из меню админки, оставаясь доступной в БД для связей.
+  - В `pyferro/plugins/auth/models.py` все промежуточные junction-таблицы помечены как `internal = True`.
   - Моделям `User` и `Role` заданы лаконичные русские имена `Пользователь` и `Роль`.
   - Из `ModelRegistry` витрины убраны демо-модели `Task` и `Document`. Меню стало кристально чистым: **только Пользователи и Роли**.
 
-### 2. Прямая отдача статических ассетов (Zero-Copy) в `RsgiWsrpcApp`
-- **Проблема:** Браузер получал `404 Not Found` на `/assets/index-....js` и `css`, так как `RsgiWsrpcApp` искал файлы только по строгому префиксу `/static/`.
-- **Решение:** В [rsgi_wsrpc/app.py](rsgi_wsrpc/app.py) добавлена нативная раздача любых файлов из корня `static_dir` с защитой от Path Traversal и корректным `charset=utf-8`. Покрыто тестами в [tests/suites/test_app.py](tests/suites/test_app.py).
+### 2. Прямая отдача статических ассетов (Zero-Copy) в `FerroApp`
+- **Проблема:** Браузер получал `404 Not Found` на `/assets/index-....js` и `css`, так как `FerroApp` искал файлы только по строгому префиксу `/static/`.
+- **Решение:** В [pyferro/app.py](pyferro/app.py) добавлена нативная раздача любых файлов из корня `static_dir` с защитой от Path Traversal и корректным `charset=utf-8`. Покрыто тестами в [tests/suites/test_app.py](tests/suites/test_app.py).
 
 ### 3. Исправление входа администратора и бесшовный SSO
 - **Проблема:** При попытке авторизоваться под `admin` интерфейс сбрасывал статус обратно в `guest` из-за рассинхрона имён методов (`auth.me` vs `auth.whoami`), а переход в `/crud` выдавал 404 из-за отсутствия токена в Cookie.
 - **Решение:**
   - В [examples/showcase/handlers.py](examples/showcase/handlers.py) метод зарегистрирован одновременно как `auth.me` и `auth.whoami`.
-  - Во фронтенде при логине сессионный токен сохраняется в Cookie (`rsgi_crud_session` / `rsgi_session`), обеспечивая бесшовный доступ в админку без повторного ввода пароля.
+  - Во фронтенде при логине сессионный токен сохраняется в Cookie (`ferro_crud_session` / `ferro_session`), обеспечивая бесшовный доступ в админку без повторного ввода пароля.
 
 ### 4. Лаконичный формат времени и справочные колонки справа в таблицах CRUD
 - **Проблема:** Даты `created_at` и `updated_at` выводились в сыром ISO-виде с микросекундами (`2026-10-07T07:00:44.798015`) и вклинивались в середину таблицы между бизнес-полями. Пустые служебные колонки `Creator id: —` и `Team id: —` загромождали просмотр.
 - **Решение:**
-  - В [rsgi_wsrpc/plugins/crud/frontend/App.svelte](rsgi_wsrpc/plugins/crud/frontend/App.svelte) реализован умный порядок колонок `displayColumns`: содержательные бизнес-поля идут первыми, а справочные даты создания/обновления автоматически сдвигаются вправо перед колонкой действий.
+  - В [pyferro/plugins/crud/frontend/App.svelte](pyferro/plugins/crud/frontend/App.svelte) реализован умный порядок колонок `displayColumns`: содержательные бизнес-поля идут первыми, а справочные даты создания/обновления автоматически сдвигаются вправо перед колонкой действий.
   - Добавлена функция `formatCellValue`: время форматируется компактно и читаемо (`2026-10-07 07:00`), без микросекунд и буквы `T`, шрифтом `font-mono text-2xs` в приглушённом тоне.
-  - В [rsgi_wsrpc/plugins/auth/models.py](rsgi_wsrpc/plugins/auth/models.py) неиспользуемые поля `creator_id` и `team_id` скрыты из `Role.Crud` и `User.Crud`.
+  - В [pyferro/plugins/auth/models.py](pyferro/plugins/auth/models.py) неиспользуемые поля `creator_id` и `team_id` скрыты из `Role.Crud` и `User.Crud`.
 
 ### 5. Полное скрытие технической «кухни» авторизации под капот
 - **Проблема:** Разработчик приложения в `server.py` был вынужден вручную импортировать и регистрировать 5 технических связующих классов (`UserRole`, `RoleRpcPermission`, `UserPermission`, `UserRpcPermission`, `RpcPermission`), перегружая код и сознание. В интерфейсе модалки прав термины были перегружены аббревиатурами.
 - **Решение:**
-  - В [rsgi_wsrpc/plugins/auth/models.py](rsgi_wsrpc/plugins/auth/models.py) внедрена авто-регистрация внутренних таблиц связей `_register_internal_auth_models()` прямо при импорте плагина.
+  - В [pyferro/plugins/auth/models.py](pyferro/plugins/auth/models.py) внедрена авто-регистрация внутренних таблиц связей `_register_internal_auth_models()` прямо при импорте плагина.
   - В [examples/showcase/server.py](examples/showcase/server.py) код очищен: разработчик импортирует и регистрирует строго **`User`** и **`Role`**.
-  - В модальном окне [PermissionsModal.svelte](rsgi_wsrpc/plugins/crud/frontend/components/PermissionsModal.svelte) технический жаргон заменён на человеческий язык:
+  - В модальном окне [PermissionsModal.svelte](pyferro/plugins/crud/frontend/components/PermissionsModal.svelte) технический жаргон заменён на человеческий язык:
     * *«Таблицы данных (CRUD)»* вместо «Модели данных».
     * *«Действия и функции (RPC)»* вместо «Вызовы процедур».
     * *«Таблица данных»*, *«Создание»*, *«Чтение»*, *«Изменение»*, *«Удаление»*, *«Только свои записи»*, *«Все записи»*.
@@ -55,7 +55,7 @@
 ### 6. Исправление инлайн-редактирования Many-to-Many ячеек в CRUD (`crud.update_cell` и `crud.create`)
 - **Проблема:** При попытке обновить роли пользователя кликом по ячейке в таблице возникала ошибка `[RPC Error] Ошибка в хендлере crud.update_cell: 'ModelMeta' object has no attribute 'id'`.
 - **Причина:** В обработчиках `handle_crud_update_cell` и `handle_crud_create` для целевой модели вызывался `ModelRegistry.get()`, возвращающий объект метаданных `ModelMeta`, вместо класса SQLAlchemy модели `target_meta.model_cls`. Попытка обращения `target_cls.id.in_(...)` вызывала `AttributeError`.
-- **Решение:** В [rsgi_wsrpc/plugins/crud/handlers.py](rsgi_wsrpc/plugins/crud/handlers.py) корректно извлекается `target_meta.model_cls`. Покрыто автоматическим тестом `test_crud_m2m_update_cell` в [tests/suites/test_crud.py](tests/suites/test_crud.py).
+- **Решение:** В [pyferro/plugins/crud/handlers.py](pyferro/plugins/crud/handlers.py) корректно извлекается `target_meta.model_cls`. Покрыто автоматическим тестом `test_crud_m2m_update_cell` в [tests/suites/test_crud.py](tests/suites/test_crud.py).
 
 ### 7. Архитектура субъектов доступа в CRUD: «Гости», «Пользователи», «Роли»
 - **Концепция:** Все таблицы данных и RPC-функции являются *объектами* доступа. Субъектов доступа ровно три:
@@ -69,13 +69,13 @@
 ### 8. Стандартизация Docstring RPC-методов и интерактивная справка (Help Modal)
 - **Проблема:** В списке RPC-методов матрицы прав и доступа гостей вместо понятного описания выводился технический шаблон: *"Обертка для проверки прав доступа и вызова исходного хендлера..."*. Декоратор `@rpc_method` затирал оригинальный docstring хендлера. При отсутствии docstring описания не было вообще.
 - **Решение:**
-  1. В [rsgi_wsrpc/core/session.py](rsgi_wsrpc/core/session.py) декоратор `@rpc_method` доработан: теперь он бережно сохраняет оригинальный docstring функции (`wrapper.__doc__ = full_doc`), а также принимает опциональный явный аргумент `description`.
-  2. В [rsgi_wsrpc/plugins/auth/discovery.py](rsgi_wsrpc/plugins/auth/discovery.py) реализовано авто-исцеление (auto-healing): при сканировании методов шаблонные фразы *"Обертка для"* и *"RPC method"* автоматически перезаписываются первой строкой реального docstring функции в БД.
+  1. В [pyferro/core/session.py](pyferro/core/session.py) декоратор `@rpc_method` доработан: теперь он бережно сохраняет оригинальный docstring функции (`wrapper.__doc__ = full_doc`), а также принимает опциональный явный аргумент `description`.
+  2. В [pyferro/plugins/auth/discovery.py](pyferro/plugins/auth/discovery.py) реализовано авто-исцеление (auto-healing): при сканировании методов шаблонные фразы *"Обертка для"* и *"RPC method"* автоматически перезаписываются первой строкой реального docstring функции в БД.
   3. Внедрён строгий стандарт оформления:
      - **Строка 1:** Краткое действие на основном языке (3–10 слов), отображается под именем метода.
      - **Строки 2+:** Детальная документация по параметрам и типам.
      - Отсутствие docstring логируется предупреждением при старте: `[Discovery] ⚠️ RPC-метод '...' не имеет docstring!`.
-  4. В интерфейсах [GuestPermissionsView.svelte](rsgi_wsrpc/plugins/crud/frontend/components/GuestPermissionsView.svelte) и [PermissionsModal.svelte](rsgi_wsrpc/plugins/crud/frontend/components/PermissionsModal.svelte) добавлена интерактивная кнопка `ℹ️` и компонент `RpcHelpModal.svelte`: администратор в один клик может просмотреть полный docstring, параметры и сигнатуру любого RPC-метода в красивом всплывающем окне.
+  4. В интерфейсах [GuestPermissionsView.svelte](pyferro/plugins/crud/frontend/components/GuestPermissionsView.svelte) и [PermissionsModal.svelte](pyferro/plugins/crud/frontend/components/PermissionsModal.svelte) добавлена интерактивная кнопка `ℹ️` и компонент `RpcHelpModal.svelte`: администратор в один клик может просмотреть полный docstring, параметры и сигнатуру любого RPC-метода в красивом всплывающем окне.
 
 ---
 

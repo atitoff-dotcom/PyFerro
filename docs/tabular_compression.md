@@ -1,6 +1,6 @@
 # 📊 Tabular Payload Compression (RFC 0002)
 
-Deterministic collection serialization for the `rsgi-wsrpc` framework (`app/system/tabular.py` + `wsrpc.ts`).
+Deterministic collection serialization for the `PyFerro` framework (`app/system/tabular.py` + `wsrpc.ts`).
 
 > **"Field schemas belong in the contract, not repeated thousands of times in network packets. Tabular compression eliminates dict redundancy, saves 50–70% of bandwidth, and relieves Python GC pressure."**
 

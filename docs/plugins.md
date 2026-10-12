@@ -1,6 +1,6 @@
 # Official Plugins (Batteries Included)
 
-The `rsgi-wsrpc` framework adheres to a strict 3-tier architectural design:
+The `PyFerro` framework adheres to a strict 3-tier architectural design:
 1. **Core (`core/`)**: Lean, high-performance, asynchronous RSGI/WSRPC protocol engine, session router, security primitives, and transport lifecycle.
 2. **Plugins (`plugins/`)**: Official modular extensions ("batteries") that plug into core interfaces: database session lifecycle, enterprise authentication, RLS, and caching.
 3. **Applications (`App/`)**: Specific business logic consuming framework core and selected plugins.

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Пример использования плагина rsgi_wsrpc.plugins.seo.
+Пример использования плагина pyferro.plugins.seo.
 Демонстрирует:
 1. Dynamic Rendering для поисковых ботов и соцсетей (@bot_page).
 2. Автоматическую генерацию карты сайта (@register_sitemap_provider -> /sitemap.xml).
@@ -11,8 +11,8 @@ import asyncio
 from datetime import datetime
 from typing import Optional
 
-from rsgi_wsrpc import http_route, HTTP_ROUTES, logger
-from rsgi_wsrpc.plugins.seo import (
+from pyferro import http_route, HTTP_ROUTES, logger
+from pyferro.plugins.seo import (
     SeoPageData,
     bot_page,
     configure_seo,
@@ -34,7 +34,7 @@ configure_seo(
 ARTICLES_DB = {
     "hello-world": {
         "title": "Привет, Мир WSRPC!",
-        "summary": "Первая статья о реактивном фреймворке rsgi-wsrpc.",
+        "summary": "Первая статья о реактивном фреймворке PyFerro.",
         "content": "<p>Это полный текст статьи. Боты увидят этот семантический HTML без выполнения JS!</p>",
         "cover": "https://example.com/images/hello.png",
         "author": "Алексей",
@@ -120,7 +120,7 @@ async def app(scope, proto):
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <title>rsgi-wsrpc SEO Showcase</title>
+  <title>PyFerro SEO Showcase</title>
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 40px; margin: 0; line-height: 1.6; }
     .card { background: #1e293b; border-radius: 12px; padding: 24px; margin-bottom: 24px; border: 1px solid #334155; max-width: 800px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
@@ -136,7 +136,7 @@ async def app(scope, proto):
 </head>
 <body>
   <div class="card">
-    <h1>🚀 rsgi-wsrpc &bull; Dynamic Rendering Showcase</h1>
+    <h1>🚀 PyFerro &bull; Dynamic Rendering Showcase</h1>
     <p>Вы открыли страницу как <strong>обычный пользователь (браузер)</strong>. Вам отдается этот клиентский интерфейс, готовый для инициализации WebSockets (JSON-RPC 2.0).</p>
   </div>
 
@@ -177,7 +177,7 @@ if __name__ == "__main__":
     port = 8080
 
     print("=" * 65)
-    print(" 🚀 rsgi-wsrpc SEO Showcase Server")
+    print(" 🚀 PyFerro SEO Showcase Server")
     print(f" 🌐 Web UI:         http://{host}:{port}/")
     print(f" 🤖 Bot View Demo:  http://{host}:{port}/articles/hello-world?bot=1")
     print(f" 🗺️  Sitemap:        http://{host}:{port}/sitemap.xml")

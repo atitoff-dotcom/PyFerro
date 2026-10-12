@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Высокопроизводительный открытый стресс-бенчмарк для фреймворка rsgi-wsrpc.
+Высокопроизводительный открытый стресс-бенчмарк для фреймворка PyFerro.
 Замеряет чистый RPS, перцентили задержки (p50, p95, p99) и эффективность
 табличного сжатия RFC 0002 Tabular.
 
@@ -82,7 +82,7 @@ async def run_benchmark(
     req_per_worker = total_requests // concurrency
     actual_total = req_per_worker * concurrency
 
-    print(f"\n{BOLD}{CYAN}⚡  Запуск стресс-теста rsgi-wsrpc...{RESET}")
+    print(f"\n{BOLD}{CYAN}⚡  Запуск стресс-теста PyFerro...{RESET}")
     print(f"{DIM}Target: {ws_url} | RPC Method: {method}{RESET}")
     print(f"{DIM}Параллельных соединений: {concurrency} | Запросов на сокет: {req_per_worker} | Всего: {actual_total}{RESET}\n")
 
@@ -165,7 +165,7 @@ async def run_benchmark(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Стресс-бенчмарк для rsgi-wsrpc")
+    parser = argparse.ArgumentParser(description="Стресс-бенчмарк для PyFerro")
     parser.add_argument("--target", default="http://127.0.0.1:8080", help="URL сервера (default: http://127.0.0.1:8080)")
     parser.add_argument("--method", default="system.ping", help="RPC-метод для теста (default: system.ping)")
     parser.add_argument("--concurrency", type=int, default=50, help="Количество параллельных сокетов (default: 50)")

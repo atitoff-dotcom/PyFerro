@@ -2,7 +2,7 @@
 
 * **RFC Number:** 0011
 * **Title:** Dynamic Rendering, Sitemap, OpenGraph and IndexNow Subsystem (`plugins.seo`)
-* **Status:** ✅ Accepted & Enhanced (rsgi-wsrpc v0.3.2)
+* **Status:** ✅ Accepted & Enhanced (PyFerro v0.3.2)
 * **Author:** Architecture Team
 * **Date:** October 2026
 
@@ -18,7 +18,7 @@
    * [4.3. Parameterized Route Dispatcher (`router.py`)](#43-parameterized-route-dispatcher-routerpy)
    * [4.4. Sitemap Generator & Pagination (`sitemap.py`)](#44-sitemap-generator--pagination-sitemappy)
    * [4.5. Asynchronous IndexNow Protocol & File Batcher (`indexnow.py`)](#45-asynchronous-indexnow-protocol--file-batcher-indexnowpy)
-   * [4.6. Core HTTP Request Utilities (`rsgi_wsrpc.core.http`)](#46-core-http-request-utilities-rsgi_wsrpccorehttp)
+   * [4.6. Core HTTP Request Utilities (`pyferro.core.http`)](#46-core-http-request-utilities-pyferrocorehttp)
 5. [End-to-End Application Example](#5-end-to-end-application-example)
 6. [Security & Performance](#6-security--performance)
 
@@ -26,7 +26,7 @@
 
 ## 1. Summary
 
-This RFC specifies the official **`rsgi_wsrpc.plugins.seo`** plugin for the `rsgi-wsrpc` framework.
+This RFC specifies the official **`pyferro.plugins.seo`** plugin for the `PyFerro` framework.
 
 The plugin solves the fundamental indexing and preview problems of modern WebSocket-based Single Page Applications (SPA/PWA) via the **Dynamic Rendering** architectural pattern:
 * **For real human users:** The server serves the lightweight static SPA `index.html` and initiates high-speed bidirectional WSRPC (JSON-RPC 2.0) sessions.
@@ -85,7 +85,7 @@ WebSocket-centric SPA architectures face three major limitations:
 * Periodic flusher drains the file every 30 minutes (configurable), deduplicates URLs, and dispatches batches of up to 10,000 URLs to Bing and Yandex with HTTP 429 rate limit backoff.
 * Automatically exposes `GET /<key>.txt` for ownership verification.
 
-### 4.6. Core HTTP Request Utilities (`rsgi_wsrpc.core.http`)
+### 4.6. Core HTTP Request Utilities (`pyferro.core.http`)
 `extract_header` and `extract_query_params` provide robust, case-insensitive inspection of Granian RSGI scopes.
 
 
@@ -93,4 +93,4 @@ WebSocket-centric SPA architectures face three major limitations:
 
 ## 5. End-to-End Application Example
 
-See [examples/seo_app.py](file:///home/alex/rsgi-wsrpc/examples/seo_app.py) for a complete working showcase.
+See [examples/seo_app.py](file:///home/alex/PyFerro/examples/seo_app.py) for a complete working showcase.

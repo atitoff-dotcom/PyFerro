@@ -25,7 +25,7 @@
 
 ## 1. Summary
 
-This RFC specifies **`plugins.messages`** — the official 1-on-1 direct messaging, chat, and notification subsystem for the `rsgi-wsrpc` framework.
+This RFC specifies **`plugins.messages`** — the official 1-on-1 direct messaging, chat, and notification subsystem for the `PyFerro` framework.
 
 Effective user engagement requires instant interpersonal communication: direct messages between colleagues, client-to-manager chats, dispute resolution discussions, and contextual inquiries linked to application entities (orders, calculations, support tickets).
 
@@ -41,7 +41,7 @@ Effective user engagement requires instant interpersonal communication: direct m
 
 Traditional REST-based chat implementations struggle with latency, double-read synchronization, and high server polling load. 
 
-By taking advantage of `rsgi-wsrpc`'s persistent bidirectional transport:
+By taking advantage of `PyFerro`'s persistent bidirectional transport:
 1. When User A posts a message, the server writes to the database and immediately pushes an event to all open tabs and devices of User B using `send_to_user`.
 2. When User B opens the dialogue, a single WSRPC call marks messages read and dispatches an instant delivery receipt back to User A.
 3. Chat history is retrieved over the active socket in compact `$tabular` format with zero HTTP connection negotiation overhead.
@@ -50,7 +50,7 @@ By taking advantage of `rsgi-wsrpc`'s persistent bidirectional transport:
 sequenceDiagram
     autonumber
     actor Alice as Alice (Client WS #1)
-    participant Server as rsgi-wsrpc Server
+    participant Server as PyFerro Server
     actor Bob1 as Bob Tab #1 (Client WS #2)
     actor Bob2 as Bob Phone (Client WS #3)
 
@@ -148,7 +148,7 @@ This minimizes mobile memory overhead and guarantees smooth 60 FPS scrolling in 
 
 ## 8. Implementation Roadmap
 
-1. Package `plugins/messages/` in `rsgi-wsrpc`:
+1. Package `plugins/messages/` in `PyFerro`:
    * `plugins/messages/models.py`: Declarative ORM models
    * `plugins/messages/handlers.py`: WSRPC methods
    * `plugins/messages/service.py`: Dialogue manager & badge counter logic

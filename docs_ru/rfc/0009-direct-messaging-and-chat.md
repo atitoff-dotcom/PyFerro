@@ -25,7 +25,7 @@
 
 ## 1. Краткое резюме
 
-Настоящий RFC специфицирует **`plugins.messages`** — официальную подсистему личных сообщений (Direct Messages), чата 1-на-1 и синхронизации уведомлений для фреймворка `rsgi-wsrpc`.
+Настоящий RFC специфицирует **`plugins.messages`** — официальную подсистему личных сообщений (Direct Messages), чата 1-на-1 и синхронизации уведомлений для фреймворка `PyFerro`.
 
 Для удержания пользователей и оперативного взаимодействия платформам необходим надежный мессенджер: прямая связь между клиентами и менеджерами, рабочие переписки сотрудников, обсуждение деталей заказов и консультации по спорным вопросам.
 
@@ -50,7 +50,7 @@
 sequenceDiagram
     autonumber
     actor Alice as Алиса (WS Клиент #1)
-    participant Server as Сервер rsgi-wsrpc
+    participant Server as Сервер PyFerro
     actor Bob1 as Боб: Вкладка ПК (WS Клиент #2)
     actor Bob2 as Боб: Телефон (WS Клиент #3)
 
@@ -148,7 +148,7 @@ async def get_history(session: JsonRpcSession, params: dict):
 
 ## 8. План внедрения
 
-1. Оформить каталог `plugins/messages/` в `rsgi-wsrpc`:
+1. Оформить каталог `plugins/messages/` в `PyFerro`:
    * `plugins/messages/models.py`: Модели SQLAlchemy
    * `plugins/messages/handlers.py`: RPC-методы
    * `plugins/messages/service.py`: Менеджер диалогов и счетчиков

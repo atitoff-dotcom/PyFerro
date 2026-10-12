@@ -2,7 +2,7 @@
 
 ## 1. Введение и концепция
 
-Плагин **`rsgi_wsrpc.plugins.crud`** — официальная батарейка фреймворка `rsgi-wsrpc`, реализующая реактивный, типобезопасный и расширяемый слой администрирования данных на базе SQLAlchemy 2.0 (async).
+Плагин **`pyferro.plugins.crud`** — официальная батарейка фреймворка `PyFerro`, реализующая реактивный, типобезопасный и расширяемый слой администрирования данных на базе SQLAlchemy 2.0 (async).
 
 В отличие от традиционных монолитных админок (Django Admin, Flask-Admin), плагин спроектирован по принципам современных распределенных систем:
 
@@ -63,15 +63,15 @@
 В точке входа бэкенда (`server.py` или `main.py`) зарегистрируйте модели в реестре CRUD:
 
 ```python
-from rsgi_wsrpc import RsgiWsrpcApp
-from rsgi_wsrpc.plugins.db import Base
+from pyferro import FerroApp
+from pyferro.plugins.db import Base
 # 1. Импорт плагина автоматически регистрирует WSRPC-методы crud.* и роуты /crud
-import rsgi_wsrpc.plugins.crud as crud
+import pyferro.plugins.crud as crud
 
 # 2. Сканирование моделей приложения
 crud.ModelRegistry.auto_discover(Base)
 
-app = RsgiWsrpcApp(
+app = FerroApp(
     database_url="postgresql+asyncpg://user:pass@localhost:5432/app_db",
     cors=True
 )
@@ -96,7 +96,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import Integer, String, Boolean, DateTime, Numeric, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from rsgi_wsrpc.plugins.db import Base
+from pyferro.plugins.db import Base
 
 class Order(Base):
     __tablename__ = "orders"
@@ -176,7 +176,7 @@ class Order(Base):
 from typing import Optional, Set, Any
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from rsgi_wsrpc.plugins.crud import IdentityProvider, set_identity_provider
+from pyferro.plugins.crud import IdentityProvider, set_identity_provider
 
 class AppIdentityProvider:
     """Адаптер авторизации проекта для CRUD-плагина."""
@@ -449,7 +449,7 @@ set_identity_provider(AppIdentityProvider())
 
 ## 8. Автономная веб-панель управления (Standalone UI)
 
-Плагин включает встроенный SPA-интерфейс, скомпилированный в `rsgi_wsrpc/plugins/crud/static/`.
+Плагин включает встроенный SPA-интерфейс, скомпилированный в `pyferro/plugins/crud/static/`.
 
 ### Возможности интерфейса:
 - **Zero Configuration:** работает сразу при подключении плагина, автоматически строя форму и таблицу по схеме `crud.schema`.
@@ -463,7 +463,7 @@ set_identity_provider(AppIdentityProvider())
 
 ## 9. Чек-лист интеграции в существующий проект (на примере PL3_2)
 
-1. **Установка пакета:** убедитесь, что `rsgi-wsrpc` обновлен до версии с плагином CRUD (`pip install -e /path/to/rsgi-wsrpc`).
+1. **Установка пакета:** убедитесь, что `PyFerro` обновлен до версии с плагином CRUD (`pip install -e /path/to/PyFerro`).
 2. **Регистрация провайдера:** создайте класс-адаптер `Pl3IdentityProvider`, реализующий протокол `IdentityProvider`, и вызовите `set_identity_provider(Pl3IdentityProvider())`.
 3. **Авто-обнаружение моделей:** вызовите `ModelRegistry.auto_discover(Base)`.
 4. **Обратная совместимость (при необходимости):** если клиентский код проекта использует старые имена методов `admin.*`, добавьте в проект алиасы, делегирующие выполнение в `handle_crud_*`.

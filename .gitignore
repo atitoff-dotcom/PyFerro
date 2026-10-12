@@ -46,6 +46,7 @@ ENV/
 # Local overrides
 my_settings.yaml
 local_settings.yaml
+PL3_3/
 
 # Node.js
 node_modules/

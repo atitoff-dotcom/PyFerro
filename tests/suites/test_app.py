@@ -4,8 +4,8 @@ import tempfile
 import asyncio
 from unittest.mock import MagicMock, AsyncMock
 
-from rsgi_wsrpc.app import RsgiWsrpcApp
-from rsgi_wsrpc.core.lib.config import settings
+from pyferro.app import FerroApp
+from pyferro.core.lib.config import settings
 
 
 class MockScope:
@@ -53,9 +53,9 @@ class MockProto:
 
 @pytest.mark.asyncio
 async def test_app_config_initialization():
-    from rsgi_wsrpc import VkOAuth, YandexOAuth
+    from pyferro import VkOAuth, YandexOAuth
 
-    app = RsgiWsrpcApp(
+    app = FerroApp(
         secret_key="custom-app-secret",
         password_iterations=750000,
         login_rpc="custom_login.",
@@ -77,7 +77,7 @@ async def test_app_config_initialization():
 
 @pytest.mark.asyncio
 async def test_app_cors_options():
-    app = RsgiWsrpcApp(cors=True)
+    app = FerroApp(cors=True)
     scope = MockScope(proto="http", method="OPTIONS", path="/any")
     proto = MockProto()
     await app(scope, proto)
@@ -102,7 +102,7 @@ async def test_app_static_file_serving_and_traversal_protection():
         with open(secret_file, "w") as f:
             f.write("super-secret")
 
-        app = RsgiWsrpcApp(static_dir=tmp_dir, static_prefix="/static")
+        app = FerroApp(static_dir=tmp_dir, static_prefix="/static")
 
         # 1. Valid static file with prefix
         scope = MockScope(proto="http", method="GET", path="/static/test.txt")
@@ -133,7 +133,7 @@ async def test_app_static_file_serving_and_traversal_protection():
 
 @pytest.mark.asyncio
 async def test_app_websocket_accept():
-    app = RsgiWsrpcApp()
+    app = FerroApp()
     scope = MockScope(proto="websocket", client=("10.0.0.1", 54321))
     proto = MockProto()
     await app(scope, proto)
@@ -142,13 +142,13 @@ async def test_app_websocket_accept():
 
 @pytest.mark.asyncio
 async def test_app_seo_interceptor():
-    from rsgi_wsrpc.plugins.seo import bot_page, SeoPageData
+    from pyferro.plugins.seo import bot_page, SeoPageData
 
     @bot_page("/article/{id:int}")
     async def render_article(id: int):
         return SeoPageData(title=f"Article #{id}", description="SEO rendered")
 
-    app = RsgiWsrpcApp(enable_seo=True)
+    app = FerroApp(enable_seo=True)
 
     # 1. Запрос от Googlebot
     scope_bot = MockScope(

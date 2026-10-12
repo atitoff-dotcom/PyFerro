@@ -91,7 +91,7 @@
         "en": "Simply register your SQLAlchemy model via ModelRegistry.register(MyModel), and crud.schema, crud.list ($tabular), crud.get, crud.create, crud.update_cell, and crud.delete work out of the box."
       },
       "code": {
-        "python": "from rsgi_wsrpc.plugins.crud import ModelRegistry\n\nclass Task(Base):\n    __tablename__ = \"tasks\"\n    id: Mapped[int] = mapped_column(primary_key=True)\n    title: Mapped[str] = mapped_column(String(200))\n\nModelRegistry.register(Task)",
+        "python": "from pyferro.plugins.crud import ModelRegistry\n\nclass Task(Base):\n    __tablename__ = \"tasks\"\n    id: Mapped[int] = mapped_column(primary_key=True)\n    title: Mapped[str] = mapped_column(String(200))\n\nModelRegistry.register(Task)",
         "typescript": "const schema = await rpc.call('crud.schema', { model: 'Task' });\nconst list = await rpc.call('crud.list', { model: 'Task', page: 1, page_size: 50 });",
         "wire": "--> {\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"crud.update_cell\", \"params\": {\"model\": \"Task\", \"id\": 1, \"field\": \"completed\", \"value\": true}}\n<-- {\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"success\": true, \"id\": 1}}"
       }
@@ -160,7 +160,7 @@
         "en": "broadcast_notification() serializes the message once via orjson, after which the native Rust engine broadcasts raw frame bytes across all active sockets."
       },
       "code": {
-        "python": "from rsgi_wsrpc.plugins.broadcast import broadcast_notification\n\n@app.rpc(\"alerts.publish\")\nasync def publish_alert(message: str):\n    await broadcast_notification(\"system.alert\", {\"message\": message, \"time\": time.time()})\n    return {\"status\": \"broadcast_sent\"}",
+        "python": "from pyferro.plugins.broadcast import broadcast_notification\n\n@app.rpc(\"alerts.publish\")\nasync def publish_alert(message: str):\n    await broadcast_notification(\"system.alert\", {\"message\": message, \"time\": time.time()})\n    return {\"status\": \"broadcast_sent\"}",
         "typescript": "rpc.on('system.alert', (data) => {\n  console.warn('Получено системное оповещение:', data.message);\n});",
         "wire": "<-- {\"jsonrpc\": \"2.0\", \"method\": \"system.alert\", \"params\": {\"message\": \"Server maintenance in 5 min\", \"time\": 1775546200}}"
       }
@@ -229,7 +229,7 @@
         "en": "Search crawlers (Googlebot, Yandex, Telegram, Discord) receive clean SSR HTML, while real users get the lightning-fast reactive SPA."
       },
       "code": {
-        "python": "from rsgi_wsrpc.plugins.seo import bot_page, render_seo_page\n\n@bot_page(\"/tasks/{task_id}\")\nasync def task_seo(task_id: int):\n    task = await get_task_by_id(task_id)\n    return render_seo_page(\n        title=task.title,\n        description=\"Просмотр задачи на rsgi-wsrpc\",\n        og_image=\"/static/og.png\"\n    )",
+        "python": "from pyferro.plugins.seo import bot_page, render_seo_page\n\n@bot_page(\"/tasks/{task_id}\")\nasync def task_seo(task_id: int):\n    task = await get_task_by_id(task_id)\n    return render_seo_page(\n        title=task.title,\n        description=\"Просмотр задачи на PyFerro\",\n        og_image=\"/static/og.png\"\n    )",
         "typescript": "// Браузер работает как обычный SPA:\nwindow.history.pushState({}, '', '/tasks/42');",
         "wire": "GET /tasks/42 User-Agent: Googlebot/2.1\nHTTP/1.1 200 OK Content-Type: text/html\n<html><head><title>Task 42</title><meta property=\"og:title\" content=\"Task 42\"></head>..."
       }

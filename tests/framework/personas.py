@@ -94,9 +94,9 @@ class PersonaManager:
         """Вспомогательный метод для гарантии наличия пользователя в локальной БД."""
         try:
             try:
-                from rsgi_wsrpc.plugins.db import async_session
-                from rsgi_wsrpc.plugins.auth.models import User, Role
-                from rsgi_wsrpc.plugins.auth.core import system_bypass_ctx
+                from pyferro.plugins.db import async_session
+                from pyferro.plugins.auth.models import User, Role
+                from pyferro.plugins.auth.core import system_bypass_ctx
             except ImportError:
                 from plugins.db import async_session
                 from plugins.auth.models import User, Role

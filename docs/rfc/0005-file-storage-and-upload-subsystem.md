@@ -2,7 +2,7 @@
 
 * **RFC Number:** 0005
 * **Title:** File Storage & Two-Phase Commit Upload Subsystem (`plugins.files`)
-* **Status:** ✅ Accepted / Implemented (rsgi-wsrpc v0.2.0)
+* **Status:** ✅ Accepted / Implemented (PyFerro v0.2.0)
 * **Author:** Architecture Team
 * **Date:** September 2026
 
@@ -27,7 +27,7 @@
 
 ## 1. Summary
 
-This RFC specifies the official file management and binary upload subsystem for the `rsgi-wsrpc` framework: **`plugins.files`**.
+This RFC specifies the official file management and binary upload subsystem for the `PyFerro` framework: **`plugins.files`**.
 
 The subsystem resolves the classic architectural conflict in reactive WebSocket applications: **how to upload large binary streams efficiently, securely, and reliably without transmitting Base64 over WebSockets, without running out of server RAM, and without leaving orphaned garbage files upon network interruptions.**
 
@@ -71,7 +71,7 @@ flowchart TD
         StaticRoute[location /files/ -> Zero-Copy sendfile]
     end
 
-    subgraph Backend [rsgi-wsrpc Worker]
+    subgraph Backend [PyFerro Worker]
         TxCoord[Upload Coordinator & 2PC Engine]
         HttpUpload[POST /upload Stream Handler]
         FileService[FileStorageService & StoredFile ORM]
@@ -276,7 +276,7 @@ async def download_protected(scope, proto):
 
 ## 7. Implementation Roadmap
 
-1. Package `plugins/files/` in `rsgi-wsrpc`:
+1. Package `plugins/files/` in `PyFerro`:
    * `plugins/files/service.py`: `FileStorageService`
    * `plugins/files/upload.py`: `UploadCoordinator` & streaming handlers
    * `plugins/files/models.py`: `StoredFile`

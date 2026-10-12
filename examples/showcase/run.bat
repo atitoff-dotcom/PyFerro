@@ -2,13 +2,13 @@
 setlocal enabledelayedexpansion
 
 :: ============================================================================
-:: rsgi-wsrpc Showcase Launcher for Windows (cmd.exe)
+:: PyFerro Showcase Launcher for Windows (cmd.exe)
 :: ============================================================================
 
 cd /d "%~dp0"
 
 echo ============================================================
-echo  [rsgi-wsrpc] Starting Showcase Demo Server
+echo  [PyFerro] Starting Showcase Demo Server
 echo ============================================================
 
 :: Locate Python 3.11+

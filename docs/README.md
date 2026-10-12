@@ -1,4 +1,4 @@
-# rsgi-wsrpc: Reactive Full-Featured Python Framework
+# PyFerro: Reactive Full-Featured Python Framework
 
 > **"Everything Django should have been, and everything FastAPI forgot."**  
 > High-performance asynchronous web framework built on **Rust (Granian RSGI)** with bidirectional **WSRPC (JSON-RPC 2.0)**, built-in async database ORM, modern authentication, and transactional two-phase file uploading.
@@ -10,14 +10,14 @@
 2. [Architecture: Core + Plugins + Application](#-architecture-core--plugins--application)
    * [Architecture for Beginners with Diagrams (docs/architecture_for_beginners.md)](docs/architecture_for_beginners.md)
    * [Recommended Project Structure (Directory Tree)](#-recommended-project-structure-directory-tree)
-3. [Comparison: rsgi-wsrpc vs Django vs FastAPI](#-comparison-rsgi-wsrpc-vs-django-vs-fastapi)
+3. [Comparison: PyFerro vs Django vs FastAPI](#-comparison-PyFerro-vs-django-vs-fastapi)
 4. [🤖 AI-Native: Token-Efficient & Purpose-Built for LLMs](#-ai-native-token-efficient--purpose-built-for-llms)
 5. [Quickstart in 60 Seconds](#-quickstart-in-60-seconds)
 6. [Core Network Engine](#-core-network-engine)
    * [Complete Core Developer Guide (docs/core.md)](docs/core.md)
 7. [Official System Plugins](#-official-system-plugins)
    * [Database Plugin (db)](#1-database-plugin-pluginsdb)
-   * [Authentication & User Plugin (auth)](#2-authentication--user-plugin-pluginsauth)
+   * [Authentication & User Plugin (auth)](#2-authentication--user-plugin-pluginsauth) ([Auth Architecture & Guide](auth_guide.md))
    * [Two-Phase File Upload Plugin (files)](#3-two-phase-file-upload-plugin-pluginsfiles)
    * [Smart Event-Driven Cache Plugin (smart_cache)](#4-smart-event-driven-cache-plugin-pluginssmart_cache)
    * [Reactive CRUD & Admin Plugin (crud) (docs/crud.md)](docs/crud.md) ([Integration Guide](docs/crud_panel_guide.md))
@@ -37,7 +37,7 @@ Yet Python developers were forced to choose between two extremes:
 1. **Django** — a 20-year-old monolithic design from the Web 2.0 era. Adding websockets and reactivity requires bundling `Django + DRF + Channels + Redis + Celery + Daphne`, consuming hundreds of megabytes of RAM per worker.
 2. **FastAPI** — performant, but trapped in the flat HTTP/1.1 REST paradigm (Request-Response). Every user action opens a new TCP connection, exchanges kilobytes of redundant HTTP headers, and lacks built-in batteries (auth, sessions, file transactions) — forcing developers to stitch together 50 disparate third-party libraries.
 
-**`rsgi-wsrpc` combines the best of both worlds:**
+**`PyFerro` combines the best of both worlds:**
 * **From Rust and Granian** — blistering RSGI runtime performance without Python GIL overhead.
 * **From WSRPC (JSON-RPC 2.0)** — a single persistent, multiplexed channel for all operations, symmetric RPC invocation (server can call client), and native multi-return streaming.
 * **From Django** — production-grade batteries (Auth, DB, Two-Phase File uploads) delivered as decoupled, lightweight plugins.
@@ -156,7 +156,7 @@ my_project/
 
 ---
 
-## ⚡ Comparison: rsgi-wsrpc vs Django vs FastAPI
+## ⚡ Comparison: PyFerro vs Django vs FastAPI
 
 ### 1. Client-Server Interaction Model
 
@@ -172,7 +172,7 @@ Every operation re-initiates a TCP/TLS handshake, transfers cookies/headers, and
 [ Client ] ◄─── 200 OK ───────────────────────────── [ Server ]
 ```
 
-#### Reactive WSRPC (`rsgi-wsrpc`):
+#### Reactive WSRPC (`PyFerro`):
 A single persistent, multiplexed WebSocket channel. Zero handshake latency, instant 1–3 ms roundtrips:
 ```text
 [ Client ] ═════════════════════════════════════════► [ Server ]
@@ -189,7 +189,7 @@ A single persistent, multiplexed WebSocket channel. Zero handshake latency, inst
 
 ### 2. Feature Matrix
 
-| Feature | Django | FastAPI | `rsgi-wsrpc` |
+| Feature | Django | FastAPI | `PyFerro` |
 | :--- | :--- | :--- | :--- |
 | **Network Engine** | Python WSGI / slow ASGI | Uvicorn (ASGI) | **Granian (Rust RSGI)** 🚀 |
 | **Response Latency** | 80–250 ms | 30–120 ms | **1–5 ms** |
@@ -206,9 +206,9 @@ A single persistent, multiplexed WebSocket channel. Zero handshake latency, inst
 
 ### 3. Server CPU Processing Time per Operation
 
-Why is `rsgi-wsrpc` **20–30x more CPU-efficient** than Django (DRF / Channels)?
+Why is `PyFerro` **20–30x more CPU-efficient** than Django (DRF / Channels)?
 
-| Processing Phase | Django (DRF / Channels) | rsgi-wsrpc (Rust + WSRPC) | Efficiency Gain |
+| Processing Phase | Django (DRF / Channels) | PyFerro (Rust + WSRPC) | Efficiency Gain |
 | :--- | :--- | :--- | :--- |
 | **Network & Frame Intake** | **1,500 – 3,000 µs** (TCP/TLS cycle, ASGI bridge, Python HTTP header parsing) | **50 – 80 µs** (Persistent socket, Rust Tokio/Hyper zero-copy frame reader) | **~30x faster** |
 | **Auth & Session Lookup** | **2,000 – 4,000 µs** (Re-parse cookies, DB/cache user query, CSRF checks on every request) | **10 – 20 µs** (Session cached in socket memory, zero redundant queries) | **~150x faster** |
@@ -217,25 +217,25 @@ Why is `rsgi-wsrpc` **20–30x more CPU-efficient** than Django (DRF / Channels)
 | **Response Serialization** | **1,500 – 3,000 µs** (DRF JSON render, HTTP headers, middleware return) | **100 – 200 µs** (JSON-RPC 2.0 or RFC 0002 Tabular zero-overhead framing) | **~15x faster** |
 | **TOTAL Server CPU Time:** | **7,000 – 15,000 µs (7–15 ms)** | **300 – 500 µs (0.3–0.5 ms)** | 🚀 **20–30x less CPU time!** |
 
-> **Key takeaway:** Django suffers from "stateless amnesia" — re-authenticating and parsing HTTP on every click. `rsgi-wsrpc` stays persistent and warm, routing RPCs directly to Python functions without HTTP bureaucracy.
+> **Key takeaway:** Django suffers from "stateless amnesia" — re-authenticating and parsing HTTP on every click. `PyFerro` stays persistent and warm, routing RPCs directly to Python functions without HTTP bureaucracy.
 
 ---
 
 ## 🤖 AI-Native: Token-Efficient & Purpose-Built for LLMs
 
-`rsgi-wsrpc` is engineered from the ground up for modern AI-assisted engineering: **code authored, reviewed, and refactored by LLMs and Autonomous AI Agents (Claude, Cursor, Gemini, GPT-4o, GitHub Copilot)**.
+`PyFerro` is engineered from the ground up for modern AI-assisted engineering: **code authored, reviewed, and refactored by LLMs and Autonomous AI Agents (Claude, Cursor, Gemini, GPT-4o, GitHub Copilot)**.
 
-In conventional frameworks (FastAPI / Django), up to 80% of generated tokens are squandered on glue code, serialization boilerplate, and redundant plumbing. In `rsgi-wsrpc`, the unified contract yields **massive savings on LLM context windows and developer token budgets**.
+In conventional frameworks (FastAPI / Django), up to 80% of generated tokens are squandered on glue code, serialization boilerplate, and redundant plumbing. In `PyFerro`, the unified contract yields **massive savings on LLM context windows and developer token budgets**.
 
 ```text
 TOKEN CONSUMPTION FOR IMPLEMENTING A FEATURE (E.G. ADD COMMENT WITH REAL-TIME PUSH)
 
 Django REST:  ████████████████████████████████████████ (~4,200 tokens)
 FastAPI:      █████████████████████████ (~2,600 tokens)
-rsgi-wsrpc:   ███ (~350 tokens)  ──► UP TO 85% TOKEN REDUCTION!
+PyFerro:   ███ (~350 tokens)  ──► UP TO 85% TOKEN REDUCTION!
 ```
 
-### Why AI Writes `rsgi-wsrpc` Code Faster, More Accurately, and Cheaper:
+### Why AI Writes `PyFerro` Code Faster, More Accurately, and Cheaper:
 
 #### 1. Zero-Boilerplate Simplicity
 You no longer need to burn context asking models to generate Pydantic request DTOs, response DTOs, HTTP error handlers, route registration boilerplate, and mirrored frontend `fetch()` wrappers.
@@ -244,7 +244,7 @@ You no longer need to burn context asking models to generate Pydantic request DT
 
 #### 2. Unified Protocol vs Stack Sprawl
 In traditional systems, developers must explain multiple disparate transport layers to the AI: REST for CRUD, WebSockets/SSE for notifications, Redis Pub/Sub for worker tasks, and Multipart for file uploads. Models exhaust their attention budgets and hallucinate.
-With `rsgi-wsrpc`, **all communication adheres to one symmetrical protocol WSRPC (JSON-RPC 2.0)**: queries, mutations, progress streams (`stream: true`), server push notifications (`rpc.on`), and interactive server-to-client dialogs (`rpc.registerMethod`).
+With `PyFerro`, **all communication adheres to one symmetrical protocol WSRPC (JSON-RPC 2.0)**: queries, mutations, progress streams (`stream: true`), server push notifications (`rpc.on`), and interactive server-to-client dialogs (`rpc.registerMethod`).
 
 #### 3. High Context Locality
 Modules in `app/<module>/` are strictly decoupled. When assigning an AI agent a feature or bug fix, you only need to provide **1 single file** (`handlers.py`), rather than sprawling architectural files.
@@ -263,15 +263,15 @@ The repository root includes a dedicated instruction file [AGENTS.md](AGENTS.md)
 
 Install the minimal core (Granian RSGI, Orjson, WSRPC, Cryptography):
 ```bash
-pip install rsgi-wsrpc
+pip install PyFerro
 ```
 
 Or install with database support and drivers depending on your target stack:
 ```bash
-pip install "rsgi-wsrpc[sqlite]"      # Async SQLite (aiosqlite + SQLAlchemy 2.0)
-pip install "rsgi-wsrpc[postgres]"    # Async PostgreSQL (asyncpg + SQLAlchemy 2.0)
-pip install "rsgi-wsrpc[mysql]"       # Async MySQL (asyncmy + SQLAlchemy 2.0)
-pip install "rsgi-wsrpc[full]"        # All drivers and plugins included
+pip install "PyFerro[sqlite]"      # Async SQLite (aiosqlite + SQLAlchemy 2.0)
+pip install "PyFerro[postgres]"    # Async PostgreSQL (asyncpg + SQLAlchemy 2.0)
+pip install "PyFerro[mysql]"       # Async MySQL (asyncmy + SQLAlchemy 2.0)
+pip install "PyFerro[full]"        # All drivers and plugins included
 ```
 
 ---
@@ -300,10 +300,10 @@ The launcher automatically provisions a `.venv`, installs dependencies, and boot
 ### 🛠 Option B: Minimal Server (`main.py`)
 ```python
 import os
-from rsgi_wsrpc import RsgiWsrpcApp, rpc_method, tabular_response, RPCError
+from pyferro import FerroApp, rpc_method, tabular_response, RPCError
 
 # 1. Code-First application entrypoint
-app = RsgiWsrpcApp(
+app = FerroApp(
     secret_key=os.getenv("SECRET_KEY", "dev-secret-key-change-in-production"),
     database_url=os.getenv("DATABASE_URL", "sqlite+aiosqlite:///app.db"),
     static_dir="./public",     # Zero-Copy static files via Rust RSGI
@@ -422,6 +422,7 @@ The framework includes pre-built and tested system batteries in `app/system/`:
     from core.session import current_user_ctx
     user = current_user_ctx.get()
     ```
+* **Comprehensive Guide**: see **[docs/auth_guide.md](auth_guide.md)** for password hashing standards, WebSocket session binding, Gatekeeper interceptors, and frontend implementation.
 
 ---
 
@@ -563,7 +564,7 @@ rpc.registerMethod('ui.confirm', async (params) => {
 
 ## 🌟 What's New in v0.3.3
 
-* 🚀 **Unified `RsgiWsrpcApp` Application Class**:
+* 🚀 **Unified `FerroApp` Application Class**:
   * Single-call Code-First initialization configuring secrets, database, CORS, and static file hosting.
   * Native Zero-Copy static file serving via Rust Granian `proto.response_file`.
   * Path traversal protection when serving files from `static_dir`.
@@ -583,7 +584,7 @@ rpc.registerMethod('ui.confirm', async (params) => {
   * Chunked request body ingestion via `proto.read()` directly to disk ensuring constant $O(1)$ memory usage.
   * Upload authorization verification via `/auth-check-upload` supporting `Authorization: Bearer <token>`.
 * 🌐 **Scalability Backplane**:
-  * Added `rsgi_wsrpc.core.backplane` module with `BaseBackplane` contract and `MemoryBackplane`.
+  * Added `pyferro.core.backplane` module with `BaseBackplane` contract and `MemoryBackplane`.
   * Multi-worker startup warning logged when `workers > 1` is configured with in-memory state.
 * 🤖 **AI-Native Guide `AGENTS.md`**:
   * Included a dedicated LLM instruction file in the repository root to guarantee zero-hallucination agentic development.

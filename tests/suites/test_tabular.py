@@ -10,7 +10,7 @@
 import asyncio
 import orjson
 from tests.framework import PersonaManager, assert_rpc_success
-from rsgi_wsrpc.core.tabular import pack_tabular, unpack_tabular, is_tabular
+from pyferro.core.tabular import pack_tabular, unpack_tabular, is_tabular
 
 
 def test_tabular_roundtrip():

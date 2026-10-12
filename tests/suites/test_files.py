@@ -21,7 +21,7 @@ from tests.framework import (
     PersonaManager,
     assert_rpc_success,
 )
-from rsgi_wsrpc.plugins.files import (
+from pyferro.plugins.files import (
     UploadCoordinator,
     UploadTransaction,
     stream_request_to_disk,
@@ -29,7 +29,7 @@ from rsgi_wsrpc.plugins.files import (
     get_storage_dir,
     FileStorageService,
 )
-from rsgi_wsrpc.plugins.files.handlers import (
+from pyferro.plugins.files.handlers import (
     files_init_upload,
     files_commit,
     files_rollback,

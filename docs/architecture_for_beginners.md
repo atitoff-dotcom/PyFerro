@@ -1,6 +1,6 @@
 # Architecture for Beginners: Core ↔ Plugins ↔ Application ↔ Database
 
-This guide explains the architectural design of the `rsgi-wsrpc` framework in plain language, using intuitive diagrams and real-world analogies.
+This guide explains the architectural design of the `PyFerro` framework in plain language, using intuitive diagrams and real-world analogies.
 
 ---
 
@@ -13,7 +13,7 @@ This guide explains the architectural design of the `rsgi-wsrpc` framework in pl
                                         │  WebSocket (WSRPC JSON-RPC 2.0)
                                         ▼
  ┌─────────────────────────────────────────────────────────────────────────────┐
- │ 1. CORE (rsgi-wsrpc / core) — «Dispatcher & Network Engine»                 │
+ │ 1. CORE (PyFerro / core) — «Dispatcher & Network Engine»                 │
  │                                                                             │
  │  • Receives raw network frames via RSGI / WebSocket.                        │
  │  • Parses JSON-RPC: {"method": "login.submit", "params": {...}, "id": 1}    │
@@ -26,7 +26,7 @@ This guide explains the architectural design of the `rsgi-wsrpc` framework in pl
       methods (auth)    │                               │ methods (agrita)
                         ▼                               ▼
  ┌──────────────────────────────────────┐  ┌───────────────────────────────────┐
- │ 2. PLUGINS (rsgi-wsrpc / plugins)    │  │ 3. APPLICATION (App / agrita)     │
+ │ 2. PLUGINS (PyFerro / plugins)    │  │ 3. APPLICATION (App / agrita)     │
  │    «Official Batteries»              │  │    «Domain Business Logic»        │
  │                                      │  │                                   │
  │ ┌──────────────────────────────────┐ │  │ ┌───────────────────────────────┐ │
@@ -69,7 +69,7 @@ To make layer separation easy to remember, consider the analogy of a car:
 
 | Layer | In Our Code | In an Automobile | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Core** | `rsgi-wsrpc/core` | **Chassis, drivetrain & wiring** | The base platform. Transmits signals, drives wheels, routes voltage. Doesn't care who is driving or what cargo is carried. |
+| **Core** | `PyFerro/core` | **Chassis, drivetrain & wiring** | The base platform. Transmits signals, drives wheels, routes voltage. Doesn't care who is driving or what cargo is carried. |
 | **Plugins** | `plugins/auth`<br>`plugins/db` | **Ignition lock, alarm & fuel tank** | Standard modular units ("batteries"). The ignition lock validates the driver's key (`auth`), fuel system pumps fuel (`db`). |
 | **Application**| `App/agrita` | **Car body & specialized tools** | Transforms the chassis into a tractor for an agronomist, an ambulance, or a sports car. All domain-specific logic lives here. |
 | **Database**| PostgreSQL | **Garage & warehouse** | The physical location where parts and logbooks are permanently stored. |

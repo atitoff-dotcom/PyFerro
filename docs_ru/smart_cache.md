@@ -1,6 +1,6 @@
 # ⚡ Smart Cache: Реактивный умный кэш с обратной связью
 
-Официальный системный плагин фреймворка `rsgi-wsrpc` (`plugins/smart_cache` + `client/smartCache.ts`).
+Официальный системный плагин фреймворка `PyFerro` (`plugins/smart_cache` + `client/smartCache.ts`).
 
 > **«Сервер знает, когда данные изменились. Клиент хранит всё локально и обновляется с задержкой 0 мс только тогда, когда сервер явно командует это сделать.»**
 
@@ -71,8 +71,8 @@
 Декоратор вешается на любой мутирующий RPC-метод. Поддерживает декларативные строковые шаблоны с автоматической подстановкой из входных параметров `params` и результата `result`:
 
 ```python
-from rsgi_wsrpc import rpc_method
-from rsgi_wsrpc.plugins.smart_cache import invalidates
+from pyferro import rpc_method
+from pyferro.plugins.smart_cache import invalidates
 
 # Статические и динамические строковые шаблоны с (session, params):
 @rpc_method("forum.create_topic")
@@ -94,8 +94,8 @@ async def delete_topic(topic_id: int, category_id: int):
 Для счетчиков просмотров, лайков или чатов можно применить патч без повторного чтения всей темы из БД:
 
 ```python
-from rsgi_wsrpc import rpc_method
-from rsgi_wsrpc.plugins.smart_cache import patch_tag
+from pyferro import rpc_method
+from pyferro.plugins.smart_cache import patch_tag
 
 @rpc_method("forum.like_post")
 async def like_post(session, params):

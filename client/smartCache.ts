@@ -2,7 +2,7 @@
  * SmartCache: Реактивный клиентский умный кэш с двухуровневым хранением (L1 RAM + L2 Storage),
  * мгновенным откликом 0 мс, серверной инвалидацией и поддержкой точечных патчей.
  * 
- * Официальный клиент плагина rsgi-wsrpc (plugins/smart_cache).
+ * Официальный клиент плагина pyferro (plugins/smart_cache).
  */
 
 import { rpc, type BinaryWSRPC } from './wsrpc';
@@ -40,7 +40,7 @@ export interface PatchPayload {
     version?: number;
 }
 
-const STORAGE_PREFIX = 'rsgi_cache_';
+const STORAGE_PREFIX = 'ferro_cache_';
 const isBrowser = typeof window !== 'undefined';
 
 export class SmartCache {

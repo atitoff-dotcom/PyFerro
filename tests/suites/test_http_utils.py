@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import pytest
-from rsgi_wsrpc.core.http import extract_header, extract_query_params
+from pyferro.core.http import extract_header, extract_query_params
 
 
 class DummyScope:

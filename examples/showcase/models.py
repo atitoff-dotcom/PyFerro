@@ -7,7 +7,7 @@ and declarative mapping for plugins.crud (class Crud:).
 
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text
-from rsgi_wsrpc.plugins.db import Base
+from pyferro.plugins.db import Base
 
 
 class Task(Base):
