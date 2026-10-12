@@ -111,8 +111,77 @@ async def read_request_body(proto: Any) -> bytes:
     return b""
 
 
+def extract_cookies(scope: Any) -> Dict[str, str]:
+    """
+    Извлекает все HTTP Cookie из RSGI scope или объекта в виде словаря {имя: значение}.
+    """
+    raw_cookie = extract_header(scope, "cookie", "")
+    if not raw_cookie:
+        return {}
+    cookies: Dict[str, str] = {}
+    for part in raw_cookie.split(";"):
+        if "=" in part:
+            k, v = part.strip().split("=", 1)
+            cookies[k.strip()] = v.strip()
+    return cookies
+
+
+def get_session_cookie_names(prefix: Optional[str] = None) -> List[str]:
+    """
+    Возвращает упорядоченный список имён cookie для поиска сессионного токена:
+    1. Настроенный префикс ({prefix}_crud_session, {prefix}_session, {prefix}_jwt)
+    2. Исторические и универсальные fallbacks (ferro_, rsgi_, rpc_jwt, token)
+    """
+    if not prefix:
+        try:
+            from pyferro.core.lib.config import settings
+            prefix = settings.security.get("session_prefix", "ferro")
+        except Exception:
+            prefix = "ferro"
+    prefix = (prefix or "ferro").strip()
+
+    names = [
+        f"{prefix}_crud_session",
+        f"{prefix}_session",
+        f"{prefix}_jwt",
+    ]
+    fallbacks = [
+        "ferro_crud_session",
+        "ferro_session",
+        "ferro_jwt",
+        "rsgi_crud_session",
+        "rsgi_session",
+        "rsgi_jwt",
+        "rpc_jwt",
+        "token",
+    ]
+    for fb in fallbacks:
+        if fb not in names:
+            names.append(fb)
+    return names
+
+
+def extract_session_token(scope_or_cookies: Any, session_prefix: Optional[str] = None) -> str:
+    """
+    Универсальное извлечение токена сессии / JWT из scope или словаря cookies.
+    """
+    if isinstance(scope_or_cookies, dict):
+        cookies = scope_or_cookies
+    else:
+        cookies = extract_cookies(scope_or_cookies)
+
+    for name in get_session_cookie_names(session_prefix):
+        val = cookies.get(name)
+        if val:
+            return val
+    return ""
+
+
 __all__ = [
     "extract_header",
     "extract_query_params",
+    "extract_cookies",
+    "get_session_cookie_names",
+    "extract_session_token",
     "read_request_body",
 ]

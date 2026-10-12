@@ -39,7 +39,8 @@ def _require_admin(session: JsonRpcSession) -> None:
         is_admin = True
     cookies = getattr(session, "cookies", None)
     if cookies and isinstance(cookies, dict):
-        token = cookies.get("ferro_crud_session") or cookies.get("ferro_session")
+        from pyferro.core.http import extract_session_token
+        token = extract_session_token(cookies)
         if token:
             from pyferro.plugins.crud.auth import get_crud_session
             sdata = get_crud_session(token)

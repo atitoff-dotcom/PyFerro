@@ -103,8 +103,9 @@ class DefaultIdentityProvider:
         # 1. Проверка активного сокета/сессии на роль ADMIN или сессию по Cookie
         transport = current_transport_ctx.get()
         if transport:
-            if hasattr(transport, "cookies"):
-                token = transport.cookies.get("ferro_crud_session") or transport.cookies.get("ferro_session")
+            if hasattr(transport, "cookies") and transport.cookies:
+                from pyferro.core.http import extract_session_token
+                token = extract_session_token(transport.cookies)
                 if token:
                     from .auth import get_crud_session
                     sdata = get_crud_session(token)

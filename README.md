@@ -53,9 +53,9 @@ The architecture enforces a strict unidirectional dependency hierarchy (Clean Ar
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                       1. YOUR APPLICATION (Application)                 │
 │                                                                         │
-│   Knows about all components: configures application in code (Code-First),
-│   activates necessary system plugins, and executes domain business logic
-│   Examples: Social Network, CRM, Forum, Customer Portal, IoT Server.    │
+│ Knows about all components: configures application in code (Code-First),│
+│ activates necessary system plugins, and executes domain business logic  │
+│ Examples: Social Network, CRM, Forum, Customer Portal, IoT Server.      │
 └────────────────────────────────────┬────────────────────────────────────┘
                                      │ consumes and aggregates
 ┌────────────────────────────────────▼────────────────────────────────────┐
@@ -233,7 +233,7 @@ TOKEN CONSUMPTION FOR IMPLEMENTING A FEATURE (E.G. ADD COMMENT WITH REAL-TIME PU
 
 Django REST:  ████████████████████████████████████████ (~4,200 tokens)
 FastAPI:      █████████████████████████ (~2,600 tokens)
-PyFerro:   ███ (~350 tokens)  ──► UP TO 85% TOKEN REDUCTION!
+PyFerro:      ███ (~350 tokens)  ──► UP TO 85% TOKEN REDUCTION!
 ```
 
 ### Why AI Writes `PyFerro` Code Faster, More Accurately, and Cheaper:

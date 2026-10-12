@@ -56,6 +56,7 @@ class FerroApp:
         allow_guests: Optional[bool] = None,
         password_iterations: Optional[int] = None,
         token_expire_hours: Optional[int] = None,
+        session_prefix: str = "ferro",
         max_message_size: Optional[int] = None,
         # HTTP и CORS
         cors: bool = True,
@@ -111,6 +112,9 @@ class FerroApp:
         if max_message_size is not None:
             config_kwargs.setdefault("custom", {})["max_message_size"] = max_message_size
 
+        if session_prefix is not None:
+            config_kwargs["session_prefix"] = session_prefix
+
         if oauth:
             oauth_dict: Dict[str, Any] = {}
             if isinstance(oauth, list):
@@ -129,6 +133,7 @@ class FerroApp:
             config_kwargs.setdefault("custom", {}).update(extra_settings)
 
         self.settings: Settings = configure(**config_kwargs)
+        self.session_prefix: str = session_prefix or "ferro"
 
         # 2. Настройки HTTP / CORS
         self.cors_enabled = cors
@@ -236,18 +241,14 @@ class FerroApp:
         return False
 
     def _auto_authenticate_ws(self, session: JsonRpcSession) -> None:
-        """Автоматически авторизует WebSocket по Cookie (ferro_crud_session, ferro_session, rpc_jwt)."""
+        """Автоматически авторизует WebSocket по Cookie (сконфигурированный префикс + fallback)."""
         if session.data is not None:
             return
         cookies = session.cookies
         if not cookies:
             return
-        token = (
-            cookies.get("ferro_crud_session")
-            or cookies.get("ferro_session")
-            or cookies.get("rpc_jwt")
-            or cookies.get("token")
-        )
+        from pyferro.core.http import extract_session_token
+        token = extract_session_token(cookies, session_prefix=self.session_prefix)
         if not token:
             return
 

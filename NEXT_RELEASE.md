@@ -12,6 +12,21 @@
 ---
 
 ## ✅ Выполнено в текущем релизе / подготовке:
+* [x] **v0.5.9: Конфигурируемый `session_prefix` в `FerroApp`, полная обратная совместимость кук (`rsgi_*`, `rpc_jwt`) и прозрачная SSO-авторизация администратора в `/crud`:**
+  - **Конфигурируемый `session_prefix` в `FerroApp` (по умолчанию `'ferro'`):**
+    - В `FerroApp(session_prefix='ferro')` и `configure(session_prefix=...)` добавлен параметр префикса сессионных кук для изоляции приложений на одном хосте/домене.
+    - Имена кук на выдачу: `{prefix}_session`, `{prefix}_crud_session`, `{prefix}_jwt`.
+  - **Универсальное извлечение кук с обратной совместимостью (`Robustness Principle`):**
+    - Реализованы утилиты `extract_cookies`, `get_session_cookie_names`, `extract_session_token` в `pyferro.core.http`.
+    - Сервер проверяет сначала сконфигурированный префикс, а затем автоматически подхватывает исторические и универсальные токены: `ferro_crud_session`, `ferro_session`, `ferro_jwt`, `rsgi_crud_session`, `rsgi_session`, `rsgi_jwt`, `rpc_jwt`, `token`.
+    - Устранен ложный `404 Not Found` на `/crud` при логине из существующих клиентских приложений.
+  - **Автоматическая регистрация администратора в CRUD-сессиях:**
+    - При входе через `login.submit` (`pyferro.plugins.auth.handlers`) администратор автоматически регистрируется в реестре `create_crud_session` как по `jwt_token`, так и по `rt_obj.token`.
+  - **Информативная отладка Zero-Leakage:**
+    - В обработчик `/crud` добавлено детальное логирование `logger.debug` с указанием причины отклонения (токен, роль, полученные куки).
+  - **Тесты:**
+    - Расширены тесты в `tests/suites/test_crud.py` с проверкой всех вариантов кук (`rsgi_crud_session`, `rsgi_session`, `rpc_jwt`).
+
 * [x] **v0.5.8: Масштабирование GUI (+25%), высококонтрастный фокус кнопок, отказоустойчивость сессий администратора в Cockpit:**
   - **Фирменный стиль и официальный логотип PyFerro (Ferro Brick Red):**
     - Создан векторный SVG-логотип PyFerro (монохромный кирпично-красный `Ferro` + верхняя плашка `Py`).

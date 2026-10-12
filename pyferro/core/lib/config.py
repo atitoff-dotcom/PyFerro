@@ -93,6 +93,7 @@ def _build_default_settings() -> dict:
             "password_iterations": 600000,
             "token_expire_hours": 24,
             "login_rpc": "login.",
+            "session_prefix": "ferro",
         },
         "database_url": "sqlite+aiosqlite:///app.db",
         "files_path": "./files",
@@ -113,6 +114,7 @@ def configure(
     password_iterations: Optional[int] = None,
     token_expire_hours: Optional[int] = None,
     login_rpc: Optional[str] = None,
+    session_prefix: Optional[str] = None,
     database_url: Optional[str] = None,
     files_path: Optional[str] = None,
     custom: Optional[Dict[str, Any]] = None,
@@ -156,6 +158,8 @@ def configure(
         sec_updates["token_expire_hours"] = token_expire_hours
     if login_rpc is not None:
         sec_updates["login_rpc"] = login_rpc
+    if session_prefix is not None:
+        sec_updates["session_prefix"] = session_prefix
 
     if sec_updates:
         updates["security"] = sec_updates

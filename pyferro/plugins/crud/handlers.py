@@ -100,7 +100,8 @@ async def handle_crud_schema(session: JsonRpcSession, params: Dict[str, Any]) ->
             break
 
     if hasattr(session, "cookies") and session.cookies:
-        token = session.cookies.get("ferro_crud_session") or session.cookies.get("ferro_session")
+        from pyferro.core.http import extract_session_token
+        token = extract_session_token(session.cookies)
         if token:
             from .auth import get_crud_session
             sdata = get_crud_session(token)

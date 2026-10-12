@@ -317,6 +317,24 @@ async def test_crud_sso_and_zero_leakage_404():
     await serve_crud_static(scope_sso, proto_sso)
     assert proto_sso.status == 200
 
+    # 5. Обратная совместимость с историческими куками (rsgi_crud_session, rsgi_session, rpc_jwt)
+    scope_rsgi_crud = MockScope(path="/crud/", cookie=f"rsgi_crud_session={admin_token}")
+    proto_rsgi_crud = MockRsgiProto()
+    await serve_crud_static(scope_rsgi_crud, proto_rsgi_crud)
+    assert proto_rsgi_crud.status == 200
+
+    scope_rsgi_sess = MockScope(path="/crud/", cookie=f"rsgi_session={admin_token}")
+    proto_rsgi_sess = MockRsgiProto()
+    await serve_crud_static(scope_rsgi_sess, proto_rsgi_sess)
+    assert proto_rsgi_sess.status == 200
+
+    from pyferro.core.security import create_access_token
+    admin_jwt, _, _ = create_access_token(user_id=1, username="admin", roles=["admin"])
+    scope_rpc_jwt = MockScope(path="/crud/", cookie=f"rpc_jwt={admin_jwt}")
+    proto_rpc_jwt = MockRsgiProto()
+    await serve_crud_static(scope_rpc_jwt, proto_rpc_jwt)
+    assert proto_rpc_jwt.status == 200
+
 
 @pytest.mark.asyncio
 async def test_crud_m2m_update_cell():

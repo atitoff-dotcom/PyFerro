@@ -188,6 +188,30 @@ async def _create_authenticated_session(
         session.data = session_data
         session.register_on_close(cleanup_app_session)
 
+    # Автоматическая бесшовная регистрация администратора в CRUD сессиях
+    is_admin_user = (
+        role_name in ("admin", "ADMIN")
+        or "admin" in role_names
+        or "ADMIN" in role_names
+        or getattr(user, "is_superadmin", False) is True
+    )
+    if is_admin_user:
+        try:
+            from pyferro.plugins.crud.auth import create_crud_session
+            crud_info = {
+                "uid": user.id,
+                "user_id": user.id,
+                "username": user.login,
+                "role": "admin",
+                "roles": role_names,
+                "is_superadmin": getattr(user, "is_superadmin", False),
+            }
+            create_crud_session(crud_info, token=jwt_token)
+            if rt_obj and rt_obj.token:
+                create_crud_session(crud_info, token=rt_obj.token)
+        except Exception:
+            pass
+
     logger.info(f"[AUTH] Пользователь '{user.login}' успешно авторизован. ActiveSession #{ws_session.id}.")
     asyncio.create_task(notify_session_change())
 

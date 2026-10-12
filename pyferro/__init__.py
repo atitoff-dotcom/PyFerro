@@ -4,7 +4,7 @@ pyferro: High-performance reactive fullstack Python framework on Rust RSGI (Gran
 with symmetric WSRPC (JSON-RPC 2.0) and Tabular Data Compression (RFC 0002).
 """
 
-__version__ = "0.5.8"
+__version__ = "0.5.9"
 
 # Автоматическая активация моста обратной совместимости для плоских импортов core и plugins
 from pyferro.compat import install_compat
@@ -18,7 +18,10 @@ from pyferro.core.session import (
 from pyferro.core.tabular import pack_tabular, unpack_tabular, tabular_response, is_tabular
 from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, SYSTEM_ROLES
 from pyferro.core.router import http_route, HTTP_ROUTES
-from pyferro.core.http import extract_header, extract_query_params
+from pyferro.core.http import (
+    extract_header, extract_query_params,
+    extract_cookies, get_session_cookie_names, extract_session_token
+)
 from pyferro.core.lifecycle import (
     on_startup, on_shutdown, run_startup_callbacks, run_shutdown_callbacks
 )
@@ -56,6 +59,9 @@ __all__ = [
     "HTTP_ROUTES",
     "extract_header",
     "extract_query_params",
+    "extract_cookies",
+    "get_session_cookie_names",
+    "extract_session_token",
     "on_startup",
     "on_shutdown",
     "run_startup_callbacks",

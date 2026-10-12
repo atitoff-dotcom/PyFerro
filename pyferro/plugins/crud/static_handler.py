@@ -9,7 +9,13 @@ import mimetypes
 from pathlib import Path
 
 from pyferro.core.router import http_route
-from pyferro.core.http import extract_header
+from pyferro.core.http import (
+    extract_header,
+    extract_cookies,
+    extract_session_token,
+    get_session_cookie_names,
+)
+from pyferro.core.logger import logger
 from .auth import (
     get_crud_session,
     revoke_crud_session,
@@ -19,15 +25,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 
 def _extract_crud_token(scope) -> str:
-    raw_cookie = extract_header(scope, "cookie", "")
-    if not raw_cookie:
-        return ""
-    for part in raw_cookie.split(";"):
-        if "=" in part:
-            k, v = part.strip().split("=", 1)
-            if k in ("ferro_crud_session", "ferro_session"):
-                return v
-    return ""
+    return extract_session_token(scope)
 
 
 @http_route("/crud", methods=["GET"])
@@ -61,6 +59,13 @@ async def serve_crud_static(scope, proto) -> None:
 
     # Безопасность (Zero-Leakage): скрываем существование панели от не-администраторов
     if not is_admin:
+        cookies_found = list(extract_cookies(scope).keys())
+        logger.debug(
+            f"[CRUD 404] Zero-Leakage: доступ к '{path}' отклонён. "
+            f"Токен: {'найден' if token else 'не найден'}. "
+            f"Сессия: {'роль=' + str(session_data.get('role')) if session_data else 'не найдена'}. "
+            f"Входящие cookie: {cookies_found}"
+        )
         proto.response_str(
             status=404,
             headers=[
@@ -75,13 +80,15 @@ async def serve_crud_static(scope, proto) -> None:
     if subpath == "logout":
         if token:
             revoke_crud_session(token)
+        logout_headers = [
+            ("location", "/"),
+            ("content-length", "0"),
+        ]
+        for cname in get_session_cookie_names():
+            logout_headers.append(("set-cookie", f"{cname}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT"))
         proto.response_str(
             status=303,
-            headers=[
-                ("location", "/"),
-                ("set-cookie", "ferro_crud_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT"),
-                ("content-length", "0"),
-            ],
+            headers=logout_headers,
             body=""
         )
         return
