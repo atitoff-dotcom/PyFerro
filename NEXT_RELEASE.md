@@ -38,7 +38,7 @@
     - Все оставшиеся упоминания старого рабочего имени `rsgi-wsrpc` и `rsgi_wsrpc` заменены на канонический `PyFerro` / `pyferro` в докстрингах и комментариях всех официальных модулей (`core/`, `plugins/crud`, `plugins/auth`, `plugins/db`, `plugins/seo`, `plugins/smart_cache`).
     - Исправлен и переведен на `pyferro` пример `examples/seo_app.py` (импорты, HTML-заголовки, баннер запуска).
     - Обновлен заголовок User-Agent `pyferro-auth/1.0` в `pyferro/plugins/auth/handlers.py`.
-    - Обновлен `package.json` админки (`pyferro-crud-frontend`), скрипты бенчмарков (`scripts/benchmark.py`), аудита безопасности (`scripts/security_audit.py`), генерации документации (`scripts/build_docs.py`), тесты (`tests/suites/test_raw_ws.py`), `SECURITY_AND_PERFORMANCE.md` и `LICENSE`.
+    - Обновлен `package.json` админки (`pyferro-crud-frontend`), скрипты бенчмарков (`scripts/benchmark.py`), аудита безопасности (`scripts/security_audit.py`), генерации документации (`scripts/build_docs.py`), тесты (`tests/suites/test_raw_ws.py`), `docs/security_and_performance.md` и `LICENSE`.
 * [x] **v0.5.7: Расширение панели управления: Витрина плагинов ядра (Plugin Matrix) и Оперативный пульт горячего управления в GUI (Live Hot-Apply):**
   - **Витрина плагинов платформы (Plugin Matrix Dashboard):**
     - Новый RPC-метод `system.plugin_matrix`: опрашивает и возвращает полную карту состояния официальных плагинов (`db`, `smart_cache`, `crud`, `files`, `seo`, `broadcast`, `auth`).

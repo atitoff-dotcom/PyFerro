@@ -21,7 +21,7 @@
    * [Two-Phase File Upload Plugin (files)](#3-two-phase-file-upload-plugin-pluginsfiles)
    * [Smart Event-Driven Cache Plugin (smart_cache)](#4-smart-event-driven-cache-plugin-pluginssmart_cache)
    * [Modular Backend Test Framework (tests/)](#5-modular-backend-test-framework-tests)
-   * [🛡️ Security Whitepaper & Benchmarks (SECURITY_AND_PERFORMANCE.md)](SECURITY_AND_PERFORMANCE.md)
+   * [🛡️ Security Whitepaper & Benchmarks (docs/security_and_performance.md)](docs/security_and_performance.md)
 8. [Creating Custom Plugins & Modules in the app Directory](#-creating-custom-plugins--modules-in-the-app-directory)
 
 9. [Client Library (TypeScript/JavaScript)](#-client-library-typescriptjavascript)
@@ -459,7 +459,7 @@ The framework includes pre-built and tested system batteries in `app/system/`:
 ---
 
 ### 6. Industrial Reliability, Security Audit & High-Load Benchmarks
-* Full Security Whitepaper: see **[SECURITY_AND_PERFORMANCE.md](SECURITY_AND_PERFORMANCE.md)**.
+* Full Security Whitepaper: see **[docs/security_and_performance.md](docs/security_and_performance.md)**.
 * Complete Testing & Benchmarking Manual: see **[docs/testing.md](docs/testing.md)**.
 * **Autonomous External Security Auditor (`scripts/security_audit.py`)**:
   * Automated black-box penetration tester covering **9 critical attack vectors**: Zero-Leakage 404, Header Leakage, CSWSH, 12MB DoS Bombs, JSON-RPC Compliance, Prototype Pollution, RBAC Privilege Isolation, CRUD RLS, and `alg:none` JWT Forgery.
