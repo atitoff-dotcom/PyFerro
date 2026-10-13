@@ -53,7 +53,7 @@ class ModelRegistry:
     def register_auth_models(cls) -> None:
         """Регистрирует стандартные модели безопасности (User, Role, RpcPermission) в CRUD."""
         try:
-            from pyferro.plugins.auth import User, Role, RpcPermission
+            from pyferro.auth import User, Role, RpcPermission
             cls.register(User)
             cls.register(Role)
             cls.register(RpcPermission)

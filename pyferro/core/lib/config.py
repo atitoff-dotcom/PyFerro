@@ -167,10 +167,8 @@ def configure(
     if database_url is not None:
         updates["database_url"] = database_url
         try:
-            import sys
-            if "pyferro.plugins.db" in sys.modules or "pyferro.plugins.db.session" in sys.modules:
-                from pyferro.plugins.db.session import configure_db
-                configure_db(database_url, echo=kwargs.get("db_echo"))
+            from pyferro.db.session import configure_db
+            configure_db(database_url, echo=kwargs.get("db_echo"))
         except Exception as e:
             logger.debug(f"[CONFIG] Авто-настройка БД: {e}")
     if files_path is not None:

@@ -21,7 +21,7 @@ from pyferro.core.lib.config import get_config
 from pyferro.core.logger import logger
 from pyferro.core.router import http_route
 from pyferro.core.session import current_user_ctx
-from pyferro.plugins.db import async_session
+from pyferro.db import async_session
 from .models import StoredFile
 
 # Регулярка для очистки имени файла от опасных символов

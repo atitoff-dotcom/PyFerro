@@ -26,9 +26,9 @@ from pyferro.core.logger import (
 )
 from pyferro.core.lib.config import settings
 from pyferro.core.backplane import get_backplane
-from pyferro.plugins.broadcast import broadcast_notification
-from pyferro.plugins.smart_cache.engine import version_registry, invalidate_tags
-from pyferro.plugins.db.session import get_db_echo, set_db_echo
+from pyferro.broadcast import broadcast_notification
+from pyferro.smart_cache.engine import version_registry, invalidate_tags
+from pyferro.db.session import get_db_echo, set_db_echo
 from pyferro.plugins.crud.registry import ModelRegistry
 
 

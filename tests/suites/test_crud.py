@@ -16,7 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from pyferro.core.session import RPCError, JsonRpcSession
-from pyferro.plugins.db import Base
+from pyferro.db import Base
 from pyferro.plugins.crud import (
     ModelRegistry,
     ModelMeta,
@@ -138,7 +138,7 @@ class MockIdentityProvider:
 @pytest.mark.asyncio
 async def test_crud_lifecycle_in_memory():
     """Тестирует полный цикл CRUD на in-memory SQLite базе."""
-    from pyferro.plugins.db import async_session
+    from pyferro.db import async_session
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async_session.configure(bind=engine)
 
@@ -210,7 +210,7 @@ async def test_crud_lifecycle_in_memory():
     finally:
         set_identity_provider(DefaultIdentityProvider())
         await engine.dispose()
-        from pyferro.plugins.db import engine as orig_engine
+        from pyferro.db import engine as orig_engine
         async_session.configure(bind=orig_engine)
 
 
@@ -339,9 +339,9 @@ async def test_crud_sso_and_zero_leakage_404():
 @pytest.mark.asyncio
 async def test_crud_m2m_update_cell():
     """Тестирует редактирование ячейки M2M связи (User -> roles) через crud.update_cell."""
-    from pyferro.plugins.db import async_session
-    from pyferro.plugins.auth.models import User, Role
-    from pyferro.plugins.auth.models import _register_internal_auth_models
+    from pyferro.db import async_session
+    from pyferro.auth.models import User, Role
+    from pyferro.auth.models import _register_internal_auth_models
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async_session.configure(bind=engine)
@@ -407,7 +407,7 @@ async def test_crud_m2m_update_cell():
     finally:
         set_identity_provider(DefaultIdentityProvider())
         await engine.dispose()
-        from pyferro.plugins.db import engine as orig_engine
+        from pyferro.db import engine as orig_engine
         async_session.configure(bind=orig_engine)
 
 

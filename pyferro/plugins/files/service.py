@@ -15,7 +15,7 @@ from sqlalchemy import delete, func, select
 
 from pyferro.core.lib.config import get_config
 from pyferro.core.logger import logger
-from pyferro.plugins.db import async_session
+from pyferro.db import async_session
 from .models import StoredFile
 from .upload import get_storage_dir, upload_coordinator
 

@@ -93,14 +93,9 @@ class PersonaManager:
     async def _ensure_local_user(cls, login: str, password: str, role: str = "user"):
         """Вспомогательный метод для гарантии наличия пользователя в локальной БД."""
         try:
-            try:
-                from pyferro.plugins.db import async_session
-                from pyferro.plugins.auth.models import User, Role
-                from pyferro.plugins.auth.core import system_bypass_ctx
-            except ImportError:
-                from plugins.db import async_session
-                from plugins.auth.models import User, Role
-                from plugins.auth.core import system_bypass_ctx
+            from pyferro.db import async_session
+            from pyferro.auth.models import User, Role
+            from pyferro.auth.core import system_bypass_ctx
             from sqlalchemy import select
             from sqlalchemy.orm import selectinload
             from core.logger import logger

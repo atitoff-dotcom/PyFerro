@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Declarative models for the Showcase demonstration application.
-Uses official framework database plugin: plugins.db.Base
-and declarative mapping for plugins.crud (class Crud:).
+Uses official framework database module: pyferro.db.Base
+and declarative mapping for pyferro.plugins.crud (class Crud:).
 """
 
 from datetime import datetime, timezone

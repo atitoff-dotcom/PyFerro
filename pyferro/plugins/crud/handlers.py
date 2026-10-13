@@ -13,10 +13,10 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyferro.core.session import rpc_method, RPCError, JsonRpcSession
-from pyferro.plugins.db import async_session
+from pyferro.db import async_session
 
 try:
-    from pyferro.plugins.auth.core import system_bypass_ctx
+    from pyferro.auth.core import system_bypass_ctx
 except ImportError:
     from contextvars import ContextVar
     system_bypass_ctx = ContextVar("system_bypass", default=False)
@@ -62,7 +62,7 @@ def escape_like(s: str) -> str:
 def _get_model_meta(model_name: str) -> ModelMeta:
     meta = ModelRegistry.get(model_name)
     if not meta:
-        from pyferro.plugins.db import Base
+        from pyferro.db import Base
         ModelRegistry.auto_discover(Base)
         meta = ModelRegistry.get(model_name)
     if not meta:
@@ -131,7 +131,7 @@ async def handle_crud_schema(session: JsonRpcSession, params: Dict[str, Any]) ->
         return {"model": meta.to_schema_dict(perms)}
 
     if not ModelRegistry.all():
-        from pyferro.plugins.db import Base
+        from pyferro.db import Base
         ModelRegistry.auto_discover(Base)
 
     models_list = []
@@ -433,7 +433,7 @@ async def handle_crud_update_cell(session: JsonRpcSession, params: Dict[str, Any
 
         if model_name in ("auth_rpc_permission", "RpcPermission"):
             try:
-                from pyferro.plugins.auth.discovery import reload_public_rpc_cache
+                from pyferro.auth.discovery import reload_public_rpc_cache
                 await reload_public_rpc_cache()
             except Exception:
                 pass
@@ -569,7 +569,7 @@ async def handle_crud_delete(session: JsonRpcSession, params: Dict[str, Any]) ->
 
         if model_name in ("auth_rpc_permission", "RpcPermission"):
             try:
-                from pyferro.plugins.auth.discovery import reload_public_rpc_cache
+                from pyferro.auth.discovery import reload_public_rpc_cache
                 await reload_public_rpc_cache()
             except Exception:
                 pass

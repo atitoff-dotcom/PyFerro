@@ -8,11 +8,11 @@ from pyferro.core.session import (
     PUBLIC_RPC_METHODS, register_public_method, unregister_public_method, is_public_rpc_method
 )
 from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, SYSTEM_ROLES
-from pyferro.plugins.auth.models import Role, RpcPermission, User
-from pyferro.plugins.auth.core import AuthSession
-from pyferro.plugins.auth.discovery import sync_rpc_permissions, reload_public_rpc_cache
+from pyferro.auth.models import Role, RpcPermission, User
+from pyferro.auth.core import AuthSession
+from pyferro.auth.discovery import sync_rpc_permissions, reload_public_rpc_cache
 from pyferro.plugins.crud.handlers import handle_crud_delete, handle_crud_update_cell
-from pyferro.plugins.db import async_session, Base, engine
+from pyferro.db import async_session, Base, engine
 
 
 class MockTransport:
@@ -81,7 +81,7 @@ async def test_auth_session_rpc_permissions():
 @pytest.mark.asyncio
 async def test_crud_immutable_roles_protection():
     from pyferro.plugins.crud import ModelRegistry
-    from pyferro.plugins.auth.core import system_bypass_ctx
+    from pyferro.auth.core import system_bypass_ctx
     ModelRegistry.register(Role)
     token = system_bypass_ctx.set(True)
     try:
@@ -140,7 +140,7 @@ async def test_crud_immutable_roles_protection():
 
 @pytest.mark.asyncio
 async def test_user_personal_permissions_merging():
-    from pyferro.plugins.auth.models import RolePermission, UserPermission, UserRpcPermission
+    from pyferro.auth.models import RolePermission, UserPermission, UserRpcPermission
 
     # 1. Роль с базовыми правами: чтение Task (только свои) и RPC reports.view
     role = Role(id=10, name="operator", description="Operator role")
@@ -198,12 +198,12 @@ async def test_user_personal_permissions_merging():
 
 @pytest.mark.asyncio
 async def test_permissions_api_flow():
-    from pyferro.plugins.auth.permission_handlers import (
+    from pyferro.auth.permission_handlers import (
         handle_permissions_get_schema,
         handle_permissions_get,
         handle_permissions_save
     )
-    from pyferro.plugins.auth.core import system_bypass_ctx
+    from pyferro.auth.core import system_bypass_ctx
 
     admin_session = MagicMock()
     admin_session.user_role = "admin"

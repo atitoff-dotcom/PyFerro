@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from pyferro.plugins.db import Base
+from pyferro.db import Base
 
 
 class StoredFile(Base):

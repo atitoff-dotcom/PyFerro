@@ -4,7 +4,7 @@ pyferro: High-performance reactive fullstack Python framework on Rust RSGI (Gran
 with symmetric WSRPC (JSON-RPC 2.0) and Tabular Data Compression (RFC 0002).
 """
 
-__version__ = "0.5.11"
+__version__ = "0.5.12"
 
 # Автоматическая активация моста обратной совместимости для плоских импортов core и plugins
 from pyferro.compat import install_compat

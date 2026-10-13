@@ -13,10 +13,10 @@ import getpass
 from sqlalchemy import select
 
 from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE
-from pyferro.plugins.db import async_session, Base, engine
-from pyferro.plugins.auth.models import User, Role
-from pyferro.plugins.auth.core import system_bypass_ctx
-from pyferro.plugins.auth.discovery import sync_rpc_permissions
+from pyferro.db import async_session, Base, engine
+from pyferro.auth.models import User, Role
+from pyferro.auth.core import system_bypass_ctx
+from pyferro.auth.discovery import sync_rpc_permissions
 
 
 async def async_create_superuser(username: str, password: str, email: str = None) -> None:

@@ -24,7 +24,7 @@ async def run_startup_callbacks() -> None:
     logger.info(f"[Lifecycle] Запуск {len(STARTUP_CALLBACKS)} startup-колбэков: {[c.__name__ for c in STARTUP_CALLBACKS]}")
     token = None
     try:
-        from pyferro.plugins.auth.core import system_bypass_ctx
+        from pyferro.auth.core import system_bypass_ctx
         token = system_bypass_ctx.set(True)
     except Exception:
         pass

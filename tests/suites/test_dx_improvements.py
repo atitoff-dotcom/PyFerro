@@ -13,12 +13,12 @@ import pytest
 import os
 from unittest.mock import AsyncMock, MagicMock
 from pyferro import FerroApp, configure
-from pyferro.plugins.db import engine, async_session
-from pyferro.plugins.db.session import configure_db
+from pyferro.db import engine, async_session
+from pyferro.db.session import configure_db
 from pyferro.plugins.crud.auth import (
     get_crud_session, create_crud_session, set_crud_session_validator
 )
-from pyferro.plugins.auth.core import AuthSession
+from pyferro.auth.core import AuthSession
 from pyferro.core.security import create_access_token
 
 
@@ -105,8 +105,8 @@ async def test_auth_session_send_stream_chunk_alias():
 @pytest.mark.asyncio
 async def test_set_admin_password_and_cli():
     """Проверяет утилиту смены пароля администратора и отсутствие бэкдора /dev-admin."""
-    from pyferro.plugins.db import async_session, engine, Base
-    from pyferro.plugins.auth import User, Role, system_bypass_ctx
+    from pyferro.db import async_session, engine, Base
+    from pyferro.auth import User, Role, system_bypass_ctx
     from sqlalchemy import select
 
     # Инициализация тестовой БД
@@ -227,8 +227,8 @@ def test_granian_target_loader():
 
 
 @pytest.mark.asyncio
-async def test_first_level_subsystems_and_compat():
-    """Проверяет импорты подсистем первого уровня (pyferro.db, pyferro.auth, pyferro.broadcast, pyferro.smart_cache) и 100% обратную совместимость."""
+async def test_first_level_subsystems():
+    """Проверяет импорты подсистем первого уровня (pyferro.db, pyferro.auth, pyferro.broadcast, pyferro.smart_cache)."""
     # 1. Первоуровневые модули ядра
     from pyferro.db import Base as DbBase, engine as db_engine, async_session as db_session
     from pyferro.auth import User as AuthUser, Role as AuthRole, AuthSession as CoreAuthSession
@@ -260,17 +260,4 @@ async def test_first_level_subsystems_and_compat():
     assert hasattr(app, "broadcast")
     res = await app.broadcast("test.ping", {"msg": "hello"})
     assert res == 0  # нет открытых сокетов
-
-    # 4. Обратная совместимость через pyferro.plugins.*
-    from pyferro.plugins.db import Base as PlDbBase, async_session as PlDbSession
-    from pyferro.plugins.auth import User as PlAuthUser, Role as PlAuthRole
-    from pyferro.plugins.broadcast import broadcast_notification as PlBcastNotif
-    from pyferro.plugins.smart_cache import invalidates as PlInvalidates
-
-    assert PlDbBase is DbBase
-    assert PlDbSession is db_session
-    assert PlAuthUser is AuthUser
-    assert PlAuthRole is AuthRole
-    assert PlBcastNotif is bcast_notif
-    assert PlInvalidates is sc_invalidates
 

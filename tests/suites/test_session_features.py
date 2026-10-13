@@ -89,7 +89,7 @@ async def test_session_multi_roles_access():
 
 @pytest.mark.asyncio
 async def test_rpc_method_with_invalidates_and_wrappers():
-    from pyferro.plugins.smart_cache import invalidates
+    from pyferro.smart_cache import invalidates
 
     called = {}
 

@@ -1,26 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-Официальные системные плагины фреймворка PyFerro (Official Batteries).
+Официальные специализированные плагины фреймворка PyFerro (Official Incubator & Extensions).
+Базовые подсистемы (db, auth, broadcast, smart_cache) перенесены в ядро первого уровня:
+`from pyferro.db import ...`, `from pyferro.auth import ...`, etc.
 """
 
-from . import db
-from . import auth
-from . import broadcast
-from . import smart_cache
 from . import raw_ws
 from . import files
 from . import seo
 from . import crud
 
 __all__ = [
-    "db",
-    "auth",
-    "broadcast",
-    "smart_cache",
     "raw_ws",
     "files",
     "seo",
     "crud",
 ]
-
-
