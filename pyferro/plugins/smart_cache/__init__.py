@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Официальный плагин умного реактивного кэширования PyFerro (plugins/smart_cache).
-Реализует RFC 0001: Event-Driven Feedback Caching.
+Официальный плагин умного реактивного кэширования PyFerro (pyferro.plugins.smart_cache).
+Для обратной совместимости реэкспортирует подсистему ядра pyferro.smart_cache.
 """
 
-from .engine import (
+from pyferro.smart_cache import (
     CacheTagVersion,
     VersionRegistry,
     version_registry,
@@ -12,7 +12,7 @@ from .engine import (
     invalidate_tags,
     patch_tag,
 )
-from . import handlers  # Регистрация RPC-методов
+from pyferro.smart_cache import handlers
 
 __all__ = [
     "CacheTagVersion",

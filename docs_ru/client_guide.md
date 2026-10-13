@@ -154,10 +154,19 @@ const user = await auth.login({ username: 'alex', password: 'secret' });
 // 2. Безопасный вход с автоматическим RSA-OAEP шифрованием пароля
 // (Запрашивает эфемерный публичный ключ RSA у сервера и шифрует пароль через Web Crypto API)
 const secureUser = await auth.loginSecure({ username: 'alex', password: 'secret' });
+
+// 3. Вход через OAuth, Telegram, SMS или Passkeys (произвольный RPC-метод)
+// Вызовите свой бэкенд-метод и примените полученную сессию в один вызов:
+const oauthRes = await rpc.call('auth.vk_oauth', { code: '...' });
+const oauthUser = auth.setSession(oauthRes); // атомарно выставляет cookies, localStorage и userStore
 ```
 
 ### 5.2. Реактивное состояние и свойства `auth`:
-* `auth.user`: текущий объект пользователя (`AuthUser | null`).
+* `auth.user`: текущий объект пользователя (`AuthUser | null`). Автоматически нормализует стандартные поля:
+  - `id`, `uid`, `user_id`: универсальные алиасы идентификатора пользователя (`string | number`).
+  - `avatar`, `photo_url`: ссылка на аватар профиля (`string | null`).
+  - `email`: электронная почта или `null` при регистрации по телефону/OAuth (`string | null`).
+  - `username`, `name`, `role`, `roles`, `permissions`, `is_superadmin`.
 * `auth.isValid`: `boolean` — авторизован ли пользователь в данный момент.
 * `auth.token`: текущий токен сессии / refresh_token.
 * `auth.jwtToken`: короткоживущий JWT для REST API и загрузки файлов.

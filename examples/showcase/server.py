@@ -26,8 +26,8 @@ if SHOWCASE_DIR not in sys.path:
 # Framework core imports
 from pyferro import FerroApp
 from pyferro.core.logger import setup_logging, logger
-from pyferro.plugins.db import engine, Base, async_session
-from pyferro.plugins.smart_cache import version_registry
+from pyferro.db import engine, Base, async_session
+from pyferro.smart_cache import version_registry
 from pyferro.plugins.crud import ModelRegistry
 
 
@@ -64,7 +64,7 @@ setup_logging()
 @app.on_startup
 async def init_database():
     """Asynchronously creates SQLite database tables and seeds demo data on server startup."""
-    from pyferro.plugins.auth import system_bypass_ctx, User, Role
+    from pyferro.auth import system_bypass_ctx, User, Role
     token = system_bypass_ctx.set(True)
     try:
         async with engine.begin() as conn:

@@ -635,11 +635,8 @@ async def handle_crud_create(session: JsonRpcSession, params: Dict[str, Any]) ->
             if hasattr(cls, "updated_at") and "updated_at" not in filtered_data:
                 filtered_data["updated_at"] = now
 
-            obj = cls(**filtered_data)
-            db.add(obj)
-            await db.flush()
-
-            # Сохранение Many-to-Many связей
+            # Разрешение Many-to-Many связей ДО добавления в сессию и flush
+            m2m_to_set = {}
             if m2m_inputs:
                 for m_name, raw_vals in m2m_inputs.items():
                     target_m = meta.fields[m_name]
@@ -658,11 +655,16 @@ async def handle_crud_create(session: JsonRpcSession, params: Dict[str, Any]) ->
                             conds.append(target_cls.login.in_(str_vals))
                         if conds:
                             target_objs = (await db.execute(select(target_cls).where(or_(*conds)))).scalars().all()
-                            setattr(obj, m_name, list(target_objs))
+                            m2m_to_set[m_name] = list(target_objs)
 
-            await db.commit()
-            await db.refresh(obj)
+            obj = cls(**filtered_data)
+            for m_name, target_objs in m2m_to_set.items():
+                setattr(obj, m_name, target_objs)
+
+            db.add(obj)
+            await db.flush()
             new_id = getattr(obj, "id", None)
+            await db.commit()
 
         await notify_crud_change(
             model=model_name,

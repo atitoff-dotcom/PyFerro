@@ -217,3 +217,60 @@ def test_app_picklability():
     id2 = next(restored_app._session_counter)
     assert id2 == id1 + 1
 
+
+def test_granian_target_loader():
+    """Проверяет, что _granian_target_loader корректно возвращает объект приложения и строковый target."""
+    from pyferro.app import _granian_target_loader
+    app = FerroApp()
+    assert _granian_target_loader(app) is app
+    assert _granian_target_loader("pyferro.app:FerroApp") is FerroApp
+
+
+@pytest.mark.asyncio
+async def test_first_level_subsystems_and_compat():
+    """Проверяет импорты подсистем первого уровня (pyferro.db, pyferro.auth, pyferro.broadcast, pyferro.smart_cache) и 100% обратную совместимость."""
+    # 1. Первоуровневые модули ядра
+    from pyferro.db import Base as DbBase, engine as db_engine, async_session as db_session
+    from pyferro.auth import User as AuthUser, Role as AuthRole, AuthSession as CoreAuthSession
+    from pyferro.broadcast import broadcast as bcast_fn, broadcast_notification as bcast_notif
+    from pyferro.smart_cache import invalidates as sc_invalidates, version_registry as sc_reg
+
+    assert DbBase is not None
+    assert db_engine is not None
+    assert db_session is not None
+    assert AuthUser is not None
+    assert AuthRole is not None
+    assert CoreAuthSession is not None
+    assert bcast_fn is bcast_notif
+    assert callable(sc_invalidates)
+    assert sc_reg is not None
+
+    # 2. Прямой фасад из pyferro
+    import pyferro
+    assert hasattr(pyferro, "db")
+    assert hasattr(pyferro, "auth")
+    assert hasattr(pyferro, "smart_cache")
+    assert hasattr(pyferro, "broadcast")
+    assert pyferro.User is AuthUser
+    assert pyferro.Base is DbBase
+    assert pyferro.async_session is db_session
+
+    # 3. Шорткат на экземпляре FerroApp
+    app = FerroApp()
+    assert hasattr(app, "broadcast")
+    res = await app.broadcast("test.ping", {"msg": "hello"})
+    assert res == 0  # нет открытых сокетов
+
+    # 4. Обратная совместимость через pyferro.plugins.*
+    from pyferro.plugins.db import Base as PlDbBase, async_session as PlDbSession
+    from pyferro.plugins.auth import User as PlAuthUser, Role as PlAuthRole
+    from pyferro.plugins.broadcast import broadcast_notification as PlBcastNotif
+    from pyferro.plugins.smart_cache import invalidates as PlInvalidates
+
+    assert PlDbBase is DbBase
+    assert PlDbSession is db_session
+    assert PlAuthUser is AuthUser
+    assert PlAuthRole is AuthRole
+    assert PlBcastNotif is bcast_notif
+    assert PlInvalidates is sc_invalidates
+

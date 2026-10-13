@@ -7,11 +7,29 @@
 ---
 
 ## 📌 Запланировано к следующему релизу (Backlog)
-* [ ] Задачи формируются по мере поступления.
+> Подробный концептуальный манифест и спецификация: [docs_ru/roadmap_future_architecture.md](docs_ru/roadmap_future_architecture.md) ([EN](docs/roadmap_future_architecture.md)).
+
+* [ ] **v0.6.0: Автогенерация TypeScript-типов (`pyferro codegen`) и CLI разработчика (`pyferro cli`):**
+  - **`pyferro codegen [app] -o [path]`**: автоматическая генерация `ferro.d.ts` со схемами моделей SQLAlchemy (`ModelRegistry`), строгой типизацией вызовов `rpc.call(method, params)` и распаковкой `@tabular_response`.
+  - **Консольный CLI `pyferro` в `[project.scripts]`**: команды `pyferro rpc list` (аудит ролей, CASL и docstrings), `pyferro models list`, `pyferro admin create/set-password`.
+* [ ] **v0.6.1: Декларативные хуки в моделях (`@crud_hook`) и In-Memory тестировщик (`FerroTestClient`):**
+  - **Хуки жизненного цикла в CRUD**: поддержка `before_create`, `after_create`, `before_update`, `before_delete` в `class Crud` моделей без необходимости переопределять обработчики вручную.
+  - **Легковесный `FerroTestClient(app)`**: тестирование RPC-методов, middleware, CASL и сессий в памяти без сетевого оверхеда со скоростью >10 000 req/sec.
+* [ ] **v0.6.2: Декоратор `@transactional` с авто-откатом при дисконнекте:**
+  - Автоматическое управление `AsyncSession` (commit/rollback) и интеграция с `session.register_on_close` для мгновенного отката транзакций при обрыве соединения сокета клиентом.
 
 ---
 
 ## ✅ Выполнено в текущем релизе / подготовке:
+* [x] **v0.5.11: Поддержка OAuth-провайдеров, nullable-полей БД и универсальных UI-алиасов в `client/wsrpc.ts`:**
+  - **Поддержка `email?: string | null` в `AuthUser`:** устранена ошибка строгой типизации TypeScript при возврате `null` из SQL-баз данных при регистрации через OAuth/телефон.
+  - **Публичный метод `auth.setSession(res)`:** удобная идиоматичная фиксация сессии при альтернативных сценариях входа (OAuth 2.0, VK ID, Яндекс ID, Google, Telegram Login Widget, SMS, Passkeys). Атомарно сохраняет Cookies (`ferro_session`, `ferro_crud_session`, `rpc_jwt`), обновляет `localStorage` и реактивный `userStore`.
+  - **Универсальные алиасы идентификаторов и профиля (`id`, `uid`, `avatar`, `photo_url`):** нормализация данных пользователя через метод `normalizeUser()` гарантирует совместимость с UI-библиотеками (Svelte, React, Vue), роутерами и таблицами как при первичном входе, так и при автоматическом восстановлении сессии по Cookie (`restoreSession` / `login.whoami`).
+  - **Синхронизация документации:** обновлены руководства `docs/client_guide.md` и `docs_ru/client_guide.md` с наглядными примерами интеграции сторонних методов авторизации.
+  - **Безопасный спавн воркеров Granian в `app.run()` (`_granian_target_loader`):** устранена ошибка `TypeError: expected string or bytes-like object, got 'FerroApp'` при запуске сервера через `app.run()`. Granian в `server.serve(target_loader=...)` теперь получает канонический загрузчик, прозрачно поддерживающий как готовый экземпляр `FerroApp`, так и строковый путь цели.
+  - **Атомарное создание сущностей с Many-to-Many связями в `crud.create`:** устранена ошибка `(sqlalchemy.exc.MissingGreenlet) greenlet_spawn has not been called` при создании записей (например, `User` с ролями). M2M-объекты теперь разрешаются и связываются с транзиентной сущностью до добавления в сессию и `db.flush()`, а идентификатор записи считывается без избыточного вызова `db.refresh(obj)`.
+  - **Промоушен базовых подсистем в модули первого уровня (`pyferro.db`, `pyferro.auth`, `pyferro.broadcast`, `pyferro.smart_cache`):** зрелые универсальные подсистемы переведены из `plugins/` в ядро фреймворка первого уровня (Django-style architecture). Добавлен нативный метод `await app.broadcast(...)`. В `pyferro.plugins.*` сохранены прокси-реэкспорты для 100% обратной совместимости существующих проектов.
+
 * [x] **v0.5.10: Zero-Boilerplate Client Auth (`client/wsrpc.ts`), реструктуризация документации (Single Source of Truth) и очистка устаревших RFC:**
   - **Встроенная подсистема `AuthStore<TUser>` в канонический клиент `BinaryWSRPC`:** больше не требуется копировать отдельный файл `auth.ts` на 470 строк в клиентские проекты.
   - **Экспортируемый синглтон `auth`:** прямое использование `import { rpc, auth } from './wsrpc'` или `rpc.auth`.

@@ -27,11 +27,11 @@ from pyferro.core.session import (
 )
 from pyferro.core.tabular import tabular_response, pack_tabular
 from pyferro.core.logger import logger
-from pyferro.plugins.db import async_session
-from pyferro.plugins.broadcast import broadcast_notification
-from pyferro.plugins.smart_cache import invalidates, version_registry, invalidate_tags
+from pyferro.db import async_session
+from pyferro.broadcast import broadcast_notification
+from pyferro.smart_cache import invalidates, version_registry, invalidate_tags
 from pyferro.plugins.seo import is_bot, is_search_bot
-from pyferro.plugins.auth import User, system_bypass_ctx
+from pyferro.auth import User, system_bypass_ctx
 
 try:
     from .models import Task, Document

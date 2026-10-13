@@ -391,6 +391,19 @@ async def test_crud_m2m_update_cell():
         get_res = await handle_crud_get(mock_ws, {"model": "User", "id": user_id})
         roles = [r["label"] for r in get_res["record"]["roles"]]
         assert "moderator" in roles
+
+        # Создаем нового пользователя сразу со связью M2M roles в crud.create
+        u2_res = await handle_crud_create(mock_ws, {
+            "model": "User",
+            "data": {"login": "user_with_role", "name": "User With Role", "roles": ["moderator"]}
+        })
+        assert u2_res["success"] is True
+        u2_id = u2_res["id"]
+        assert u2_id is not None
+
+        get_res2 = await handle_crud_get(mock_ws, {"model": "User", "id": u2_id})
+        roles2 = [r["label"] for r in get_res2["record"]["roles"]]
+        assert "moderator" in roles2
     finally:
         set_identity_provider(DefaultIdentityProvider())
         await engine.dispose()

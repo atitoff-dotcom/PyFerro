@@ -34,6 +34,18 @@ class _SessionCounter:
         return val
 
 
+def _granian_target_loader(target: Any) -> Any:
+    """Загрузчик целевого приложения для воркеров Granian.
+    
+    Позволяет Granian безопасно передавать уже созданный экземпляр FerroApp
+    в дочерние процессы воркеров без падения load_target(re.split).
+    """
+    if isinstance(target, str):
+        from granian._internal import load_target
+        return load_target(target)
+    return target
+
+
 class FerroApp:
     """
     Полнофункциональное RSGI-приложение PyFerro.
@@ -179,8 +191,8 @@ class FerroApp:
         import secrets
         import string
         from sqlalchemy import select
-        from pyferro.plugins.db import async_session
-        from pyferro.plugins.auth import User, system_bypass_ctx
+        from pyferro.db import async_session
+        from pyferro.auth import User, system_bypass_ctx
 
         if not password:
             chars = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -301,7 +313,7 @@ class FerroApp:
                 "allowed_rpc_methods": {"*"} if is_superadmin else set(user_info.get("allowed_rpc_methods", [])),
             })()
 
-            from pyferro.plugins.auth.core import AuthSession
+            from pyferro.auth import AuthSession
             session.data = AuthSession(
                 uid=uid,
                 user=None,
@@ -518,6 +530,18 @@ class FerroApp:
             else:
                 logger.error(f"[FerroApp WS] Ошибка сокет-сессии: {e}", exc_info=True)
 
+    async def broadcast(
+        self,
+        method: str,
+        params: Optional[Dict[str, Any]] = None,
+        exclude_current: bool = False,
+    ) -> int:
+        """
+        Рассылает JSON-RPC нотификацию всем активным WebSocket-клиентам.
+        """
+        from pyferro.broadcast import broadcast_notification
+        return await broadcast_notification(method, params=params, exclude_current=exclude_current)
+
     def run(self, host: str = "127.0.0.1", port: int = 8080, workers: int = 1, **granian_kwargs: Any):
         """
         Удобный запуск сервера через Granian в коде.
@@ -539,6 +563,7 @@ class FerroApp:
         except ImportError:
             raise RuntimeError("Для запуска через app.run() установите granian: pip install granian")
 
+        target_loader = granian_kwargs.pop("target_loader", _granian_target_loader)
         server = Granian(
             target=self,
             address=host,
@@ -547,4 +572,4 @@ class FerroApp:
             workers=workers,
             **granian_kwargs
         )
-        server.serve()
+        server.serve(target_loader=target_loader)

@@ -24,7 +24,7 @@
    * [Modular Backend Test Framework (tests/)](#5-modular-backend-test-framework-tests)
 8. [Creating Custom Plugins & Modules in the app Directory](#-creating-custom-plugins--modules-in-the-app-directory)
 9. [Client SDK (TypeScript/JavaScript: client_guide.md)](client_guide.md)
-10. [🌟 What's New in v0.3.3](#-whats-new-in-v033)
+10. [Architectural Roadmap & Strategic Vision](roadmap_future_architecture.md)
 11. [License](#-license)
 
 ---

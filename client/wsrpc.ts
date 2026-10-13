@@ -28,12 +28,16 @@ export const wsStatus = new SimpleStore<'CONNECTING' | 'CONNECTED' | 'DISCONNECT
  * Базовый интерфейс пользователя PyFerro Auth.
  */
 export interface AuthUser {
-    user_id: number;
+    id?: number | string;
+    uid?: number | string;
+    user_id: number | string;
     username: string;
     role: string;
     roles?: string[];
     name?: string;
-    email?: string;
+    email?: string | null;
+    avatar?: string | null;
+    photo_url?: string | null;
     permissions?: Record<string, any>;
     is_superadmin?: boolean;
     [key: string]: any;
@@ -279,17 +283,7 @@ export class AuthStore<TUser extends AuthUser = AuthUser> {
                 }
 
                 if (whoami && (whoami.authenticated || whoami.user_id)) {
-                    const userObj = {
-                        user_id: whoami.user_id,
-                        username: whoami.username || whoami.login || 'user',
-                        role: whoami.role || (whoami.roles && whoami.roles[0]) || 'user',
-                        roles: whoami.roles || (whoami.role ? [whoami.role] : ['user']),
-                        name: whoami.name || whoami.username || whoami.login,
-                        email: whoami.email,
-                        permissions: whoami.permissions || {},
-                        is_superadmin: Boolean(whoami.is_superadmin)
-                    } as TUser;
-
+                    const userObj = this.normalizeUser(whoami);
                     this.userStore.set(userObj);
                     return true;
                 }
@@ -391,20 +385,42 @@ export class AuthStore<TUser extends AuthUser = AuthUser> {
     }
 
     /**
-     * Внутренний обработчик успешного ответа сервера с данными авторизации
+     * Унифицированная нормализация объекта пользователя под стандартные UI-соглашения.
+     * Гарантирует наличие алиасов id, uid, user_id, avatar, photo_url и nullable email.
      */
-    private applyAuthSuccess(res: any): TUser {
-        const userObj = {
-            user_id: res.user_id,
+    public normalizeUser(res: any): TUser {
+        const id = res.user_id ?? res.id ?? res.uid ?? res.username;
+        return {
+            id,
+            uid: res.user_id ?? res.uid ?? id,
+            user_id: res.user_id ?? res.uid ?? id,
+            avatar: res.photo_url || res.avatar || null,
+            photo_url: res.photo_url || res.avatar || null,
             username: res.username || res.login || 'user',
             role: res.role || (res.roles && res.roles[0]) || 'user',
             roles: res.roles || (res.role ? [res.role] : ['user']),
             name: res.name || res.username || res.login,
-            email: res.email,
+            email: res.email ?? null,
             permissions: res.permissions || {},
             is_superadmin: Boolean(res.is_superadmin),
             ...res
         } as TUser;
+    }
+
+    /**
+     * Применение результата успешной авторизации (стандартный вход, OAuth, SSO, Telegram, Passkeys).
+     * Сохраняет токены, атомарно обновляет Cookies и реактивные сторы.
+     */
+    public setSession(res: any): TUser {
+        return this.applyAuthSuccess(res);
+    }
+
+    /**
+     * Обработчик успешного ответа сервера с данными авторизации.
+     * Сохраняет токены, атомарно обновляет Cookies и реактивные сторы.
+     */
+    public applyAuthSuccess(res: any): TUser {
+        const userObj = this.normalizeUser(res);
 
         this.userStore.set(userObj);
 

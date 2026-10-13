@@ -21,7 +21,7 @@
 ```python
 import os
 from pyferro import FerroApp, rpc_method, tabular_response, RPCError
-from pyferro.plugins.broadcast import broadcast_notification
+from pyferro.broadcast import broadcast, broadcast_notification
 
 # 1. Инициализация приложения со всеми настройками (Code-First)
 app = FerroApp(
@@ -133,7 +133,7 @@ async def get_users():
 
 Для реактивной инвалидации кэша на клиентах при мутациях используйте `@invalidates`:
 ```python
-from pyferro.plugins.smart_cache import invalidates
+from pyferro.smart_cache import invalidates
 
 @rpc_method("topics.delete")
 @invalidates(tags=["forum.topics", "forum.category.{category_id}", "forum.topic.{topic_id}"])
@@ -182,7 +182,7 @@ async def inspect_client(session):
 
 Неблокирующая O(1) рассылка уведомлений всем подключенным сокетам:
 ```python
-from pyferro.plugins.broadcast import broadcast_notification
+from pyferro.broadcast import broadcast, broadcast_notification
 
 # Сериализация происходит 1 раз в память, после чего фрейм отправляется всем сокетам
 await broadcast_notification("order.updated", {"order_id": 105, "status": "shipped"})

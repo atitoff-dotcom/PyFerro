@@ -145,10 +145,19 @@ const user = await auth.login({ username: 'alex', password: 'secret' });
 // 2. Secure login with client-side RSA-OAEP encryption
 // (Fetches server's ephemeral public key and encrypts password via Web Crypto API)
 const secureUser = await auth.loginSecure({ username: 'alex', password: 'secret' });
+
+// 3. OAuth, SSO, Telegram or Passkeys (custom RPC method)
+// Call your custom backend handler and apply the session in one shot:
+const oauthRes = await rpc.call('auth.google_oauth', { code: '...' });
+const oauthUser = auth.setSession(oauthRes); // Atomically sets cookies, localStorage, and userStore
 ```
 
 ### 5.2. State Properties:
-* `auth.user`: Current user object (`AuthUser | null`).
+* `auth.user`: Current user object (`AuthUser | null`). Automatically normalizes conventional fields:
+  - `id`, `uid`, `user_id`: Universal user ID aliases (`string | number`).
+  - `avatar`, `photo_url`: User profile photo URL (`string | null`).
+  - `email`: User email or `null` for phone/OAuth signups (`string | null`).
+  - `username`, `name`, `role`, `roles`, `permissions`, `is_superadmin`.
 * `auth.isValid`: `boolean` — Whether a session is active.
 * `auth.token`: Active refresh token.
 * `auth.jwtToken`: Short-lived JWT for REST & file upload endpoints.

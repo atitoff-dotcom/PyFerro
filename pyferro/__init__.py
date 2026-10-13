@@ -4,12 +4,21 @@ pyferro: High-performance reactive fullstack Python framework on Rust RSGI (Gran
 with symmetric WSRPC (JSON-RPC 2.0) and Tabular Data Compression (RFC 0002).
 """
 
-__version__ = "0.5.10"
+__version__ = "0.5.11"
 
 # Автоматическая активация моста обратной совместимости для плоских импортов core и plugins
 from pyferro.compat import install_compat
 install_compat()
 
+# Модули ядра первого уровня
+from pyferro import core
+from pyferro import db
+from pyferro import auth
+from pyferro import broadcast as broadcast_module
+from pyferro import smart_cache
+from pyferro import plugins
+
+# Базовые сущности ядра (WSRPC, Сессии, Табличные данные)
 from pyferro.core.session import (
     rpc_method, RPCError, JsonRpcSession,
     current_user_ctx, current_session_ctx, current_rpc_id_ctx, current_transport_ctx,
@@ -29,17 +38,42 @@ from pyferro.core.logger import (
     logger, setup_logging, get_runtime_log_level, set_runtime_log_level
 )
 from pyferro.core.lib.config import configure, get_config
-from pyferro.plugins.db.session import set_db_echo, get_db_echo
-from pyferro.plugins.auth.oauth import VkOAuth, YandexOAuth
 from pyferro.app import FerroApp
 
-from pyferro import core
-from pyferro import plugins
+# База данных (pyferro.db)
+from pyferro.db import (
+    Base, engine, async_session, DATABASE_URL, configure_db, set_db_echo, get_db_echo
+)
+
+# Аутентификация и пользователи (pyferro.auth)
+from pyferro.auth import (
+    User, Role, RpcPermission, AuthSession, system_bypass_ctx, BasicSecureModel, RowSecureModel
+)
+from pyferro.auth.oauth import VkOAuth, YandexOAuth
+
+# Рассылки реального времени (pyferro.broadcast)
+from pyferro.broadcast import (
+    broadcast, broadcast_notification, send_to_user, send_to_role
+)
+
+# Реактивное кэширование (pyferro.smart_cache)
+from pyferro.smart_cache import (
+    invalidates, invalidate_tags, version_registry
+)
 
 __all__ = [
+    # Главный класс приложения
     "FerroApp",
-    "VkOAuth",
-    "YandexOAuth",
+
+    # Подсистемы первого уровня
+    "core",
+    "db",
+    "auth",
+    "broadcast_module",
+    "smart_cache",
+    "plugins",
+
+    # RPC & Сессии
     "rpc_method",
     "RPCError",
     "JsonRpcSession",
@@ -48,13 +82,19 @@ __all__ = [
     "current_rpc_id_ctx",
     "current_transport_ctx",
     "ACTIVE_SESSIONS_SET",
+
+    # RFC 0002 Tabular Data
     "pack_tabular",
     "unpack_tabular",
     "tabular_response",
     "is_tabular",
+
+    # Константы ролей
     "ADMIN_ROLE",
     "DEFAULT_USER_ROLE",
     "SYSTEM_ROLES",
+
+    # HTTP & Cookies
     "http_route",
     "HTTP_ROUTES",
     "extract_header",
@@ -62,6 +102,8 @@ __all__ = [
     "extract_cookies",
     "get_session_cookie_names",
     "extract_session_token",
+
+    # Жизненный цикл и логирование
     "on_startup",
     "on_shutdown",
     "run_startup_callbacks",
@@ -70,7 +112,36 @@ __all__ = [
     "setup_logging",
     "configure",
     "get_config",
-    "core",
-    "plugins",
     "install_compat",
+
+    # База данных (pyferro.db)
+    "Base",
+    "engine",
+    "async_session",
+    "DATABASE_URL",
+    "configure_db",
+    "set_db_echo",
+    "get_db_echo",
+
+    # Аутентификация (pyferro.auth)
+    "User",
+    "Role",
+    "RpcPermission",
+    "AuthSession",
+    "system_bypass_ctx",
+    "BasicSecureModel",
+    "RowSecureModel",
+    "VkOAuth",
+    "YandexOAuth",
+
+    # Рассылки (pyferro.broadcast)
+    "broadcast",
+    "broadcast_notification",
+    "send_to_user",
+    "send_to_role",
+
+    # Реактивный кэш (pyferro.smart_cache)
+    "invalidates",
+    "invalidate_tags",
+    "version_registry",
 ]
