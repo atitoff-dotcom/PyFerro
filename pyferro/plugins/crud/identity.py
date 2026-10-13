@@ -157,9 +157,16 @@ class DefaultIdentityProvider:
                     model_prefix = perm.split(":")[0] + ":*"
                     if model_prefix in perms:
                         return True
-        # Авторизованным пользователям разрешены базовые операции (ограничиваются через RLS scope)
+        # Системные модели безопасности защищены от несанкционированного изменения
+        action = perm.split(":")[-1] if ":" in perm else perm
+        model_part = perm.split(":")[0] if ":" in perm else ""
+        if model_part in ("User", "Role", "RpcPermission", "RolePermission", "UserPermission",
+                          "auth_user", "auth_role", "auth_rpc_permission", "auth_role_permission"):
+            if action in ("create", "update", "delete", "transfer"):
+                return False
+
+        # Авторизованным пользователям разрешены базовые операции для прикладных моделей (ограничиваются через RLS scope)
         if user_id is not None:
-            action = perm.split(":")[-1] if ":" in perm else perm
             if action in ("read", "create", "update", "delete"):
                 return True
         return False

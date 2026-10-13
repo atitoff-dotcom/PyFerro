@@ -4,7 +4,7 @@ pyferro: High-performance reactive fullstack Python framework on Rust RSGI (Gran
 with symmetric WSRPC (JSON-RPC 2.0) and Tabular Data Compression (RFC 0002).
 """
 
-__version__ = "0.5.12"
+__version__ = "0.5.13"
 
 # Автоматическая активация моста обратной совместимости для плоских импортов core и plugins
 from pyferro.compat import install_compat
@@ -42,7 +42,7 @@ from pyferro.app import FerroApp
 
 # База данных (pyferro.db)
 from pyferro.db import (
-    Base, engine, async_session, DATABASE_URL, configure_db, set_db_echo, get_db_echo
+    Base, engine, async_session, system_db_session, system_bypass, DATABASE_URL, configure_db, set_db_echo, get_db_echo
 )
 
 # Аутентификация и пользователи (pyferro.auth)
@@ -118,6 +118,8 @@ __all__ = [
     "Base",
     "engine",
     "async_session",
+    "system_db_session",
+    "system_bypass",
     "DATABASE_URL",
     "configure_db",
     "set_db_echo",

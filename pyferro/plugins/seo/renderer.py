@@ -128,7 +128,7 @@ def render_seo_page(
             "itemListElement": breadcrumb_elements
         }
 
-    json_ld_str = orjson.dumps(json_ld, option=orjson.OPT_INDENT_2).decode("utf-8")
+    json_ld_str = orjson.dumps(json_ld, option=orjson.OPT_INDENT_2).decode("utf-8").replace("<", "\\u003c")
     head_lines.append(f'    <script type="application/ld+json">\n{json_ld_str}\n    </script>')
 
     # 5. Сборка Body

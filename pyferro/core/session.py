@@ -289,6 +289,9 @@ class JsonRpcSession:
                     continue
 
                 rpc_id = data.get("id")
+                if rpc_id is not None and not isinstance(rpc_id, (str, int)):
+                    await self._send_error(None, -32600, "Invalid Request: id must be integer, string or null")
+                    continue
 
                 if rpc_id is not None and ("result" in data or "error" in data):
                     fut = self._pending_requests.pop(rpc_id, None)
@@ -329,7 +332,7 @@ class JsonRpcSession:
 
                 # 2. Проверка прав авторизованного пользователя (O(1) in-memory)
                 if self.authenticated and not is_public:
-                    has_perm = True
+                    has_perm = False
                     session_data = self.data
                     if session_data:
                         if hasattr(session_data, "has_rpc_permission"):

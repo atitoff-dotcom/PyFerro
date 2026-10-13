@@ -273,7 +273,34 @@ async def article_seo(slug: str):
 
 ---
 
-## 13. 🚫 КРИТИЧЕСКИЕ АНТИ-ПАТТЕРНЫ (Anti-Hallucination Guardrails)
+## 13. Работа с базой данных и системными операциями (`pyferro.db`)
+
+Подсистема базы данных экспортирует `engine`, `Base`, `async_session`, а также высокоуровневые контекстные менеджеры для выполнения системных запросов, кронов, миграций и фоновых задач в обход Row-Level Security (RLS):
+
+```python
+from pyferro import system_db_session, system_bypass
+from sqlalchemy import select
+
+# 1. Автономная асинхронная сессия БД со встроенным системным обходом RLS:
+@app.rpc("tasks.cleanup")
+async def tasks_cleanup():
+    async with system_db_session() as db:
+        stmt = select(Task).where(Task.status == "archived")
+        tasks = (await db.execute(stmt)).scalars().all()
+        # Изменения сохраняются штатно
+        await db.commit()
+    return {"status": "ok"}
+
+# 2. Обход RLS для блока кода в уже открытой сессии:
+with system_bypass():
+    user = await User.get_permissions_by_id(db, user_id)
+```
+
+⚠️ **Анти-паттерн:** Ручное управление `token = system_bypass_ctx.set(True) ... try / finally: system_bypass_ctx.reset(token)`. Всегда используйте `system_db_session()` или `with system_bypass():`.
+
+---
+
+## 14. 🚫 КРИТИЧЕСКИЕ АНТИ-ПАТТЕРНЫ (Anti-Hallucination Guardrails)
 
 1. ❌ **НЕ ИМПОРТИРУЙТЕ `fastapi`, `starlette` или ASGI-модули.**
    - Сервер работает на **Granian RSGI**, где `scope.proto` — `"http"` или `"websocket"`.

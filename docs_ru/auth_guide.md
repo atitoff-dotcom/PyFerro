@@ -107,6 +107,23 @@ await db_session.commit()
 
 В `FerroApp` по умолчанию включен флаг `auto_auth_ws=True`. При подключении сокета сервер считывает Cookie `ferro_session` / `ferro_crud_session` во время WebSocket Upgrade и авторизует сокет **до выполнения первого запроса**.
 
+### 3.4. Системные операции и обход RLS (`system_db_session`, `system_bypass`)
+
+Если в системных RPC-хендлерах, фоновых воркерах или сервисных задачах требуется работать с моделями пользователей или защищенными таблицами в обход Row-Level Security (RLS), используйте канонические контекстные менеджеры:
+
+```python
+from pyferro import system_db_session, system_bypass
+from sqlalchemy import select
+
+# 1. Автономная асинхронная сессия в обход RLS:
+async with system_db_session() as db:
+    user = (await db.execute(select(User).where(User.login == username))).scalar_one_or_none()
+
+# 2. Временное отключение RLS внутри уже открытой сессии:
+with system_bypass():
+    user = await User.get_permissions_by_id(db, user_id)
+```
+
 ---
 
 ## 4. Фронтенд: Интеграция с клиентом `wsrpc.ts`

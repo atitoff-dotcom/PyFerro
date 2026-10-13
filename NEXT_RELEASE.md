@@ -17,10 +17,30 @@
   - **Легковесный `FerroTestClient(app)`**: тестирование RPC-методов, middleware, CASL и сессий в памяти без сетевого оверхеда со скоростью >10 000 req/sec.
 * [ ] **v0.6.2: Декоратор `@transactional` с авто-откатом при дисконнекте:**
   - Автоматическое управление `AsyncSession` (commit/rollback) и интеграция с `session.register_on_close` для мгновенного отката транзакций при обрыве соединения сокета клиентом.
+* [ ] **v0.6.3: Движок безопасных версионных обновлений (Safe Evolution Engine & GUI Upgrade Wizard):**
+  - **Спецификация:** [docs_ru/safe_evolution_guide.md](docs_ru/safe_evolution_guide.md) ([EN](docs/safe_evolution_guide.md)).
+  - **Нативный теневой снимок через `VACUUM INTO`**: мгновенный бэкап SQLite без блокировки читателей перед выполнением любых миграций.
+  - **Аварийный откат (Instant Disaster Recovery)**: физическая подмена файла за <1 сек при любых ошибках, падении питания или Ctrl+C.
+  - **State Machine и Recovery Safe-Mode**: автоматический переход в `RECOVERY_REQUIRED` при расхождении версий, отдача 503 гостям и открытие мастера обновления в `/crud`.
+  - **WSRPC Streaming & Task Manager**: фоновый `UpgradeTaskManager`, неубиваемый при закрытии вкладки или потере Wi-Fi, со стримингом прогресса 0..100% в админку Svelte 5.
+  - **Контракт версионных скриптов**: функции `pre_check()`, `upgrade()` (Expand & Contract) и зеркальный `downgrade()`.
 
 ---
 
 ## ✅ Выполнено в текущем релизе / подготовке:
+* [x] **v0.5.13: Security Hardening, Code Optimization & Zero-Vulnerability Core Hotfix:**
+  - **Защита CRUD и предотвращение эскалации привилегий:** системные модели безопасности (`User`, `Role`, `RpcPermission`) закрыты от изменения через CRUD для не-суперпользователей; Many-to-Many связи в `crud.update_cell` и `crud.create` теперь строго валидируются через RLS scope и `protected_fields`; метод `crud.lookup` переведен на строгую проверку прав чтения модели и RLS-скоупинг.
+  - **Исправление `login.secure` (RSA-вход):** добавлен недостающий `import base64` в `pyferro/core/security.py`, полностью устраняющий `NameError` при расшифровке паролей.
+  - **Оптимизация PBKDF2 в Asyncio:** тяжелые вычисления хэшей паролей (600,000 итераций) в `verify_password` и регистрации перенесены в рабочий поток `asyncio.to_thread(...)`, исключая зависания event loop; добавлена фиктивная проверка для защиты от атак по времени (timing enumeration).
+  - **Защита эндпоинта `/upload` (Defense in Depth):** встроенная строгая проверка JWT-аутентификации из заголовков `Authorization: Bearer` или защищенных сессионных кук отсекает неавторизованные потоки и заполнение диска до начала стриминга тела; корректно проставляется `owner_id`.
+  - **Default Deny для авторизованных сессий:** в `JsonRpcSession._check_permissions` установлен запретительный дефолт `has_perm = False` для любых сессионных данных без явных списков прав.
+  - **Надежность WebSocket-сессий:** предотвращен `UnboundLocalError` при сбоях в рукопожатии; блок `finally: if session: await session.close()` гарантирует очистку сессий из `ACTIVE_SESSIONS_SET` при любых исключениях; добавлена валидация типа `rpc_id` для предотвращения `TypeError: unhashable type`.
+  - **Корректный отзыв сессий при `auth.logout`:** обеспечено считывание `session_db_id` как из `session.data`, так и напрямую из `session`, что гарантирует удаление привязанных записей `ActiveSession` и `RefreshToken` из базы данных при выходе.
+  - **XSS-санитизация в SEO JSON-LD:** экранирование символа `<` (`\u003c`) в `orjson.dumps` предотвращает выход за пределы тега `<script type="application/ld+json">`.
+  - **Строгий Lifecycle Startup:** исключения в `run_startup_callbacks` больше не глушатся, а пробрасываются наружу, гарантируя остановку старта воркера Granian при сбоях миграций БД или схемы.
+  - **Сокращение кода и ликвидация бойлерплейта (`system_bypass`, `system_db_session`):** введены чистые контекстные менеджеры в `pyferro.db` (`system_db_session()` и `system_bypass()`), устранившие десятки строк ручного управления токенами `system_bypass_ctx.set(...)` и громоздких блоков `try/finally` по всему проекту (`pyferro/auth`, `pyferro/plugins/crud`, `pyferro/cli.py`, `pyferro/app.py`, `pyferro/core/lifecycle.py`).
+  - **Интеграция и исправление RSGI Scope в `raw_ws`:** исправлено обращение к атрибуту пути `scope.path` в `dispatch_raw_ws` (для нативных объектов `Scope` Granian), добавлена нативная диспетчеризация маршрутов `RAW_WS_ROUTES` в `FerroApp._handle_websocket`.
+
 * [x] **v0.5.12: Чистая архитектура первого уровня и полное удаление легаси-прокси плагинов (Zero Technical Debt):**
   - **Полное удаление устаревших прокси-каталогов `pyferro.plugins.{db,auth,broadcast,smart_cache}`:** исключен легаси-балласт и паразитное дублирование импортов.
   - **Единый стандарт ядра:** все базовые подсистемы теперь импортируются строго из первоуровневых модулей (`pyferro.db`, `pyferro.auth`, `pyferro.broadcast`, `pyferro.smart_cache`).

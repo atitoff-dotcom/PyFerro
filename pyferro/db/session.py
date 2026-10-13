@@ -179,3 +179,38 @@ def apply_pagination(stmt: Select, args: Dict[str, Any]) -> Select:
             pass
 
     return stmt
+
+
+from contextlib import asynccontextmanager, contextmanager
+
+
+@contextmanager
+def system_bypass():
+    """
+    Синхронный контекстный менеджер системного обхода RLS (system_bypass_ctx).
+    Устраняет ручное управление токеном ContextVar и дублирование try/finally блоков.
+    """
+    try:
+        from pyferro.auth.core import system_bypass_ctx
+        token = system_bypass_ctx.set(True)
+    except (ImportError, Exception):
+        token = None
+    try:
+        yield
+    finally:
+        if token is not None:
+            try:
+                system_bypass_ctx.reset(token)
+            except Exception:
+                pass
+
+
+@asynccontextmanager
+async def system_db_session():
+    """
+    Асинхронный контекстный менеджер сессии БД с автоматической активацией
+    системного обхода RLS (system_bypass_ctx). Устраняет дублирование try/finally блоков.
+    """
+    with system_bypass():
+        async with async_session() as session:
+            yield session

@@ -22,7 +22,7 @@ from pyferro.core.session import rpc_method, RPCError, JsonRpcSession
 from pyferro.core.security import generate_rsa_keypair, decrypt_rsa, create_access_token, verify_password
 from pyferro.core.logger import logger
 
-from pyferro.db import async_session
+from pyferro.db import async_session, system_db_session
 from .models import User, Role, RefreshToken, ActiveSession, OAuthAccount
 from .core import system_bypass_ctx, current_user_ctx, AuthSession
 from .config import get_session_lifetime_days, get_max_active_sessions
@@ -298,22 +298,25 @@ async def handle_login(session: JsonRpcSession, args: Dict[str, Any]) -> Dict[st
         logger.warning("[AUTH] Попытка входа с незаполненными учетными данными.")
         raise RPCError("Требуются имя пользователя и пароль")
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db_session:
-            stmt = select(User).options(
-                selectinload(User.roles).selectinload(Role.permissions),
-                selectinload(User.teams)
-            ).where(or_(User.login == username, User.email == username))
-            
-            user = (await db_session.execute(stmt)).scalar_one_or_none()
-            if not user or not user.verify_password(password):
-                logger.warning(f"[AUTH] Неудачная попытка входа для пользователя '{username}'.")
-                raise RPCError("Неверный логин или пароль")
+    async with system_db_session() as db_session:
+        stmt = select(User).options(
+            selectinload(User.roles).selectinload(Role.permissions),
+            selectinload(User.teams)
+        ).where(or_(User.login == username, User.email == username))
+        
+        user = (await db_session.execute(stmt)).scalar_one_or_none()
+        is_valid = False
+        if user:
+            is_valid = await asyncio.to_thread(user.verify_password, password)
+        else:
+            dummy_hash = "pbkdf2_sha256$600000$dummy_salt$dummy_hash"
+            await asyncio.to_thread(verify_password, password, dummy_hash)
 
-            return await _create_authenticated_session(db_session, user, session, user_agent)
-    finally:
-        system_bypass_ctx.reset(token)
+        if not is_valid:
+            logger.warning(f"[AUTH] Неудачная попытка входа для пользователя '{username}'.")
+            raise RPCError("Неверный логин или пароль")
+
+        return await _create_authenticated_session(db_session, user, session, user_agent)
 
 
 @rpc_method("login.secure")
@@ -360,31 +363,27 @@ async def handle_refresh_token(session: JsonRpcSession, args: Dict[str, Any]) ->
     if not token_str:
         raise RPCError("Токен не предоставлен")
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db_session:
-            stmt = select(RefreshToken).options(
-                selectinload(RefreshToken.user).selectinload(User.roles).selectinload(Role.permissions),
-                selectinload(RefreshToken.user).selectinload(User.teams)
-            ).where(
-                RefreshToken.token == token_str,
-                RefreshToken.expires_at > datetime.now(timezone.utc)
-            )
-            rt_obj = (await db_session.execute(stmt)).scalar_one_or_none()
+    async with system_db_session() as db_session:
+        stmt = select(RefreshToken).options(
+            selectinload(RefreshToken.user).selectinload(User.roles).selectinload(Role.permissions),
+            selectinload(RefreshToken.user).selectinload(User.teams)
+        ).where(
+            RefreshToken.token == token_str,
+            RefreshToken.expires_at > datetime.now(timezone.utc)
+        )
+        rt_obj = (await db_session.execute(stmt)).scalar_one_or_none()
 
-            if not rt_obj:
-                logger.warning("[AUTH] Попытка обновления сессии с недействительным или просроченным токеном.")
-                raise RPCError("Сессия истекла или токен недействителен")
-            
-            # СКОЛЬЗЯЩЕЕ ПРОДЛЕНИЕ: сдвигаем срок действия RefreshToken вперед
-            lifetime_days = get_session_lifetime_days()
-            now_utc = datetime.now(timezone.utc)
-            rt_obj.expires_at = now_utc + timedelta(days=lifetime_days)
-            logger.info(f"[AUTH] Скользящее продление RefreshToken #{rt_obj.id} для '{rt_obj.user.login}' на {lifetime_days} дн. (до {rt_obj.expires_at.isoformat()}).")
+        if not rt_obj:
+            logger.warning("[AUTH] Попытка обновления сессии с недействительным или просроченным токеном.")
+            raise RPCError("Сессия истекла или токен недействителен")
+        
+        # СКОЛЬЗЯЩЕЕ ПРОДЛЕНИЕ: сдвигаем срок действия RefreshToken вперед
+        lifetime_days = get_session_lifetime_days()
+        now_utc = datetime.now(timezone.utc)
+        rt_obj.expires_at = now_utc + timedelta(days=lifetime_days)
+        logger.info(f"[AUTH] Скользящее продление RefreshToken #{rt_obj.id} для '{rt_obj.user.login}' на {lifetime_days} дн. (до {rt_obj.expires_at.isoformat()}).")
 
-            return await _create_authenticated_session(db_session, rt_obj.user, session, user_agent, rt_obj=rt_obj)
-    finally:
-        system_bypass_ctx.reset(token)
+        return await _create_authenticated_session(db_session, rt_obj.user, session, user_agent, rt_obj=rt_obj)
 
 
 @rpc_method("login.whoami")
@@ -398,44 +397,40 @@ async def handle_whoami(session: JsonRpcSession, args: Dict[str, Any]) -> Dict[s
     if not user_id:
         return {"authenticated": False, "role": "guest", "roles": ["guest"], "permissions": {}}
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db_session:
-            stmt = select(User).options(
-                selectinload(User.roles).selectinload(Role.permissions),
-                selectinload(User.roles).selectinload(Role.rpc_permissions),
-                selectinload(User.teams),
-                selectinload(User.permissions),
-                selectinload(User.rpc_permissions)
-            ).where(User.id == user_id)
-            user = (await db_session.execute(stmt)).scalar_one_or_none()
-            if not user:
-                return {"authenticated": False, "role": "guest", "roles": ["guest"], "permissions": {}}
+    async with system_db_session() as db_session:
+        stmt = select(User).options(
+            selectinload(User.roles).selectinload(Role.permissions),
+            selectinload(User.roles).selectinload(Role.rpc_permissions),
+            selectinload(User.teams),
+            selectinload(User.permissions),
+            selectinload(User.rpc_permissions)
+        ).where(User.id == user_id)
+        user = (await db_session.execute(stmt)).scalar_one_or_none()
+        if not user:
+            return {"authenticated": False, "role": "guest", "roles": ["guest"], "permissions": {}}
 
-            role_names = [r.name for r in user.roles] if user.roles else ["guest"]
-            role_name = role_names[0] if role_names else "guest"
+        role_names = [r.name for r in user.roles] if user.roles else ["guest"]
+        role_name = role_names[0] if role_names else "guest"
 
-            return {
-                "authenticated": True,
-                "user_id": user.id,
-                "username": user.login,
-                "name": user.name or user.login,
-                "email": user.email,
-                "role": role_name,
-                "roles": role_names,
-                "permissions": user._get_permissions_dict(),
-                "is_superadmin": getattr(user, "is_superadmin", False)
-            }
-    finally:
-        system_bypass_ctx.reset(token)
+        return {
+            "authenticated": True,
+            "user_id": user.id,
+            "username": user.login,
+            "name": user.name or user.login,
+            "email": user.email,
+            "role": role_name,
+            "roles": role_names,
+            "permissions": user._get_permissions_dict(),
+            "is_superadmin": getattr(user, "is_superadmin", False)
+        }
 
 
 @rpc_method("auth.logout")
 async def handle_logout(session: JsonRpcSession, args: Dict[str, Any]) -> bool:
     """Выход пользователя: удаление сессии WebSocket и привязанного RefreshToken."""
     session_data = getattr(session, "data", None)
-    db_id = getattr(session_data, "session_db_id", None)
-    username = getattr(session_data, "user_name", "unknown")
+    db_id = getattr(session_data, "session_db_id", None) or getattr(session, "session_db_id", None)
+    username = getattr(session_data, "user_name", None) or getattr(session, "user_name", "unknown")
 
     if db_id:
         async with async_session() as db_session:
@@ -499,46 +494,42 @@ async def handle_register(session: JsonRpcSession, args: Dict[str, Any]) -> Dict
     if len(password) < 6:
         raise RPCError("Пароль должен быть не менее 6 символов")
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db_session:
-            stmt = select(User).where(User.login == username)
-            existing = (await db_session.execute(stmt)).scalar_one_or_none()
-            if existing:
-                raise RPCError("Пользователь с таким именем уже существует")
+    async with system_db_session() as db_session:
+        stmt = select(User).where(User.login == username)
+        existing = (await db_session.execute(stmt)).scalar_one_or_none()
+        if existing:
+            raise RPCError("Пользователь с таким именем уже существует")
 
-            if email:
-                stmt_email = select(User).where(User.email == email)
-                existing_email = (await db_session.execute(stmt_email)).scalar_one_or_none()
-                if existing_email:
-                    raise RPCError("Пользователь с таким email уже существует")
+        if email:
+            stmt_email = select(User).where(User.email == email)
+            existing_email = (await db_session.execute(stmt_email)).scalar_one_or_none()
+            if existing_email:
+                raise RPCError("Пользователь с таким email уже существует")
 
-            role_stmt = select(Role).where(Role.name == "user")
-            user_role = (await db_session.execute(role_stmt)).scalar_one_or_none()
+        role_stmt = select(Role).where(Role.name == "user")
+        user_role = (await db_session.execute(role_stmt)).scalar_one_or_none()
 
-            pwd_hash = User._hash_password(password)
-            new_user = User(
-                name=name,
-                login=username,
-                email=email,
-                password_hash=pwd_hash
-            )
-            if user_role:
-                new_user.roles.append(user_role)
+        pwd_hash = await asyncio.to_thread(User._hash_password, password)
+        new_user = User(
+            name=name,
+            login=username,
+            email=email,
+            password_hash=pwd_hash
+        )
+        if user_role:
+            new_user.roles.append(user_role)
 
-            db_session.add(new_user)
-            await db_session.commit()
-            await db_session.refresh(new_user)
+        db_session.add(new_user)
+        await db_session.commit()
+        await db_session.refresh(new_user)
 
-            logger.info(f"[AUTH] Зарегистрирован новый пользователь '{username}' (id={new_user.id}).")
-            return {
-                "success": True,
-                "user_id": new_user.id,
-                "username": new_user.login,
-                "message": "Пользователь успешно зарегистрирован"
-            }
-    finally:
-        system_bypass_ctx.reset(token)
+        logger.info(f"[AUTH] Зарегистрирован новый пользователь '{username}' (id={new_user.id}).")
+        return {
+            "success": True,
+            "user_id": new_user.id,
+            "username": new_user.login,
+            "message": "Пользователь успешно зарегистрирован"
+        }
 
 
 @rpc_method("login.oauth_vk")
@@ -671,9 +662,7 @@ async def handle_oauth_vk(session: JsonRpcSession, args: Dict[str, Any]) -> Dict
         except Exception as e:
             logger.warning(f"[AUTH VK] Не удалось загрузить расширенный профиль VK users.get: {e}")
 
-    bypass_token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db_session:
+    async with system_db_session() as db_session:
             oauth_stmt = select(OAuthAccount).options(
                 selectinload(OAuthAccount.user).selectinload(User.roles).selectinload(Role.permissions),
                 selectinload(OAuthAccount.user).selectinload(User.teams)
@@ -747,8 +736,6 @@ async def handle_oauth_vk(session: JsonRpcSession, args: Dict[str, Any]) -> Dict
             return await _create_authenticated_session(
                 db_session, user, session, user_agent, extra_data={"photo_url": photo_url}
             )
-    finally:
-        system_bypass_ctx.reset(bypass_token)
 
 
 @rpc_method("login.oauth_yandex")
@@ -839,9 +826,7 @@ async def handle_oauth_yandex(session: JsonRpcSession, args: Dict[str, Any]) -> 
 
     ya_login = udata.get("login")
 
-    bypass_token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db_session:
+    async with system_db_session() as db_session:
             oauth_stmt = select(OAuthAccount).options(
                 selectinload(OAuthAccount.user).selectinload(User.roles).selectinload(Role.permissions),
                 selectinload(OAuthAccount.user).selectinload(User.teams)
@@ -914,6 +899,4 @@ async def handle_oauth_yandex(session: JsonRpcSession, args: Dict[str, Any]) -> 
             return await _create_authenticated_session(
                 db_session, user, session, user_agent, extra_data={"photo_url": photo_url}
             )
-    finally:
-        system_bypass_ctx.reset(bypass_token)
 

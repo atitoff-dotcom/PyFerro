@@ -144,6 +144,7 @@ class Role(RowSecureModel):
         verbose_name = "Роль"
         verbose_name_plural = "Роли"
         hidden = {"creator_id", "team_id"}
+        protected = {"rpc_permissions", "permissions", "users"}
         search_fields = ["name", "description"]
 
     def __str__(self):
@@ -280,6 +281,7 @@ class User(RowSecureModel):
         verbose_name = "Пользователь"
         verbose_name_plural = "Пользователи"
         hidden = {"password_hash", "creator_id", "team_id"}
+        protected = {"roles", "rpc_permissions", "permissions"}
         search_fields = ["name", "login", "email"]
 
     def __str__(self):
@@ -383,8 +385,8 @@ class User(RowSecureModel):
 
     @classmethod
     async def get_permissions_by_id(cls, db_session, user_id: int):
-        token = system_bypass_ctx.set(True)
-        try:
+        from pyferro.db import system_bypass
+        with system_bypass():
             stmt = select(cls).options(
                 selectinload(cls.roles).selectinload(Role.permissions),
                 selectinload(cls.roles).selectinload(Role.rpc_permissions),
@@ -397,8 +399,6 @@ class User(RowSecureModel):
             if not user:
                 return None
             return user.get_permissions()
-        finally:
-            system_bypass_ctx.reset(token)
 
     def verify_password(self, password: str) -> bool:
         if not password:

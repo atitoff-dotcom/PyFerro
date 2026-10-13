@@ -13,9 +13,8 @@ import getpass
 from sqlalchemy import select
 
 from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE
-from pyferro.db import async_session, Base, engine
+from pyferro.db import system_db_session, Base, engine
 from pyferro.auth.models import User, Role
-from pyferro.auth.core import system_bypass_ctx
 from pyferro.auth.discovery import sync_rpc_permissions
 
 
@@ -28,9 +27,7 @@ async def async_create_superuser(username: str, password: str, email: str = None
     # Синхронизируем базовые роли
     await sync_rpc_permissions()
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db:
+    async with system_db_session() as db:
             # Ищем роль admin
             stmt_role = select(Role).where(Role.name == ADMIN_ROLE)
             admin_role = (await db.execute(stmt_role)).scalar_one_or_none()
@@ -64,20 +61,16 @@ async def async_create_superuser(username: str, password: str, email: str = None
                 print(f"[OK] Администратор '{username}' успешно создан с ролью '{ADMIN_ROLE}'.")
 
             await db.commit()
-    finally:
-        system_bypass_ctx.reset(token)
 
 
 async def async_set_password(login: str = "admin", password: str = None) -> str:
     """Обновляет пароль пользователя в существующей БД строго DML (без DDL во избежание версионных проблем)."""
     import secrets
     import string
-    token = system_bypass_ctx.set(True)
-    try:
-        if not password:
-            chars = string.ascii_letters + string.digits + "!@#$%^&*"
-            password = "".join(secrets.choice(chars) for _ in range(16))
-        async with async_session() as db:
+    if not password:
+        chars = string.ascii_letters + string.digits + "!@#$%^&*"
+        password = "".join(secrets.choice(chars) for _ in range(16))
+    async with system_db_session() as db:
             stmt = select(User).where(User.login == login)
             user = (await db.execute(stmt)).scalar_one_or_none()
             if not user:
@@ -88,8 +81,6 @@ async def async_set_password(login: str = "admin", password: str = None) -> str:
             user.password_hash = User._hash_password(password)
             await db.commit()
             return password
-    finally:
-        system_bypass_ctx.reset(token)
 
 
 def main():

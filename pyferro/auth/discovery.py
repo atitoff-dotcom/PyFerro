@@ -14,9 +14,8 @@ from pyferro.core.logger import logger
 from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, SYSTEM_ROLES
 from pyferro.core.session import RPC_REGISTRY, PUBLIC_RPC_METHODS
 from pyferro.core.lifecycle import on_startup
-from pyferro.db import async_session
+from pyferro.db import system_db_session
 from .models import Role, RpcPermission, user_role_association, role_rpc_permission_association
-from .core import system_bypass_ctx
 
 # Системные методы, которые по умолчанию публичны при начальной инициализации
 DEFAULT_PUBLIC_METHODS = frozenset({
@@ -36,9 +35,8 @@ async def reload_public_rpc_cache() -> Set[str]:
     """
     Перезагружает in-memory кэш публичных RPC-методов (PUBLIC_RPC_METHODS) из БД.
     """
-    token = system_bypass_ctx.set(True)
     try:
-        async with async_session() as db:
+        async with system_db_session() as db:
             stmt = select(RpcPermission.name).where(RpcPermission.is_public == True)
             result = await db.execute(stmt)
             public_names = set(result.scalars().all())
@@ -53,8 +51,6 @@ async def reload_public_rpc_cache() -> Set[str]:
         logger.warning(f"[Discovery] Не удалось перезагрузить публичный кэш из БД: {e}")
         PUBLIC_RPC_METHODS.update(DEFAULT_PUBLIC_METHODS)
         return set(DEFAULT_PUBLIC_METHODS)
-    finally:
-        system_bypass_ctx.reset(token)
 
 
 async def sync_rpc_permissions() -> None:
@@ -64,13 +60,12 @@ async def sync_rpc_permissions() -> None:
     2. Сканирует RPC_REGISTRY и добавляет новые методы в auth_rpc_permission.
     3. Загружает список публичных методов в память PUBLIC_RPC_METHODS.
     """
-    token = system_bypass_ctx.set(True)
     try:
         from ..db import engine, Base
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-        async with async_session() as db:
+        async with system_db_session() as db:
             # 1. Проверяем и создаем системные роли
             stmt_roles = select(Role.name)
             existing_role_names = set((await db.execute(stmt_roles)).scalars().all())
@@ -142,8 +137,6 @@ async def sync_rpc_permissions() -> None:
     except Exception as e:
         logger.warning(f"[Discovery] Пропущен авто-синк RPC методов (БД не инициализирована или офлайн): {e}")
         PUBLIC_RPC_METHODS.update(DEFAULT_PUBLIC_METHODS)
-    finally:
-        system_bypass_ctx.reset(token)
 
 
 # Регистрируем авто-синк при старте приложения

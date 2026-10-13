@@ -26,6 +26,7 @@
 8. [Клиент TypeScript/JavaScript: client/wsrpc.ts](#8-клиент-typescriptjavascript-clientwsrpcts)
 9. [Единый класс приложения: FerroApp](#9-единый-класс-приложения-rsgiwsrpcapp)
 10. [Масштабирование и Backplane](#10-масштабирование-и-backplane)
+11. [Подсистема базы данных и системные сессии: pyferro.db](#11-подсистема-базы-данных-и-системные-сессии-pyferrodb)
 
 ---
 
@@ -781,6 +782,40 @@ from pyferro.core.backplane import BaseBackplane, MemoryBackplane
 * **`BaseBackplane`** — абстрактный контракт с методами `publish(channel, payload)`, `subscribe(channel, callback)`, `unsubscribe(channel)`.
 * **`MemoryBackplane`** — легковесная in-memory шина по умолчанию (для `workers=1`).
 * **Внимание при `workers > 1`**: Сессии WebSocket хранятся в памяти конкретного процесса операционной системы. При запуске нескольких воркеров без распределенного бэкплейна (Redis / Postgres) фреймворк выводит предупреждение в лог. Для продакшена с несколькими процессами подключайте Redis-бэкплейн.
+
+---
+
+## 11. Подсистема базы данных и системные сессии: pyferro.db
+
+Подсистема базы данных (`pyferro.db`) предоставляет асинхронный движок SQLAlchemy, фабрику сессий и высокоуровневые контекстные менеджеры для выполнения фоновых задач, кронов, миграций и системных RPC-методов с обходом Row-Level Security (RLS):
+
+```python
+from pyferro import system_db_session, system_bypass
+from sqlalchemy import select
+
+# 1. Автономная асинхронная сессия БД с автоматическим системным обходом RLS:
+@app.rpc("tasks.cleanup")
+async def tasks_cleanup():
+    async with system_db_session() as db:
+        stmt = select(Task).where(Task.status == "archived")
+        tasks = (await db.execute(stmt)).scalars().all()
+        for t in tasks:
+            await db.delete(t)
+        await db.commit()
+    return {"status": "ok"}
+
+# 2. Временный обход RLS в рамках уже открытой сессии:
+with system_bypass():
+    user = await User.get_permissions_by_id(db, user_id)
+```
+
+### Основные экспорты `pyferro.db`:
+* **`system_db_session()`** — асинхронный контекстный менеджер (`async with system_db_session() as db:`). Автоматически активирует системный флаг обхода RLS на время работы с сессией и гарантированно сбрасывает его при выходе из блока или исключении.
+* **`system_bypass()`** — синхронный контекстный менеджер (`with system_bypass():`). Позволяет выполнить произвольный блок кода или запросы в уже открытой сессии без ограничений RLS.
+* **`async_session`** — стандартная фабрика сессий `async_sessionmaker` для ручного управления (с соблюдением активных RLS-фильтров текущего пользователя).
+* **`Base`** — базовый декларативный класс SQLAlchemy `DeclarativeBase`.
+* **`engine`** — глобальный экземпляр `AsyncEngineProxy`.
+
 
 
 

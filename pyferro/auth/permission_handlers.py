@@ -20,8 +20,7 @@ from pyferro.core.session import (
     is_public_rpc_method
 )
 from pyferro.core.constants import ADMIN_ROLE
-from pyferro.db import async_session
-from .core import system_bypass_ctx
+from pyferro.db import system_db_session
 from .models import Role, User, RolePermission, UserPermission, RpcPermission
 
 
@@ -110,9 +109,7 @@ async def handle_permissions_get_schema(session: JsonRpcSession) -> Dict[str, An
         })
 
     # 2. Дополняем описаниями из БД
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db:
+    async with system_db_session() as db:
             stmt = select(RpcPermission).order_by(RpcPermission.name)
             db_rpcs = (await db.execute(stmt)).scalars().all()
             db_rpc_map = {rp.name: rp for rp in db_rpcs}
@@ -144,8 +141,7 @@ async def handle_permissions_get_schema(session: JsonRpcSession) -> Dict[str, An
                         "description": db_item.description or f"RPC method {db_item.name}",
                         "help": full_doc.strip()
                     })
-    finally:
-        system_bypass_ctx.reset(token)
+
 
     # Сортируем RPC методы по группе и имени
     rpc_list.sort(key=lambda x: (x["group"], x["name"]))
@@ -171,9 +167,7 @@ async def handle_permissions_get(
     if target_type not in ("role", "user", "guest"):
         raise RPCError(-32602, "Параметр 'target_type' должен быть 'role', 'user' или 'guest'")
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db:
+    async with system_db_session() as db:
             if target_type == "guest":
                 stmt_rpc = select(RpcPermission).where(RpcPermission.is_public == True)
                 db_public = list((await db.execute(stmt_rpc)).scalars().all())
@@ -287,8 +281,7 @@ async def handle_permissions_get(
                     "effective_crud": user._get_permissions_dict(),
                     "effective_rpc": sorted(list(user.get_allowed_rpc_methods()))
                 }
-    finally:
-        system_bypass_ctx.reset(token)
+
 
 
 @rpc_method("permissions.save")
@@ -307,9 +300,7 @@ async def handle_permissions_save(
     crud_permissions = crud_permissions or {}
     rpc_permissions = rpc_permissions or []
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db:
+    async with system_db_session() as db:
             if target_type == "guest":
                 from pyferro.core.lib.config import settings
                 login_rpc = settings.security.get("login_rpc")
@@ -419,5 +410,4 @@ async def handle_permissions_save(
                 pass
 
             return {"success": True, "target_type": target_type, "target_id": target_id}
-    finally:
-        system_bypass_ctx.reset(token)
+

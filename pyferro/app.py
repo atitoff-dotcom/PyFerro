@@ -191,27 +191,23 @@ class FerroApp:
         import secrets
         import string
         from sqlalchemy import select
-        from pyferro.db import async_session
-        from pyferro.auth import User, system_bypass_ctx
+        from pyferro.db import system_db_session
+        from pyferro.auth import User
 
         if not password:
             chars = string.ascii_letters + string.digits + "!@#$%^&*"
             password = "".join(secrets.choice(chars) for _ in range(16))
 
-        token = system_bypass_ctx.set(True)
-        try:
-            async with async_session() as db:
-                user = (await db.execute(select(User).where(User.login == login))).scalar_one_or_none()
-                if not user:
-                    raise ValueError(
-                        f"Пользователь с логином '{login}' не найден в базе данных. "
-                        f"Схема данных и пользователи должны быть предварительно инициализированы приложением."
-                    )
-                user.password_hash = User._hash_password(password)
-                await db.commit()
-                return password
-        finally:
-            system_bypass_ctx.reset(token)
+        async with system_db_session() as db:
+            user = (await db.execute(select(User).where(User.login == login))).scalar_one_or_none()
+            if not user:
+                raise ValueError(
+                    f"Пользователь с логином '{login}' не найден в базе данных. "
+                    f"Схема данных и пользователи должны быть предварительно инициализированы приложением."
+                )
+            user.password_hash = User._hash_password(password)
+            await db.commit()
+            return password
 
     def handle_cli(self, argv: Optional[List[str]] = None) -> bool:
         """
@@ -499,7 +495,16 @@ class FerroApp:
                 proto.response_str(status=200, headers=headers, body=data.decode("utf-8", errors="replace"))
 
     async def _handle_websocket(self, scope, proto):
-        """Принимает входящее WebSocket-соединение и запускает WSRPC JsonRpcSession."""
+        """Принимает входящее WebSocket-соединение и запускает WSRPC JsonRpcSession (или raw_ws при совпадении маршрута)."""
+        # Проверяем специализированные маршруты raw_ws
+        try:
+            from .plugins.raw_ws.manager import dispatch_raw_ws, RAW_WS_ROUTES
+            if RAW_WS_ROUTES and await dispatch_raw_ws(scope, proto):
+                return
+        except ImportError:
+            pass
+
+        session = None
         try:
             ws = await proto.accept()
             session_id = next(self._session_counter)
@@ -525,10 +530,14 @@ class FerroApp:
         except (asyncio.CancelledError, ConnectionResetError):
             pass
         except Exception as e:
+            sid_str = f" #{session.session_id}" if session else ""
             if "RSGI transport is closed" in str(e) or "ProtocolClosed" in type(e).__name__:
-                logger.debug(f"[FerroApp WS] Клиент отключился (сессия #{session.session_id})")
+                logger.debug(f"[FerroApp WS] Клиент отключился (сессия{sid_str})")
             else:
                 logger.error(f"[FerroApp WS] Ошибка сокет-сессии: {e}", exc_info=True)
+        finally:
+            if session:
+                await session.close()
 
     async def broadcast(
         self,

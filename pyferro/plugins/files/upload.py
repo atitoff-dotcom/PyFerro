@@ -60,7 +60,7 @@ def sanitize_filename(filename: Optional[str]) -> str:
     return safe[:255]
 
 
-from pyferro.core.http import extract_header, extract_query_params
+from pyferro.core.http import extract_header, extract_query_params, extract_cookies, get_session_cookie_names
 
 
 async def stream_request_to_disk(
@@ -328,6 +328,29 @@ class UploadCoordinator:
 upload_coordinator = UploadCoordinator()
 
 
+def extract_auth_user_from_scope(scope: Any) -> Optional[Dict[str, Any]]:
+    """Извлекает и проверяет пользователя из заголовка Authorization или Cookies."""
+    auth_header = extract_header(scope, "authorization")
+    token = None
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+    else:
+        cookies = extract_cookies(scope)
+        for name in get_session_cookie_names():
+            if name in cookies:
+                token = cookies[name]
+                break
+
+    if not token:
+        return None
+
+    try:
+        from pyferro.core.security import decode_access_token
+        return decode_access_token(token)
+    except Exception:
+        return None
+
+
 @http_route("/auth-check-upload", ["GET", "POST", "OPTIONS"])
 async def auth_check_upload_handler(scope, proto):
     """
@@ -346,20 +369,8 @@ async def auth_check_upload_handler(scope, proto):
         )
         return
 
-    auth_header = extract_header(scope, "authorization")
-    cookie_header = extract_header(scope, "cookie")
-
-    token = None
-    if auth_header and auth_header.lower().startswith("bearer "):
-        token = auth_header[7:].strip()
-    elif cookie_header:
-        for part in cookie_header.split(";"):
-            part = part.strip()
-            if part.startswith("rpc_jwt="):
-                token = part[8:].strip()
-                break
-
-    if not token:
+    user = extract_auth_user_from_scope(scope)
+    if not user:
         proto.response_str(
             status=401,
             headers=[("content-type", "application/json")],
@@ -367,19 +378,6 @@ async def auth_check_upload_handler(scope, proto):
         )
         return
 
-    # Валидация подлинности и срока действия JWT токена
-    try:
-        from pyferro.core.security import decode_access_token
-        decode_access_token(token)
-    except Exception:
-        proto.response_str(
-            status=401,
-            headers=[("content-type", "application/json")],
-            body='{"error": "Invalid or expired token"}'
-        )
-        return
-
-    # Если токен валиден — отдаем 200 OK
     proto.response_str(
         status=200,
         headers=[("content-type", "application/json")],
@@ -409,6 +407,19 @@ async def upload_handler(scope, proto):
         return
 
     try:
+        # Проверка прав доступа: защита от неавторизованной загрузки и переполнения диска
+        auth_user = extract_auth_user_from_scope(scope)
+        if not auth_user:
+            proto.response_str(
+                status=401,
+                headers=[
+                    ("content-type", "application/json; charset=utf-8"),
+                    ("access-control-allow-origin", "*"),
+                ],
+                body='{"status": "error", "error": "Unauthorized: authentication required to upload files"}'
+            )
+            return
+
         # Извлечение параметров
         params = extract_query_params(scope)
         folder_hash = params.get("folder") or extract_header(scope, "x-folder-hash")
@@ -422,8 +433,13 @@ async def upload_handler(scope, proto):
         content_type = extract_header(scope, "content-type") or "application/octet-stream"
 
         # Определение текущего пользователя
-        current_user = current_user_ctx.get()
-        owner_id = current_user.get("id") or current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", None)
+        raw_uid = auth_user.get("sub") or auth_user.get("user_id") or auth_user.get("id")
+        owner_id = None
+        if raw_uid is not None:
+            try:
+                owner_id = int(raw_uid)
+            except (ValueError, TypeError):
+                pass
 
         is_standalone = False
         tx = upload_coordinator.get_transaction(folder_hash) if folder_hash else None
@@ -507,7 +523,7 @@ async def upload_handler(scope, proto):
         )
     except Exception as e:
         logger.error(f"[Upload] Ошибка при обработке загрузки: {e}", exc_info=True)
-        err_body = orjson.dumps({"status": "error", "error": f"Upload failed: {str(e)}"})
+        err_body = orjson.dumps({"status": "error", "error": "Upload failed due to server error"})
         proto.response_str(
             status=500,
             headers=[("content-type", "application/json")],

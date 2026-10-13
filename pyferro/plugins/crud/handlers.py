@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyferro.core.session import rpc_method, RPCError, JsonRpcSession
-from pyferro.db import async_session
+from pyferro.db import async_session, system_db_session
 
 try:
     from pyferro.auth.core import system_bypass_ctx
@@ -162,9 +162,7 @@ async def handle_crud_get(session: JsonRpcSession, params: Dict[str, Any]) -> Di
     provider = get_identity_provider()
     policy = get_access_policy()
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db:
+    async with system_db_session() as db:
             ctx = await create_access_context(provider, session, model_name, db)
             scope = await policy.scope(ctx, meta, "read", db)
 
@@ -206,8 +204,6 @@ async def handle_crud_get(session: JsonRpcSession, params: Dict[str, Any]) -> Di
                     result[f.name] = val
 
             return {"record": result}
-    finally:
-        system_bypass_ctx.reset(token)
 
 
 async def handle_crud_list(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -235,9 +231,7 @@ async def handle_crud_list(session: JsonRpcSession, params: Dict[str, Any]) -> D
     field_names = [f.name for f in public_fields]
     fields_dict = {f.name: f for f in public_fields}
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db:
+    async with system_db_session() as db:
             ctx = await create_access_context(provider, session, model_name, db)
             scope = await policy.scope(ctx, meta, "read", db)
 
@@ -332,8 +326,6 @@ async def handle_crud_list(session: JsonRpcSession, params: Dict[str, Any]) -> D
                 "fields": field_names,
                 "rows": rows,
             }
-    finally:
-        system_bypass_ctx.reset(token)
 
 
 async def handle_crud_update_cell(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -351,76 +343,77 @@ async def handle_crud_update_cell(session: JsonRpcSession, params: Dict[str, Any
     provider = get_identity_provider()
     policy = get_access_policy()
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db:
-            ctx = await create_access_context(provider, session, model_name, db)
-            allowed = policy.allowed_fields(ctx, meta, "update")
+    async with system_db_session() as db:
+        ctx = await create_access_context(provider, session, model_name, db)
+        allowed = policy.allowed_fields(ctx, meta, "update")
 
-            if field not in allowed:
-                if field in meta.protected_fields:
-                    raise RPCError(-32003, f"Поле '{field}' защищено от изменения (требуется право transfer)")
-                if field in meta.readonly_fields:
-                    raise RPCError(-32602, f"Поле '{field}' защищено от записи (read-only)")
-                raise RPCError(-32602, f"Поле '{field}' недоступно для редактирования")
+        if field not in allowed:
+            if field in meta.protected_fields:
+                raise RPCError(-32003, f"Поле '{field}' защищено от изменения (требуется право transfer)")
+            if field in meta.readonly_fields:
+                raise RPCError(-32602, f"Поле '{field}' защищено от записи (read-only)")
+            raise RPCError(-32602, f"Поле '{field}' недоступно для редактирования")
 
-            # Защита системных ролей от переименования
-            if model_name in ("auth_role", "Role") and field == "name":
-                from pyferro.core.constants import SYSTEM_ROLES
-                stmt_check = select(cls).where(cls.id == record_id)
-                role_obj = (await db.execute(stmt_check)).scalar_one_or_none()
-                if role_obj and role_obj.name in SYSTEM_ROLES:
-                    raise RPCError(-32602, f"Системная роль '{role_obj.name}' является встроенной (immutable) и не может быть переименована")
+        # Защита системных ролей от переименования
+        if model_name in ("auth_role", "Role") and field == "name":
+            from pyferro.core.constants import SYSTEM_ROLES
+            stmt_check = select(cls).where(cls.id == record_id)
+            role_obj = (await db.execute(stmt_check)).scalar_one_or_none()
+            if role_obj and role_obj.name in SYSTEM_ROLES:
+                raise RPCError(-32602, f"Системная роль '{role_obj.name}' является встроенной (immutable) и не может быть переименована")
 
-            field_meta = meta.fields[field]
+        field_meta = meta.fields[field]
 
-            if field_meta.type == "m2m":
-                target_meta = ModelRegistry.get(field_meta.target_model) if field_meta.target_model else None
-                if not target_meta:
-                    raise RPCError(-32602, f"Целевая модель '{field_meta.target_model}' не зарегистрирована в CRUD")
-                target_cls = target_meta.model_cls
-                stmt_obj = select(cls).options(selectinload(getattr(cls, field))).where(cls.id == record_id)
-                obj = (await db.execute(stmt_obj)).scalar_one_or_none()
-                if not obj:
-                    raise RPCError(-32004, f"Запись #{record_id} не найдена")
+        if field_meta.type == "m2m":
+            target_meta = ModelRegistry.get(field_meta.target_model) if field_meta.target_model else None
+            if not target_meta:
+                raise RPCError(-32602, f"Целевая модель '{field_meta.target_model}' не зарегистрирована в CRUD")
+            target_cls = target_meta.model_cls
+            scope = await policy.scope(ctx, meta, "update", db)
+            stmt_obj = select(cls).options(selectinload(getattr(cls, field))).where(cls.id == record_id)
+            if scope is not None:
+                stmt_obj = stmt_obj.where(scope)
+            obj = (await db.execute(stmt_obj)).scalar_one_or_none()
+            if not obj:
+                raise RPCError(-32004, f"Запись #{record_id} не найдена или доступ запрещен")
 
-                val_list = [value] if not isinstance(value, (list, set, tuple)) else list(value)
-                id_vals = [int(v) for v in val_list if str(v).isdigit()]
-                str_vals = [str(v) for v in val_list if not str(v).isdigit()]
-                conds = []
-                if id_vals:
-                    conds.append(target_cls.id.in_(id_vals))
-                if str_vals and hasattr(target_cls, "name"):
-                    conds.append(target_cls.name.in_(str_vals))
-                elif str_vals and hasattr(target_cls, "login"):
-                    conds.append(target_cls.login.in_(str_vals))
+            val_list = [value] if not isinstance(value, (list, set, tuple)) else list(value)
+            id_vals = [int(v) for v in val_list if str(v).isdigit()]
+            str_vals = [str(v) for v in val_list if not str(v).isdigit()]
+            conds = []
+            if id_vals:
+                conds.append(target_cls.id.in_(id_vals))
+            if str_vals and hasattr(target_cls, "name"):
+                conds.append(target_cls.name.in_(str_vals))
+            elif str_vals and hasattr(target_cls, "login"):
+                conds.append(target_cls.login.in_(str_vals))
 
-                target_objs = []
-                if conds:
-                    stmt_targets = select(target_cls).where(or_(*conds))
-                    target_objs = (await db.execute(stmt_targets)).scalars().all()
+            target_objs = []
+            if conds:
+                stmt_targets = select(target_cls).where(or_(*conds))
+                target_objs = (await db.execute(stmt_targets)).scalars().all()
 
-                setattr(obj, field, list(target_objs))
-                await db.commit()
-                coerced_value = [getattr(r, "name", getattr(r, "login", str(r.id))) for r in target_objs]
-            else:
-                coerced_value = coerce_value(field_meta, value)
-                scope = await policy.scope(ctx, meta, "update", db)
+            setattr(obj, field, list(target_objs))
+            await db.commit()
+            coerced_value = [getattr(r, "name", getattr(r, "login", str(r.id))) for r in target_objs]
+        else:
+            coerced_value = coerce_value(field_meta, value)
+            scope = await policy.scope(ctx, meta, "update", db)
 
-                stmt = update(cls).where(cls.id == record_id)
-                if scope is not None:
-                    stmt = stmt.where(scope)
+            stmt = update(cls).where(cls.id == record_id)
+            if scope is not None:
+                stmt = stmt.where(scope)
 
-                values_to_update: Dict[str, Any] = {field: coerced_value}
-                if hasattr(cls, "updated_at"):
-                    values_to_update["updated_at"] = datetime.now(timezone.utc)
+            values_to_update: Dict[str, Any] = {field: coerced_value}
+            if hasattr(cls, "updated_at"):
+                values_to_update["updated_at"] = datetime.now(timezone.utc)
 
-                stmt = stmt.values(**values_to_update)
-                result = await db.execute(stmt)
-                await db.commit()
+            stmt = stmt.values(**values_to_update)
+            result = await db.execute(stmt)
+            await db.commit()
 
-                if result.rowcount == 0:
-                    raise RPCError(-32004, f"Запись #{record_id} не найдена или доступ ограничен")
+            if result.rowcount == 0:
+                raise RPCError(-32004, f"Запись #{record_id} не найдена или доступ ограничен")
 
         # Безопасное оповещение без значений полей
         await notify_crud_change(
@@ -439,8 +432,6 @@ async def handle_crud_update_cell(session: JsonRpcSession, params: Dict[str, Any
                 pass
 
         return {"success": True, "field": field, "value": coerced_value}
-    finally:
-        system_bypass_ctx.reset(token)
 
 
 async def handle_crud_bulk_update(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -460,43 +451,41 @@ async def handle_crud_bulk_update(session: JsonRpcSession, params: Dict[str, Any
     provider = get_identity_provider()
     policy = get_access_policy()
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db:
-            ctx = await create_access_context(provider, session, model_name, db)
-            allowed = policy.allowed_fields(ctx, meta, "update")
+    async with system_db_session() as db:
+        ctx = await create_access_context(provider, session, model_name, db)
+        allowed = policy.allowed_fields(ctx, meta, "update")
 
-            coerced_patch = {}
-            for k, v in patch.items():
-                if k not in allowed:
-                    if k in meta.protected_fields:
-                        raise RPCError(-32003, f"Поле '{k}' защищено от изменения (требуется право transfer)")
-                    raise RPCError(-32602, f"Поле '{k}' недоступно для изменения")
-                coerced_patch[k] = coerce_value(meta.fields[k], v)
+        coerced_patch = {}
+        for k, v in patch.items():
+            if k not in allowed:
+                if k in meta.protected_fields:
+                    raise RPCError(-32003, f"Поле '{k}' защищено от изменения (требуется право transfer)")
+                raise RPCError(-32602, f"Поле '{k}' недоступно для изменения")
+            coerced_patch[k] = coerce_value(meta.fields[k], v)
 
-            if not coerced_patch:
-                raise RPCError(-32602, "Нет допустимых полей для обновления")
+        if not coerced_patch:
+            raise RPCError(-32602, "Нет допустимых полей для обновления")
 
-            # Архивация
-            if coerced_patch.get("is_archived") is True and hasattr(cls, "archived_at"):
-                coerced_patch["archived_at"] = datetime.now(timezone.utc)
-            elif coerced_patch.get("is_archived") is False and hasattr(cls, "archived_at"):
-                coerced_patch["archived_at"] = None
+        # Архивация
+        if coerced_patch.get("is_archived") is True and hasattr(cls, "archived_at"):
+            coerced_patch["archived_at"] = datetime.now(timezone.utc)
+        elif coerced_patch.get("is_archived") is False and hasattr(cls, "archived_at"):
+            coerced_patch["archived_at"] = None
 
-            if hasattr(cls, "updated_at"):
-                coerced_patch["updated_at"] = datetime.now(timezone.utc)
+        if hasattr(cls, "updated_at"):
+            coerced_patch["updated_at"] = datetime.now(timezone.utc)
 
-            scope = await policy.scope(ctx, meta, "update", db)
+        scope = await policy.scope(ctx, meta, "update", db)
 
-            stmt = update(cls).where(cls.id.in_(record_ids))
-            if scope is not None:
-                stmt = stmt.where(scope)
+        stmt = update(cls).where(cls.id.in_(record_ids))
+        if scope is not None:
+            stmt = stmt.where(scope)
 
-            stmt = stmt.values(**coerced_patch)
-            result = await db.execute(stmt)
-            await db.commit()
+        stmt = stmt.values(**coerced_patch)
+        result = await db.execute(stmt)
+        await db.commit()
 
-            updated_count = result.rowcount
+        updated_count = result.rowcount
 
         await notify_crud_change(
             model=model_name,
@@ -507,8 +496,6 @@ async def handle_crud_bulk_update(session: JsonRpcSession, params: Dict[str, Any
         )
 
         return {"success": True, "updated_count": updated_count}
-    finally:
-        system_bypass_ctx.reset(token)
 
 
 async def handle_crud_delete(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -524,40 +511,38 @@ async def handle_crud_delete(session: JsonRpcSession, params: Dict[str, Any]) ->
     provider = get_identity_provider()
     policy = get_access_policy()
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db:
-            ctx = await create_access_context(provider, session, model_name, db)
-            scope = await policy.scope(ctx, meta, "delete", db)
+    async with system_db_session() as db:
+        ctx = await create_access_context(provider, session, model_name, db)
+        scope = await policy.scope(ctx, meta, "delete", db)
 
-            # Защита системных ролей от удаления
-            if model_name in ("auth_role", "Role"):
-                from pyferro.core.constants import SYSTEM_ROLES
-                stmt_check = select(cls).where(cls.id == record_id)
-                role_obj = (await db.execute(stmt_check)).scalar_one_or_none()
-                if role_obj and role_obj.name in SYSTEM_ROLES:
-                    raise RPCError(-32602, f"Системная роль '{role_obj.name}' является встроенной (immutable) и не может быть удалена")
+        # Защита системных ролей от удаления
+        if model_name in ("auth_role", "Role"):
+            from pyferro.core.constants import SYSTEM_ROLES
+            stmt_check = select(cls).where(cls.id == record_id)
+            role_obj = (await db.execute(stmt_check)).scalar_one_or_none()
+            if role_obj and role_obj.name in SYSTEM_ROLES:
+                raise RPCError(-32602, f"Системная роль '{role_obj.name}' является встроенной (immutable) и не может быть удалена")
 
-            mapper = inspect(cls)
-            pk_cols = list(mapper.primary_key)
-            if hasattr(cls, "id"):
-                pk_cond = (cls.id == record_id)
-            elif len(pk_cols) == 1:
-                pk_cond = (pk_cols[0] == record_id)
-            else:
-                parts = str(record_id).split("_") if "_" in str(record_id) else [record_id]
-                conds = [pk_cols[i] == int(parts[i]) for i in range(min(len(pk_cols), len(parts)))]
-                pk_cond = and_(*conds)
+        mapper = inspect(cls)
+        pk_cols = list(mapper.primary_key)
+        if hasattr(cls, "id"):
+            pk_cond = (cls.id == record_id)
+        elif len(pk_cols) == 1:
+            pk_cond = (pk_cols[0] == record_id)
+        else:
+            parts = str(record_id).split("_") if "_" in str(record_id) else [record_id]
+            conds = [pk_cols[i] == int(parts[i]) for i in range(min(len(pk_cols), len(parts)))]
+            pk_cond = and_(*conds)
 
-            stmt = delete(cls).where(pk_cond)
-            if scope is not None:
-                stmt = stmt.where(scope)
+        stmt = delete(cls).where(pk_cond)
+        if scope is not None:
+            stmt = stmt.where(scope)
 
-            result = await db.execute(stmt)
-            await db.commit()
+        result = await db.execute(stmt)
+        await db.commit()
 
-            if result.rowcount == 0:
-                raise RPCError(-32004, f"Запись #{record_id} не найдена или доступ ограничен")
+        if result.rowcount == 0:
+            raise RPCError(-32004, f"Запись #{record_id} не найдена или доступ ограничен")
 
         await notify_crud_change(
             model=model_name,
@@ -575,8 +560,6 @@ async def handle_crud_delete(session: JsonRpcSession, params: Dict[str, Any]) ->
                 pass
 
         return {"success": True, "id": record_id}
-    finally:
-        system_bypass_ctx.reset(token)
 
 
 async def handle_crud_create(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -593,78 +576,78 @@ async def handle_crud_create(session: JsonRpcSession, params: Dict[str, Any]) ->
     provider = get_identity_provider()
     policy = get_access_policy()
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db:
-            ctx = await create_access_context(provider, session, model_name, db)
+    async with system_db_session() as db:
+        ctx = await create_access_context(provider, session, model_name, db)
 
-            # Проверка полномочия на создание
-            if not (ctx.is_superuser or ctx.has_permission(f"{model_name}:create")):
-                raise RPCError(-32003, f"Создание записей в модели '{model_name}' запрещено")
+        # Проверка полномочия на создание
+        if not (ctx.is_superuser or ctx.has_permission(f"{model_name}:create")):
+            raise RPCError(-32003, f"Создание записей в модели '{model_name}' запрещено")
 
-            # Валидация acting_for_user_id
-            if acting_for_id is not None and acting_for_id != ctx.user_id:
-                can_transfer = ctx.is_superuser or ctx.has_permission(f"{model_name}:transfer")
-                if not (can_transfer or (acting_for_id in ctx.effective_user_ids)):
-                    raise RPCError(-32003, "Запрещено создавать запись от чужого имени без полномочий замещения")
+        # Валидация acting_for_user_id
+        if acting_for_id is not None and acting_for_id != ctx.user_id:
+            can_transfer = ctx.is_superuser or ctx.has_permission(f"{model_name}:transfer")
+            if not (can_transfer or (acting_for_id in ctx.effective_user_ids)):
+                raise RPCError(-32003, "Запрещено создавать запись от чужого имени без полномочий замещения")
 
-            m2m_inputs = {}
-            for m in meta.get_m2m_fields():
-                if m.name in data:
-                    m2m_inputs[m.name] = data[m.name]
+        allowed = policy.allowed_fields(ctx, meta, "create")
+        m2m_inputs = {}
+        for m in meta.get_m2m_fields():
+            if m.name in data and m.name in allowed:
+                if m.name in meta.protected_fields and not ctx.is_superuser:
+                    continue
+                m2m_inputs[m.name] = data[m.name]
 
-            allowed = policy.allowed_fields(ctx, meta, "create")
-            filtered_data = {}
-            for k, v in data.items():
-                if k in allowed and meta.fields[k].type != "m2m":
-                    filtered_data[k] = coerce_value(meta.fields[k], v)
+        filtered_data = {}
+        for k, v in data.items():
+            if k in allowed and meta.fields[k].type != "m2m":
+                filtered_data[k] = coerce_value(meta.fields[k], v)
 
-            # Авто-заполнение creator_id и owner_id
-            if meta.is_row_secure:
-                if hasattr(cls, "creator_id"):
-                    filtered_data["creator_id"] = ctx.user_id
-                if hasattr(cls, "owner_id") and "owner_id" not in filtered_data:
-                    filtered_data["owner_id"] = acting_for_id or ctx.user_id
-                if hasattr(cls, "team_id") and "team_id" not in filtered_data:
-                    if ctx.primary_team_id:
-                        filtered_data["team_id"] = ctx.primary_team_id
+        # Авто-заполнение creator_id и owner_id
+        if meta.is_row_secure:
+            if hasattr(cls, "creator_id"):
+                filtered_data["creator_id"] = ctx.user_id
+            if hasattr(cls, "owner_id") and "owner_id" not in filtered_data:
+                filtered_data["owner_id"] = acting_for_id or ctx.user_id
+            if hasattr(cls, "team_id") and "team_id" not in filtered_data:
+                if ctx.primary_team_id:
+                    filtered_data["team_id"] = ctx.primary_team_id
 
-            now = datetime.now(timezone.utc)
-            if hasattr(cls, "created_at") and "created_at" not in filtered_data:
-                filtered_data["created_at"] = now
-            if hasattr(cls, "updated_at") and "updated_at" not in filtered_data:
-                filtered_data["updated_at"] = now
+        now = datetime.now(timezone.utc)
+        if hasattr(cls, "created_at") and "created_at" not in filtered_data:
+            filtered_data["created_at"] = now
+        if hasattr(cls, "updated_at") and "updated_at" not in filtered_data:
+            filtered_data["updated_at"] = now
 
-            # Разрешение Many-to-Many связей ДО добавления в сессию и flush
-            m2m_to_set = {}
-            if m2m_inputs:
-                for m_name, raw_vals in m2m_inputs.items():
-                    target_m = meta.fields[m_name]
-                    target_meta = ModelRegistry.get(target_m.target_model) if target_m.target_model else None
-                    if target_meta and raw_vals:
-                        target_cls = target_meta.model_cls
-                        val_list = [raw_vals] if not isinstance(raw_vals, (list, set, tuple)) else list(raw_vals)
-                        id_vals = [int(v) for v in val_list if str(v).isdigit()]
-                        str_vals = [str(v) for v in val_list if not str(v).isdigit()]
-                        conds = []
-                        if id_vals:
-                            conds.append(target_cls.id.in_(id_vals))
-                        if str_vals and hasattr(target_cls, "name"):
-                            conds.append(target_cls.name.in_(str_vals))
-                        elif str_vals and hasattr(target_cls, "login"):
-                            conds.append(target_cls.login.in_(str_vals))
-                        if conds:
-                            target_objs = (await db.execute(select(target_cls).where(or_(*conds)))).scalars().all()
-                            m2m_to_set[m_name] = list(target_objs)
+        # Разрешение Many-to-Many связей ДО добавления в сессию и flush
+        m2m_to_set = {}
+        if m2m_inputs:
+            for m_name, raw_vals in m2m_inputs.items():
+                target_m = meta.fields[m_name]
+                target_meta = ModelRegistry.get(target_m.target_model) if target_m.target_model else None
+                if target_meta and raw_vals:
+                    target_cls = target_meta.model_cls
+                    val_list = [raw_vals] if not isinstance(raw_vals, (list, set, tuple)) else list(raw_vals)
+                    id_vals = [int(v) for v in val_list if str(v).isdigit()]
+                    str_vals = [str(v) for v in val_list if not str(v).isdigit()]
+                    conds = []
+                    if id_vals:
+                        conds.append(target_cls.id.in_(id_vals))
+                    if str_vals and hasattr(target_cls, "name"):
+                        conds.append(target_cls.name.in_(str_vals))
+                    elif str_vals and hasattr(target_cls, "login"):
+                        conds.append(target_cls.login.in_(str_vals))
+                    if conds:
+                        target_objs = (await db.execute(select(target_cls).where(or_(*conds)))).scalars().all()
+                        m2m_to_set[m_name] = list(target_objs)
 
-            obj = cls(**filtered_data)
-            for m_name, target_objs in m2m_to_set.items():
-                setattr(obj, m_name, target_objs)
+        obj = cls(**filtered_data)
+        for m_name, target_objs in m2m_to_set.items():
+            setattr(obj, m_name, target_objs)
 
-            db.add(obj)
-            await db.flush()
-            new_id = getattr(obj, "id", None)
-            await db.commit()
+        db.add(obj)
+        await db.flush()
+        new_id = getattr(obj, "id", None)
+        await db.commit()
 
         await notify_crud_change(
             model=model_name,
@@ -675,8 +658,6 @@ async def handle_crud_create(session: JsonRpcSession, params: Dict[str, Any]) ->
         )
 
         return {"success": True, "id": new_id}
-    finally:
-        system_bypass_ctx.reset(token)
 
 
 async def handle_crud_lookup(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -688,27 +669,36 @@ async def handle_crud_lookup(session: JsonRpcSession, params: Dict[str, Any]) ->
     meta = _get_model_meta(model_name)
     cls = meta.model_cls
 
-    token = system_bypass_ctx.set(True)
-    try:
-        async with async_session() as db:
-            label_col = None
-            for candidate in ("name", "title", "login", "label", "key"):
-                if hasattr(cls, candidate):
-                    label_col = getattr(cls, candidate)
-                    break
+    provider = get_identity_provider()
+    policy = get_access_policy()
 
-            if label_col is not None:
-                stmt = select(cls.id, label_col).order_by(label_col.asc()).limit(500)
-                res = await db.execute(stmt)
-                items = [{"id": r[0], "label": str(r[1]) if r[1] is not None else f"#{r[0]}"} for r in res.all()]
-            else:
-                stmt = select(cls.id).order_by(cls.id.asc()).limit(500)
-                res = await db.execute(stmt)
-                items = [{"id": r[0], "label": f"#{r[0]}"} for r in res.all()]
+    async with system_db_session() as db:
+        ctx = await create_access_context(provider, session, model_name, db)
+        if not (ctx.is_superuser or ctx.has_permission(f"{model_name}:read") or ctx.has_permission(f"{model_name}:*")):
+            raise RPCError(-32003, f"Просмотр модели '{model_name}' запрещен")
 
-            return {"items": items}
-    finally:
-        system_bypass_ctx.reset(token)
+        scope = await policy.scope(ctx, meta, "read", db)
+        label_col = None
+        for candidate in ("name", "title", "login", "label", "key"):
+            if hasattr(cls, candidate):
+                label_col = getattr(cls, candidate)
+                break
+
+        if label_col is not None:
+            stmt = select(cls.id, label_col).order_by(label_col.asc()).limit(500)
+        else:
+            stmt = select(cls.id).order_by(cls.id.asc()).limit(500)
+
+        if scope is not None:
+            stmt = stmt.where(scope)
+
+        res = await db.execute(stmt)
+        if label_col is not None:
+            items = [{"id": r[0], "label": str(r[1]) if r[1] is not None else f"#{r[0]}"} for r in res.all()]
+        else:
+            items = [{"id": r[0], "label": f"#{r[0]}"} for r in res.all()]
+
+        return {"items": items}
 
 
 # -----------------------------------------------------------------------------

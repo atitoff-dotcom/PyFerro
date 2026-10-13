@@ -26,6 +26,7 @@ The core is engineered following Clean Architecture principles:
 8. [TypeScript/JavaScript Client: client/wsrpc.ts](#8-typescriptjavascript-client-clientwsrpcts)
 9. [Unified Application Class: FerroApp](#9-unified-application-class-rsgiwsrpcapp)
 10. [Horizontal Scaling & Backplane](#10-horizontal-scaling--backplane)
+11. [Database Subsystem & System Sessions: pyferro.db](#11-database-subsystem--system-sessions-pyferrodb)
 
 ---
 
@@ -781,5 +782,39 @@ from pyferro.core.backplane import BaseBackplane, MemoryBackplane
 * **`BaseBackplane`**: Abstract contract with `publish(channel, payload)`, `subscribe(channel, callback)`, and `unsubscribe(channel)`.
 * **`MemoryBackplane`**: Lightweight in-memory implementation for single-worker processes (`workers=1`).
 * **Multi-Worker Notice**: In-memory sessions reside in individual OS worker process memory. When launching multiple workers without a shared backplane (Redis / Postgres), a warning is logged. For distributed production deployments, attach a Redis-backed backplane.
+
+---
+
+## 11. Database Subsystem & System Sessions: pyferro.db
+
+The database subsystem (`pyferro.db`) provides an asynchronous SQLAlchemy engine, session factories, and high-level context managers for background workers, cron jobs, migrations, and system RPC handlers that require bypassing Row-Level Security (RLS):
+
+```python
+from pyferro import system_db_session, system_bypass
+from sqlalchemy import select
+
+# 1. Standalone async DB session with automatic RLS bypass:
+@app.rpc("tasks.cleanup")
+async def tasks_cleanup():
+    async with system_db_session() as db:
+        stmt = select(Task).where(Task.status == "archived")
+        tasks = (await db.execute(stmt)).scalars().all()
+        for t in tasks:
+            await db.delete(t)
+        await db.commit()
+    return {"status": "ok"}
+
+# 2. Temporary RLS bypass within an existing DB session:
+with system_bypass():
+    user = await User.get_permissions_by_id(db, user_id)
+```
+
+### Key exports of `pyferro.db`:
+* **`system_db_session()`**: Async context manager (`async with system_db_session() as db:`). Automatically sets the system RLS bypass flag for the duration of the session and cleanly resets it upon exit or exceptions.
+* **`system_bypass()`**: Sync context manager (`with system_bypass():`). Safely executes any block of code or ORM queries within an existing session without user RLS restrictions.
+* **`async_session`**: Standard `async_sessionmaker` factory for manual session lifecycles (subject to active user RLS filters).
+* **`Base`**: Declarative base class `DeclarativeBase`.
+* **`engine`**: Global `AsyncEngineProxy` instance.
+
 
 

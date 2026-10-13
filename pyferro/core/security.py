@@ -4,6 +4,7 @@ import uuid
 import logging
 from datetime import datetime, timedelta, timezone
 import hashlib
+import base64
 import jwt
 
 ALGORITHM = "HS256"

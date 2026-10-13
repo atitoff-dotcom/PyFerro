@@ -83,7 +83,10 @@ async def dispatch_raw_ws(scope: dict, proto) -> bool:
       4. Возвращает True (запрос полностью обработан плагином).
     Если роут не найден — возвращает False (управление передается стандартному WSRPC).
     """
-    path = scope.get("path", "")
+    path = getattr(scope, "path", None)
+    if path is None and isinstance(scope, dict):
+        path = scope.get("path", "")
+    path = path or ""
     route = RAW_WS_ROUTES.get(path)
     if not route:
         return False

@@ -106,6 +106,23 @@ The `pyferro.plugins.auth` plugin provides standard RPC methods:
 
 `FerroApp` enables `auto_auth_ws=True` by default. When a socket connects, the server inspects `ferro_session` / `ferro_crud_session` cookies during the WebSocket Upgrade and authenticates the connection before the first RPC call executes.
 
+### 3.4. System Operations & RLS Bypass (`system_db_session`, `system_bypass`)
+
+When system RPC handlers, background tasks, or cron jobs need to query user models or protected tables without Row-Level Security (RLS) filtering, use the canonical context managers:
+
+```python
+from pyferro import system_db_session, system_bypass
+from sqlalchemy import select
+
+# 1. Standalone async session with automatic RLS bypass:
+async with system_db_session() as db:
+    user = (await db.execute(select(User).where(User.login == username))).scalar_one_or_none()
+
+# 2. Temporary RLS bypass within an existing session:
+with system_bypass():
+    user = await User.get_permissions_by_id(db, user_id)
+```
+
 ---
 
 ## 4. Frontend: Integration with `wsrpc.ts`
