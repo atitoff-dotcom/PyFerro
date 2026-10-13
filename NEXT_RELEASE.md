@@ -12,6 +12,17 @@
 ---
 
 ## ✅ Выполнено в текущем релизе / подготовке:
+* [x] **v0.5.10: Zero-Boilerplate Client Auth (`client/wsrpc.ts`), реструктуризация документации (Single Source of Truth) и очистка устаревших RFC:**
+  - **Встроенная подсистема `AuthStore<TUser>` в канонический клиент `BinaryWSRPC`:** больше не требуется копировать отдельный файл `auth.ts` на 470 строк в клиентские проекты.
+  - **Экспортируемый синглтон `auth`:** прямое использование `import { rpc, auth } from './wsrpc'` или `rpc.auth`.
+  - **Атомарная синхронизация сессии:** автоматическая запись и очистка Cookies (`ferro_session`, `ferro_crud_session`, `rpc_jwt`) и `localStorage.refresh_token`.
+  - **Безопасный вход `auth.loginSecure()`:** нативное шифрование пароля через Web Crypto API (RSA-OAEP, SHA-256) без единой внешней NPM-зависимости.
+  - **Session Gatekeeper и Auto-Reconnect Sync:** прозрачное удержание бизнес-запросов до восстановления сессии и автоматическая фоновая синхронизация при повторном открытии сокета (`onConnect`).
+  - **Реактивность и строгая типизация:** поддержка Svelte store contract (`$auth`, `onChange`), React external store, Vue и параметризация кастомными моделями `BinaryWSRPC<CustomUser>`.
+  - **Регламент и стандарты документации:** принят `.agents/rules/documentation_standards.md` и правило 15 в `AGENTS.md`.
+  - **Каноническое руководство по клиенту:** созданы близнецы `docs/client_guide.md` (EN) и `docs_ru/client_guide.md` (RU).
+  - **Очистка каталога RFC:** удалены 22 файла черновиков и фантомов из `docs/rfc/` и `docs_ru/rfc/`, исключая рассинхрон с кодом; очищены `docs/auth_guide.md` и `docs_ru/auth_guide.md` от дублирования.
+
 * [x] **v0.5.9: Конфигурируемый `session_prefix` в `FerroApp`, полная обратная совместимость кук (`rsgi_*`, `rpc_jwt`) и прозрачная SSO-авторизация администратора в `/crud`:**
   - **Конфигурируемый `session_prefix` в `FerroApp` (по умолчанию `'ferro'`):**
     - В `FerroApp(session_prefix='ferro')` и `configure(session_prefix=...)` добавлен параметр префикса сессионных кук для изоляции приложений на одном хосте/домене.

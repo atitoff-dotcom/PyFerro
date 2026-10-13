@@ -182,24 +182,21 @@ Comprehensive guide: [CRUD Plugin Documentation](crud.md).
 
 ---
 
-## 9. Official Plugin Roadmap & RFC Registry
+## 9. Official Framework Plugins Registry
 
-The following table tracks official framework plugins and their standardized architectural specifications:
+The following table tracks the official framework plugins:
 
-| Plugin Name | Status | RFC Specification / Documentation | Description |
+| Plugin Name | Status | Documentation | Description |
 | :--- | :--- | :--- | :--- |
 | **`plugins.db`** | ✅ Stable | Core Framework | Asynchronous SQLAlchemy 2.0 connection pool & declarative Base |
-| **`plugins.auth`** | ✅ Stable | Core Framework | RBAC, RLS (`RowSecureModel`), OAuth2, sliding session lifecycle |
-| **`plugins.crud`** | ✅ Stable | [Documentation](crud.md) / [RFC 0003](rfc/0003-reactive-admin-plugin.md) | Universal reactive CRUD, model introspection, RLS & standalone UI |
+| **`plugins.auth`** | ✅ Stable | [Documentation](auth_guide.md) | RBAC, RLS (`RowSecureModel`), OAuth2, sliding session lifecycle |
+| **`plugins.crud`** | ✅ Stable | [Documentation](crud.md) | Universal reactive CRUD, model introspection, RLS & standalone UI |
 | **`plugins.raw_ws`** | ✅ Stable | Core Framework | Raw & binary bidirectional WebSocket sessions with 64-bit IDs |
-| **`plugins.smart_cache`**| ⚡ In Progress | [RFC 0001](rfc/0001-smart-cache.md) | Event-driven feedback cache with 0 ms perceived latency |
-| **`plugins.files`** | ✅ Stable | [RFC 0005](rfc/0005-file-storage-and-upload-subsystem.md) | Two-phase commit (2PC) streaming uploads & Nginx offload |
-| **`plugins.seo`**   | ✅ Stable | [RFC 0011](rfc/0011-dynamic-rendering-seo.md) | Dynamic Rendering, sitemap.xml, OpenGraph, JSON-LD, IndexNow |
-| **`plugins.broadcast`** | 📝 In Review | [RFC 0006](rfc/0006-websocket-broadcast-and-event-bus.md) | High-throughput zero-copy WebSocket push & targeting |
-| **`plugins.gateway`** | 📝 На рассмотрении | [RFC 0007](rfc/0007-http-api-gateway-and-documentation.md) | HTTP API gateway for WSRPC & auto-generated Swagger UI |
-| **`plugins.discussions`**| 📝 In Review | [RFC 0008](rfc/0008-threaded-discussions-and-forum.md) | Hierarchical forum, nested threads & emoji reactions |
-| **`plugins.messages`** | 📝 In Review | [RFC 0009](rfc/0009-direct-messaging-and-chat.md) | 1-on-1 direct messaging, chat & polymorphic context |
-| **`plugins.articles`** | 📝 In Review | [RFC 0010](rfc/0010-knowledge-base-and-articles-cms.md) | Markdown knowledge base, FAQ & article CMS |
+| **`plugins.smart_cache`**| ✅ Stable | [Documentation](smart_cache.md) | Event-driven feedback cache with 0 ms perceived latency |
+| **`plugins.files`** | ✅ Stable | [Documentation](files.md) | Two-phase commit (2PC) streaming uploads & Nginx offload |
+| **`plugins.seo`**   | ✅ Stable | Core Framework | Dynamic Rendering, sitemap.xml, OpenGraph, JSON-LD, IndexNow |
+| **`plugins.broadcast`** | ✅ Stable | Core Framework | High-throughput zero-copy WebSocket push & targeting |
+
 
 
 

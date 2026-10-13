@@ -185,24 +185,21 @@ from plugins.auth.handlers import *
 
 ---
 
-## 9. Официальный реестр плагинов и спецификаций RFC
+## 9. Официальный реестр плагинов платформы
 
-В следующей таблице зафиксированы официальные плагины-батарейки фреймворка и их стандартизированные RFC-спецификации:
+В следующей таблице зафиксированы официальные плагины-батарейки фреймворка:
 
-| Имя плагина | Статус | Спецификация RFC / Документация | Описание |
+| Имя плагина | Статус | Документация | Описание |
 | :--- | :--- | :--- | :--- |
 | **`plugins.db`** | ✅ Стабилен | Ядро платформы | Асинхронный пул подключений SQLAlchemy 2.0 и декларативный Base |
-| **`plugins.auth`** | ✅ Стабилен | Ядро платформы | RBAC, RLS (`RowSecureModel`), OAuth2, скользящие сессии |
-| **`plugins.crud`** | ✅ Стабилен | [Документация](crud.md) / [RFC 0003](rfc/0003-reactive-admin-plugin.md) | Универсальный реактивный CRUD, интроспекция моделей, RLS и автономная веб-панель |
+| **`plugins.auth`** | ✅ Стабилен | [Документация](auth_guide.md) | RBAC, RLS (`RowSecureModel`), OAuth2, скользящие сессии |
+| **`plugins.crud`** | ✅ Стабилен | [Документация](crud.md) | Универсальный реактивный CRUD, интроспекция моделей, RLS и автономная веб-панель |
 | **`plugins.raw_ws`** | ✅ Стабилен | Ядро платформы | Сырые и бинарные двунаправленные WebSocket-сессии с 64-битными ID |
-| **`plugins.smart_cache`**| ⚡ В разработке | [RFC 0001](rfc/0001-smart-cache.md) | Реактивный кэш с обратной связью и 0 мс задержкой интерфейса |
-| **`plugins.files`** | ✅ Стабилен | [RFC 0005](rfc/0005-file-storage-and-upload-subsystem.md) | Двухфазный коммит загрузок (2PC) и kernel-level отдача статики |
-| **`plugins.seo`**   | ✅ Стабилен | [RFC 0011](rfc/0011-dynamic-rendering-seo.md) | Dynamic Rendering, sitemap.xml, OpenGraph, JSON-LD, IndexNow |
-| **`plugins.broadcast`** | 📝 На рассмотрении | [RFC 0006](rfc/0006-websocket-broadcast-and-event-bus.md) | Высокопроизводительная Zero-Copy рассылка событий и таргетинг |
-| **`plugins.gateway`** | 📝 На рассмотрении | [RFC 0007](rfc/0007-http-api-gateway-and-documentation.md) | HTTP API Gateway для WSRPC и авто-генерация документации Swagger |
-| **`plugins.discussions`**| 📝 На рассмотрении | [RFC 0008](rfc/0008-threaded-discussions-and-forum.md) | Иерархический форум, вложенные треды и эмодзи-реакции |
-| **`plugins.messages`** | 📝 На рассмотрении | [RFC 0009](rfc/0009-direct-messaging-and-chat.md) | Личные сообщения 1-на-1, чат и полиморфные вложения |
-| **`plugins.articles`** | 📝 На рассмотрении | [RFC 0010](rfc/0010-knowledge-base-and-articles-cms.md) | База знаний Markdown, FAQ и система управления статьями |
+| **`plugins.smart_cache`**| ✅ Стабилен | [Документация](smart_cache.md) | Реактивный кэш с обратной связью и 0 мс задержкой интерфейса |
+| **`plugins.files`** | ✅ Стабилен | [Документация](files.md) | Двухфазный коммит загрузок (2PC) и kernel-level отдача статики |
+| **`plugins.seo`**   | ✅ Стабилен | Ядро платформы | Dynamic Rendering, sitemap.xml, OpenGraph, JSON-LD, IndexNow |
+| **`plugins.broadcast`** | ✅ Стабилен | Ядро платформы | Высокопроизводительная Zero-Copy рассылка событий и таргетинг |
+
 
 
 

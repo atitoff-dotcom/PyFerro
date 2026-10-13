@@ -17,13 +17,13 @@
    * [Complete Core Developer Guide (docs/core.md)](docs/core.md)
 7. [Official System Plugins](#-official-system-plugins)
    * [Database Plugin (db)](#1-database-plugin-pluginsdb)
-   * [Authentication & User Plugin (auth)](#2-authentication--user-plugin-pluginsauth) ([Auth Architecture & Guide](auth_guide.md))
+   * [Authentication & User Plugin (auth)](#2-authentication--user-plugin-pluginsauth) ([Auth Architecture & Security Guide](auth_guide.md))
    * [Two-Phase File Upload Plugin (files)](#3-two-phase-file-upload-plugin-pluginsfiles)
    * [Smart Event-Driven Cache Plugin (smart_cache)](#4-smart-event-driven-cache-plugin-pluginssmart_cache)
    * [Reactive CRUD & Admin Plugin (crud) (docs/crud.md)](docs/crud.md) ([Integration Guide](docs/crud_panel_guide.md))
    * [Modular Backend Test Framework (tests/)](#5-modular-backend-test-framework-tests)
 8. [Creating Custom Plugins & Modules in the app Directory](#-creating-custom-plugins--modules-in-the-app-directory)
-9. [Client Library (TypeScript/JavaScript)](#-client-library-typescriptjavascript)
+9. [Client SDK (TypeScript/JavaScript: client_guide.md)](client_guide.md)
 10. [🌟 What's New in v0.3.3](#-whats-new-in-v033)
 11. [License](#-license)
 
@@ -439,7 +439,7 @@ The framework includes pre-built and tested system batteries in `app/system/`:
 ---
 
 ### 4. Smart Reactive Cache Plugin (`plugins/smart_cache`)
-* Comprehensive architecture: see **[docs/smart_cache.md](docs/smart_cache.md)** and **[RFC 0001](rfc/0001-smart-cache.md)**.
+* Comprehensive architecture: see **[docs/smart_cache.md](docs/smart_cache.md)**.
 * **0 ms Latency Principle & Push Invalidation**:
   * Instant screen rendering from L1 RAM (or L2 IndexedDB/localStorage) with zero network wait.
   * Server automatically tracks mutations and pushes `cache.invalidate` impulses or targeted `cache.patch` via `@invalidates(tags=...)`.

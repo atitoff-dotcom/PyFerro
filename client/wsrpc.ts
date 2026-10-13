@@ -24,6 +24,410 @@ export class SimpleStore<T> {
 export const wsConnected = new SimpleStore<boolean>(false);
 export const wsStatus = new SimpleStore<'CONNECTING' | 'CONNECTED' | 'DISCONNECTED'>('DISCONNECTED');
 
+/**
+ * Базовый интерфейс пользователя PyFerro Auth.
+ */
+export interface AuthUser {
+    user_id: number;
+    username: string;
+    role: string;
+    roles?: string[];
+    name?: string;
+    email?: string;
+    permissions?: Record<string, any>;
+    is_superadmin?: boolean;
+    [key: string]: any;
+}
+
+/**
+ * Учетные данные для входа.
+ */
+export interface LoginCredentials {
+    username: string;
+    password: string;
+    remember?: boolean;
+    user_agent?: string;
+    [key: string]: any;
+}
+
+/**
+ * Дополнительные опции входа.
+ */
+export interface LoginOptions {
+    /** Метод входа (по умолчанию 'login.submit' с авто-фоллбэком на 'auth.login') */
+    method?: string;
+    /** Произвольные дополнительные параметры */
+    extraParams?: Record<string, any>;
+    user_agent?: string;
+}
+
+/**
+ * Утилиты для безопасной работы с Cookie в браузере (Lax, max-age).
+ */
+export function setAuthCookie(name: string, value: string, maxAgeSec: number): void {
+    if (typeof document === 'undefined') return;
+    document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAgeSec}; SameSite=Lax`;
+}
+
+export function getAuthCookie(name: string): string | null {
+    if (typeof document === 'undefined' || !document.cookie) return null;
+    const match = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : null;
+}
+
+export function deleteAuthCookie(name: string): void {
+    if (typeof document === 'undefined') return;
+    document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
+}
+
+/**
+ * Безопасное шифрование пароля через нативный Web Crypto API (RSA-OAEP, SHA-256).
+ * Нулевые внешние зависимости: использует стандартный браузерный крипто-стек.
+ */
+export async function encryptPasswordRsa(publicKeyPem: string, text: string): Promise<string> {
+    if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) {
+        throw new Error('[WSRPC Auth] Web Crypto API недоступен в текущем окружении');
+    }
+    const cleanB64 = publicKeyPem
+        .replace(/-----BEGIN [A-Z0-9_\s]+-----/g, '')
+        .replace(/-----END [A-Z0-9_\s]+-----/g, '')
+        .replace(/\s+/g, '');
+    
+    const binaryDer = Uint8Array.from(atob(cleanB64), (c) => c.charCodeAt(0));
+    const cryptoKey = await window.crypto.subtle.importKey(
+        'spki',
+        binaryDer.buffer,
+        { name: 'RSA-OAEP', hash: 'SHA-256' },
+        false,
+        ['encrypt']
+    );
+
+    const encodedText = new TextEncoder().encode(text);
+    const encryptedBuffer = await window.crypto.subtle.encrypt(
+        { name: 'RSA-OAEP' },
+        cryptoKey,
+        encodedText
+    );
+
+    const bytes = new Uint8Array(encryptedBuffer);
+    let binaryStr = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binaryStr += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binaryStr);
+}
+
+/**
+ * Реактивная подсистема аутентификации PyFerro (по аналогии с pb.authStore).
+ * Совместима с Svelte ($auth), React, Vue и Vanilla JS.
+ */
+export class AuthStore<TUser extends AuthUser = AuthUser> {
+    private rpcClient: BinaryWSRPC<TUser>;
+
+    // Реактивные хранилища состояния
+    public readonly userStore = new SimpleStore<TUser | null>(null);
+    public readonly tokenStore = new SimpleStore<string | null>(null);
+    public readonly jwtTokenStore = new SimpleStore<string | null>(null);
+    public readonly isLoadingStore = new SimpleStore<boolean>(false);
+
+    // Промис инициализации сессии (для Session Gatekeeper)
+    private initPromise: Promise<boolean> | null = null;
+
+    constructor(rpcClient: BinaryWSRPC<TUser>) {
+        this.rpcClient = rpcClient;
+
+        // Если в браузере уже есть токен в localStorage или cookies, инициализируем tokenStore
+        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+            const savedToken = localStorage.getItem('refresh_token') || getAuthCookie('ferro_session');
+            if (savedToken) {
+                this.tokenStore.set(savedToken);
+            }
+        }
+    }
+
+    /** Текущий авторизованный пользователь или null */
+    get user(): TUser | null {
+        return this.userStore.get();
+    }
+
+    /** Текущий refresh/session токен */
+    get token(): string | null {
+        return this.tokenStore.get();
+    }
+
+    /** Текущий JWT токен для REST/HTTP запросов */
+    get jwtToken(): string | null {
+        return this.jwtTokenStore.get();
+    }
+
+    /** Флаг валидности сессии (пользователь успешно авторизован) */
+    get isValid(): boolean {
+        return this.userStore.get() !== null;
+    }
+
+    /** Флаг процесса первоначальной инициализации сессии */
+    get isLoading(): boolean {
+        return this.isLoadingStore.get();
+    }
+
+    /**
+     * Поддержка Svelte store contract ($auth)
+     */
+    subscribe(fn: (user: TUser | null) => void): () => void {
+        return this.userStore.subscribe(fn);
+    }
+
+    /**
+     * Удобный алиас для подписки на смену пользователя
+     */
+    onChange(fn: (user: TUser | null) => void): () => void {
+        return this.subscribe(fn);
+    }
+
+    /**
+     * Гарантирует, что проверка сессии завершена перед выполнением бизнес-RPC (Gatekeeper).
+     */
+    async ensureInitialized(): Promise<boolean> {
+        if (!this.initPromise) {
+            this.initPromise = this.restoreSession();
+        }
+        return this.initPromise;
+    }
+
+    /**
+     * Вход по логину и паролю (стандартный login.submit с авто-фоллбэком на auth.login).
+     */
+    async login(credentials: LoginCredentials, options?: LoginOptions): Promise<TUser> {
+        const userAgent = credentials.user_agent || options?.user_agent || (typeof navigator !== 'undefined' ? navigator.userAgent : 'wsrpc-client');
+        const primaryMethod = options?.method || 'login.submit';
+
+        try {
+            const res: any = await this.rpcClient.call(primaryMethod, {
+                username: credentials.username,
+                password: credentials.password,
+                user_agent: userAgent,
+                ...(options?.extraParams || {})
+            });
+            return this.applyAuthSuccess(res);
+        } catch (err: any) {
+            // Если метод login.submit не найден (-32601), пробуем fallback на auth.login
+            if (err?.code === -32601 && primaryMethod === 'login.submit') {
+                try {
+                    const fallbackRes: any = await this.rpcClient.call('auth.login', {
+                        username: credentials.username,
+                        password: credentials.password,
+                        user_agent: userAgent,
+                        ...(options?.extraParams || {})
+                    });
+                    return this.applyAuthSuccess(fallbackRes);
+                } catch (fallbackErr: any) {
+                    this.clear();
+                    throw new Error(fallbackErr.message || 'Неверный логин или пароль');
+                }
+            }
+            this.clear();
+            throw new Error(err.message || 'Неверный логин или пароль');
+        }
+    }
+
+    /**
+     * Безопасный вход с RSA-шифрованием пароля (login.get_key + login.secure).
+     */
+    async loginSecure(credentials: LoginCredentials, options?: LoginOptions): Promise<TUser> {
+        try {
+            // 1. Получаем эфемерный открытый ключ RSA от сервера
+            const keyRes: any = await this.rpcClient.call('login.get_key', {});
+            if (!keyRes || !keyRes.public_key || !keyRes.key_id) {
+                throw new Error('Сервер не вернул публичный ключ RSA для безопасного входа');
+            }
+
+            // 2. Шифруем пароль через нативный Web Crypto API (RSA-OAEP SHA-256)
+            const encryptedPassword = await encryptPasswordRsa(keyRes.public_key, credentials.password);
+
+            // 3. Вызываем защищенный RPC-метод
+            const userAgent = credentials.user_agent || options?.user_agent || (typeof navigator !== 'undefined' ? navigator.userAgent : 'wsrpc-client');
+            const res: any = await this.rpcClient.call('login.secure', {
+                username: credentials.username,
+                encrypted_password: encryptedPassword,
+                key_id: keyRes.key_id,
+                user_agent: userAgent,
+                ...(options?.extraParams || {})
+            });
+
+            return this.applyAuthSuccess(res);
+        } catch (err: any) {
+            this.clear();
+            throw new Error(err.message || 'Ошибка безопасного входа');
+        }
+    }
+
+    /**
+     * Восстановление сессии при старте приложения или перезагрузке страницы.
+     */
+    async restoreSession(): Promise<boolean> {
+        this.isLoadingStore.set(true);
+        try {
+            // 1. Сначала проверяем login.whoami / auth.me (если сработал auto_auth_ws по Cookie)
+            try {
+                let whoami: any = null;
+                try {
+                    whoami = await this.rpcClient.call('login.whoami', {});
+                } catch (e: any) {
+                    if (e?.code === -32601) {
+                        whoami = await this.rpcClient.call('auth.me', {});
+                    }
+                }
+
+                if (whoami && (whoami.authenticated || whoami.user_id)) {
+                    const userObj = {
+                        user_id: whoami.user_id,
+                        username: whoami.username || whoami.login || 'user',
+                        role: whoami.role || (whoami.roles && whoami.roles[0]) || 'user',
+                        roles: whoami.roles || (whoami.role ? [whoami.role] : ['user']),
+                        name: whoami.name || whoami.username || whoami.login,
+                        email: whoami.email,
+                        permissions: whoami.permissions || {},
+                        is_superadmin: Boolean(whoami.is_superadmin)
+                    } as TUser;
+
+                    this.userStore.set(userObj);
+                    return true;
+                }
+            } catch {
+                // Игнорируем: сокет в статусе гостя
+            }
+
+            // 2. Если whoami не авторизован, проверяем refresh_token в localStorage или Cookie
+            let savedToken: string | null = null;
+            if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+                savedToken = localStorage.getItem('refresh_token') || getAuthCookie('ferro_session');
+            }
+
+            if (savedToken) {
+                try {
+                    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'wsrpc-client';
+                    const refreshed: any = await this.rpcClient.call('login.refresh', {
+                        token: savedToken,
+                        user_agent: userAgent
+                    });
+
+                    if (refreshed && (refreshed.username || refreshed.user_id)) {
+                        this.applyAuthSuccess(refreshed);
+                        return true;
+                    }
+                } catch (err) {
+                    console.warn('[WSRPC Auth] Токен сессии устарел или недействителен, очищаем:', err);
+                    this.clear();
+                }
+            }
+
+            this.clear();
+            return false;
+        } finally {
+            this.isLoadingStore.set(false);
+        }
+    }
+
+    /**
+     * Синхронизация сессии при физическом переподключении сокета.
+     */
+    async syncOnReconnect(): Promise<void> {
+        if (this.isValid) {
+            try {
+                let whoami: any = null;
+                try {
+                    whoami = await this.rpcClient.call('login.whoami', {});
+                } catch (e: any) {
+                    if (e?.code === -32601) {
+                        whoami = await this.rpcClient.call('auth.me', {});
+                    }
+                }
+
+                if (!whoami || !whoami.authenticated) {
+                    // Cookie не подхватился автоматически — восстанавливаем по токену
+                    await this.restoreSession();
+                }
+            } catch (err) {
+                console.error('[WSRPC Auth] Ошибка синхронизации сессии при реконнекте:', err);
+            }
+        }
+    }
+
+    /**
+     * Выход из учетной записи с отзывом сессии на сервере и очисткой на клиенте.
+     */
+    async logout(): Promise<void> {
+        try {
+            const token = this.token;
+            try {
+                await this.rpcClient.call('auth.logout', { token });
+            } catch (e: any) {
+                if (e?.code === -32601) {
+                    await this.rpcClient.call('login.logout', { token });
+                }
+            }
+        } catch {
+            // Игнорируем сетевые сбои при логауте
+        } finally {
+            this.clear();
+        }
+    }
+
+    /**
+     * Полная локальная очистка учетных данных и Cookies.
+     */
+    clear(): void {
+        this.userStore.set(null);
+        this.tokenStore.set(null);
+        this.jwtTokenStore.set(null);
+        this.initPromise = null;
+
+        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+            localStorage.removeItem('refresh_token');
+        }
+        deleteAuthCookie('ferro_session');
+        deleteAuthCookie('ferro_crud_session');
+        deleteAuthCookie('rpc_jwt');
+    }
+
+    /**
+     * Внутренний обработчик успешного ответа сервера с данными авторизации
+     */
+    private applyAuthSuccess(res: any): TUser {
+        const userObj = {
+            user_id: res.user_id,
+            username: res.username || res.login || 'user',
+            role: res.role || (res.roles && res.roles[0]) || 'user',
+            roles: res.roles || (res.role ? [res.role] : ['user']),
+            name: res.name || res.username || res.login,
+            email: res.email,
+            permissions: res.permissions || {},
+            is_superadmin: Boolean(res.is_superadmin),
+            ...res
+        } as TUser;
+
+        this.userStore.set(userObj);
+
+        const token = res.token;
+        if (token) {
+            this.tokenStore.set(token);
+            setAuthCookie('ferro_session', token, 2592000);      // 30 дней для сокета и HTTP
+            setAuthCookie('ferro_crud_session', token, 2592000); // 30 дней для панели /crud
+            if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+                localStorage.setItem('refresh_token', token);
+            }
+        }
+
+        const jwt = res.jwt_token || res.jwt;
+        if (jwt) {
+            this.jwtTokenStore.set(jwt);
+            setAuthCookie('rpc_jwt', jwt, 86400); // 24 часа для REST / uploads
+        }
+
+        return userObj;
+    }
+}
+
 // Описание структуры для отслеживания ожидающих ответа RPC-запросов (Promises)
 interface PendingRequest {
     resolve: (value: any) => void;
@@ -116,11 +520,14 @@ export function packTabular(items: any[], fields?: string[]): any {
     };
 }
 
-export class BinaryWSRPC {
+export class BinaryWSRPC<TUser extends AuthUser = AuthUser> {
     // Статус подключения
     public status: 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' = 'DISCONNECTED';
     // Настройка времени переподключения (в секундах). 0 - отключить автореконнект.
     public reconnectWs = 3;
+
+    // Встроенная подсистема аутентификации (Zero-Boilerplate AuthStore)
+    public readonly auth: AuthStore<TUser>;
 
     private ws: WebSocket | null = null;
     private idCounter = 0; // Инкрементальный счетчик ID для JSON-RPC запросов
@@ -148,6 +555,7 @@ export class BinaryWSRPC {
  
     constructor(url?: string) {
         this.url = url || getWsUrl();
+        this.auth = new AuthStore<TUser>(this);
         if (isBrowser) {
             console.log('[WSRPC] Клиент WSRPC инициализирован для URL:', this.url);
         }
@@ -226,6 +634,13 @@ export class BinaryWSRPC {
  
                 // Вызываем триггер на подключение
                 if (this.onConnect) this.onConnect();
+
+                // Фоновая синхронизация сессии пользователя при переподключении
+                if (this.auth && this.auth.isValid) {
+                    this.auth.syncOnReconnect().catch((err) => {
+                        console.warn('[WSRPC] Ошибка авто-синхронизации сессии при реконнекте:', err);
+                    });
+                }
                 
                 resolve();
             };
@@ -339,11 +754,19 @@ export class BinaryWSRPC {
 
         // Системный шлюз (Gatekeeper): гарантирует авторизацию сессии на сокете до выполнения бизнес-запросов
         const isBypassMethod = method.startsWith("login.") || method.startsWith("system.") || method.startsWith("auth.");
-        if (!isBypassMethod && this.authInterceptor) {
-            try {
-                await this.authInterceptor();
-            } catch (authErr) {
-                console.warn("[WSRPC Gatekeeper] Ошибка ожидания авторизации сессии:", authErr);
+        if (!isBypassMethod) {
+            if (this.authInterceptor) {
+                try {
+                    await this.authInterceptor();
+                } catch (authErr) {
+                    console.warn("[WSRPC Gatekeeper] Ошибка ожидания пользовательского authInterceptor:", authErr);
+                }
+            } else if (this.auth) {
+                try {
+                    await this.auth.ensureInitialized();
+                } catch (authErr) {
+                    console.warn("[WSRPC Gatekeeper] Ошибка ожидания инициализации сессии:", authErr);
+                }
             }
         }
 
@@ -385,7 +808,7 @@ export class BinaryWSRPC {
             }
             return this.request(rpcName, args, timeoutOrOptions.timeoutMs || 15000);
         }
-        return this.request(rpcName, args, timeoutOrOptions);
+        return this.request(rpcName, args, typeof timeoutOrOptions === 'number' ? timeoutOrOptions : 15000);
     }
 
     /**
@@ -559,6 +982,7 @@ export class BinaryWSRPC {
     }
 }
 
-// Глобальный синглтон-клиент WSRPC
+// Глобальный синглтон-клиент WSRPC и реактивная подсистема аутентификации
 export const rpc = new BinaryWSRPC();
+export const auth = rpc.auth;
 export default rpc;

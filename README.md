@@ -439,7 +439,7 @@ The framework includes pre-built and tested system batteries in `app/system/`:
 ---
 
 ### 4. Smart Reactive Cache Plugin (`plugins/smart_cache`)
-* Comprehensive architecture: see **[docs/smart_cache.md](docs/smart_cache.md)** and **[RFC 0001](rfc/0001-smart-cache.md)**.
+* Comprehensive architecture: see **[docs/smart_cache.md](docs/smart_cache.md)**.
 * **0 ms Latency Principle & Push Invalidation**:
   * Instant screen rendering from L1 RAM (or L2 IndexedDB/localStorage) with zero network wait.
   * Server automatically tracks mutations and pushes `cache.invalidate` impulses or targeted `cache.patch` via `@invalidates(tags=...)`.
