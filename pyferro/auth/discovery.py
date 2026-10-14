@@ -53,6 +53,40 @@ async def reload_public_rpc_cache() -> Set[str]:
         return set(DEFAULT_PUBLIC_METHODS)
 
 
+def _ensure_auth_columns(sync_conn) -> None:
+    """Безопасная эволюция схемы: добавляет недостающие колонки в существующие таблицы."""
+    from sqlalchemy import inspect as sa_inspect, text
+    try:
+        inspector = sa_inspect(sync_conn)
+        tables = set(inspector.get_table_names())
+
+        # 1. Добавляем owner_id во все таблицы с Row-Level Security (где есть creator_id)
+        for t_name in tables:
+            cols = {c["name"] for c in inspector.get_columns(t_name)}
+            if "creator_id" in cols and "owner_id" not in cols:
+                sync_conn.execute(text(f"ALTER TABLE {t_name} ADD COLUMN owner_id INTEGER"))
+
+        # Явный список таблиц auth на случай создания без creator_id
+        for t_name in ("auth_user", "auth_role", "auth_team", "auth_rpc_permission", "auth_role_permission", "auth_user_permission"):
+            if t_name in tables:
+                cols = {c["name"] for c in inspector.get_columns(t_name)}
+                if "owner_id" not in cols:
+                    sync_conn.execute(text(f"ALTER TABLE {t_name} ADD COLUMN owner_id INTEGER"))
+
+        # 2. Добавляем гранулярные скоупы в таблицы прав
+        for t_name in ("auth_role_permission", "auth_user_permission"):
+            if t_name in tables:
+                cols = {c["name"] for c in inspector.get_columns(t_name)}
+                if "read_global" not in cols:
+                    sync_conn.execute(text(f"ALTER TABLE {t_name} ADD COLUMN read_global BOOLEAN DEFAULT 0"))
+                if "update_global" not in cols:
+                    sync_conn.execute(text(f"ALTER TABLE {t_name} ADD COLUMN update_global BOOLEAN DEFAULT 0"))
+                if "delete_global" not in cols:
+                    sync_conn.execute(text(f"ALTER TABLE {t_name} ADD COLUMN delete_global BOOLEAN DEFAULT 0"))
+    except Exception as e:
+        logger.debug(f"[Discovery] Пропуск автоматической миграции колонок: {e}")
+
+
 async def sync_rpc_permissions() -> None:
     """
     Синхронизирует зарегистрированные в коде RPC-методы с базой данных.
@@ -64,6 +98,7 @@ async def sync_rpc_permissions() -> None:
         from ..db import engine, Base
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(_ensure_auth_columns)
 
         async with system_db_session() as db:
             # 1. Проверяем и создаем системные роли

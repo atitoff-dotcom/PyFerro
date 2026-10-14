@@ -36,6 +36,7 @@ class RowSecureModel(BasicSecureModel):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     creator_id: Mapped[Optional[int]] = mapped_column(Integer, index=True, nullable=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(Integer, index=True, nullable=True)
     team_id: Mapped[Optional[int]] = mapped_column(Integer, index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

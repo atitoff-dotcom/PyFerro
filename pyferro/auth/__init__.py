@@ -27,6 +27,7 @@ from .models import (
     OAuthAccount,
     Team,
     SystemData,
+    UserDelegation,
 )
 from .discovery import (
     sync_rpc_permissions,
@@ -71,6 +72,7 @@ __all__ = [
     "OAuthAccount",
     "Team",
     "SystemData",
+    "UserDelegation",
     # Service Discovery
     "sync_rpc_permissions",
     "reload_public_rpc_cache",

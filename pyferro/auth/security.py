@@ -55,22 +55,26 @@ def _add_security_filters(execute_state: ORMExecuteState) -> None:
             execute_state.statement = execute_state.statement.where(1 == 0)
             return
 
-        # Если доступ не глобальный (только свои записи/команды), сужаем область видимости
+        # Если доступ глобальный (read_global == True) или модель не RowSecureModel — отдаем все записи
         is_global = user_perms.get("read_global", False) or not issubclass(model_cls, RowSecureModel)
         if not is_global:
             user_id = getattr(current_user, "user_id", None)
+            delegated_ids = getattr(current_user, "delegated_user_ids", []) or []
+            accessible_owners = [user_id] + list(delegated_ids) if user_id is not None else []
             team_ids = getattr(current_user, "team_ids", []) or []
 
             conditions = []
-            if hasattr(model_cls, "creator_id"):
-                conditions.append(model_cls.creator_id == user_id)
+            if hasattr(model_cls, "owner_id") and accessible_owners:
+                conditions.append(model_cls.owner_id.in_(accessible_owners))
+            if hasattr(model_cls, "creator_id") and accessible_owners:
+                conditions.append(model_cls.creator_id.in_(accessible_owners))
             if hasattr(model_cls, "team_id") and team_ids:
                 conditions.append(model_cls.team_id.in_(team_ids))
 
             if conditions:
                 execute_state.statement = execute_state.statement.where(or_(*conditions))
             else:
-                # Если у модели нет полей creator_id/team_id, но доступ ограничен — скрываем данные
+                # Если у модели нет полей владения, но доступ ограничен — скрываем данные
                 execute_state.statement = execute_state.statement.where(1 == 0)
 
 
@@ -108,11 +112,14 @@ def _validate_write_permissions(session: Session, flush_context: Any, instances:
             if not is_superadmin:
                 _check_cud_action(current_user, obj, "create")
             
-            # Автозаполнение полей creator_id и team_id (только для моделей с Row-Level)
+            # Автозаполнение полей creator_id, owner_id и team_id (только для моделей с Row-Level)
             if isinstance(obj, RowSecureModel):
-                if not obj.creator_id:
-                    obj.creator_id = getattr(current_user, "user_id", None)
-                if not obj.team_id and getattr(current_user, "team_ids", None):
+                user_id = getattr(current_user, "user_id", None)
+                if not getattr(obj, "creator_id", None):
+                    obj.creator_id = user_id
+                if hasattr(obj, "owner_id") and not getattr(obj, "owner_id", None):
+                    obj.owner_id = getattr(obj, "creator_id", user_id)
+                if not getattr(obj, "team_id", None) and getattr(current_user, "team_ids", None):
                     obj.team_id = current_user.team_ids[0]
 
     # 2. Валидация обновлений (UPDATE)
@@ -151,27 +158,33 @@ def _check_cud_action(current_user: Any, obj: BasicSecureModel, action: str) -> 
     is_global = user_perms.get(global_key, False)
     if not is_global:
         user_id = getattr(current_user, "user_id", None)
+        delegated_ids = getattr(current_user, "delegated_user_ids", []) or []
+        accessible_owners = [user_id] + list(delegated_ids) if user_id is not None else []
         team_ids = getattr(current_user, "team_ids", []) or []
 
         if action == "create":
-            if obj.creator_id and obj.creator_id != user_id:
+            creator_id = getattr(obj, "creator_id", None)
+            if creator_id and creator_id not in accessible_owners:
                 raise PermissionError(
-                    f"Нельзя создать запись для другого пользователя (creator_id={obj.creator_id})"
+                    f"Нельзя создать запись для другого пользователя (creator_id={creator_id})"
                 )
-            if obj.team_id and obj.team_id not in team_ids:
+            team_id = getattr(obj, "team_id", None)
+            if team_id and team_id not in team_ids:
                 raise PermissionError(
-                    f"Нельзя создать запись для чужой команды (team_id={obj.team_id})"
+                    f"Нельзя создать запись для чужой команды (team_id={team_id})"
                 )
         else:
-            creator_id = obj.creator_id
-            team_id = obj.team_id
+            creator_id = getattr(obj, "creator_id", None)
+            owner_id = getattr(obj, "owner_id", None)
+            team_id = getattr(obj, "team_id", None)
 
-            is_owner = (creator_id == user_id)
+            is_owner = (owner_id in accessible_owners) if owner_id else (creator_id in accessible_owners)
+            is_creator = (creator_id in accessible_owners)
             is_in_team = (team_id in team_ids)
 
-            if not (is_owner or is_in_team):
+            if not (is_owner or is_creator or is_in_team):
                 raise PermissionError(
-                    f"Нет прав на изменение чужой записи в {model_name} (creator_id={creator_id}, team_id={team_id})"
+                    f"Нет прав на {action} чужой записи в {model_name} (owner_id={owner_id}, creator_id={creator_id})"
                 )
 
             if action == "update":
@@ -179,11 +192,12 @@ def _check_cud_action(current_user: Any, obj: BasicSecureModel, action: str) -> 
                 creator_history = state.attrs.creator_id.history if hasattr(obj, "creator_id") else None
                 team_history = state.attrs.team_id.history if hasattr(obj, "team_id") else None
 
+                # Автор записи неизменен (Immutable)
                 if creator_history and creator_history.has_changes():
                     new_creator = creator_history.added[0] if creator_history.added else None
-                    if new_creator and new_creator != user_id:
+                    if new_creator and new_creator != creator_id and new_creator not in accessible_owners:
                         raise PermissionError(
-                            f"Нельзя передать владение записью другому пользователю (creator_id={new_creator})"
+                            f"Нельзя изменить автора записи (creator_id={new_creator})"
                         )
                 if team_history and team_history.has_changes():
                     new_team = team_history.added[0] if team_history.added else None

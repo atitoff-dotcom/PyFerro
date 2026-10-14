@@ -65,9 +65,12 @@
   interface CrudPermState {
     can_create: boolean;
     can_read: boolean;
+    read_global: boolean;
     can_update: boolean;
+    update_global: boolean;
     can_delete: boolean;
-    row_level_only: boolean;
+    delete_global: boolean;
+    row_level_only?: boolean;
   }
 
   let crudPerms = $state<Record<string, CrudPermState>>({});
@@ -98,9 +101,9 @@
       colRead: "Чтение",
       colUpdate: "Изменение",
       colDelete: "Удаление",
-      colScope: "Область доступа",
-      scopeRow: "Только свои записи",
-      scopeGlobal: "Все записи",
+      scopeNone: "— Запрещено",
+      scopeOwn: "👤 Только свои",
+      scopeAll: "🌐 Все записи",
       inheritedFromRole: "из ролей",
       personalOverride: "Персонально",
       cancel: "Отмена",
@@ -132,9 +135,9 @@
       colRead: "Read",
       colUpdate: "Update",
       colDelete: "Delete",
-      colScope: "Access Scope",
-      scopeRow: "Own Records Only",
-      scopeGlobal: "All Records",
+      scopeNone: "— Denied",
+      scopeOwn: "👤 Own Only",
+      scopeAll: "🌐 All Records",
       inheritedFromRole: "from roles",
       personalOverride: "Personal",
       cancel: "Cancel",
@@ -172,9 +175,30 @@
         newCrud[m.key] = {
           can_create: false,
           can_read: false,
+          read_global: false,
           can_update: false,
+          update_global: false,
           can_delete: false,
+          delete_global: false,
           row_level_only: true
+        };
+      }
+
+      function parsePerm(p: any): CrudPermState {
+        const can_read = Boolean(p.can_read);
+        const can_update = Boolean(p.can_update);
+        const can_delete = Boolean(p.can_delete);
+        const is_legacy_global = p.row_level_only === false;
+
+        return {
+          can_create: Boolean(p.can_create),
+          can_read,
+          read_global: can_read && (Boolean(p.read_global) || is_legacy_global),
+          can_update,
+          update_global: can_update && (Boolean(p.update_global) || is_legacy_global),
+          can_delete,
+          delete_global: can_delete && (Boolean(p.delete_global) || is_legacy_global),
+          row_level_only: Boolean(p.row_level_only)
         };
       }
 
@@ -182,13 +206,7 @@
         const roleCrud = data.crud_permissions || {};
         for (const [mName, p] of Object.entries<any>(roleCrud)) {
           if (newCrud[mName]) {
-            newCrud[mName] = {
-              can_create: Boolean(p.can_create),
-              can_read: Boolean(p.can_read),
-              can_update: Boolean(p.can_update),
-              can_delete: Boolean(p.can_delete),
-              row_level_only: Boolean(p.row_level_only)
-            };
+            newCrud[mName] = parsePerm(p);
           }
         }
         crudPerms = newCrud;
@@ -197,19 +215,16 @@
         // targetType === 'user'
         targetRoles = data.target_roles || [];
         isSuperadmin = Boolean(data.is_superadmin);
-        inheritedCrud = data.inherited_crud || {};
+        inheritedCrud = {};
+        for (const [mName, p] of Object.entries<any>(data.inherited_crud || {})) {
+          inheritedCrud[mName] = parsePerm(p);
+        }
         inheritedRpc = new Set(data.inherited_rpc || []);
 
         const personal = data.personal_crud || {};
         for (const [mName, p] of Object.entries<any>(personal)) {
           if (newCrud[mName]) {
-            newCrud[mName] = {
-              can_create: Boolean(p.can_create),
-              can_read: Boolean(p.can_read),
-              can_update: Boolean(p.can_update),
-              can_delete: Boolean(p.can_delete),
-              row_level_only: Boolean(p.row_level_only)
-            };
+            newCrud[mName] = parsePerm(p);
           }
         }
         crudPerms = newCrud;
@@ -228,6 +243,39 @@
     }
   });
 
+  // Хелперы для трёхпозиционного выбора: "none" | "own" | "all"
+  function getActionScope(p: CrudPermState, action: "read" | "update" | "delete"): "none" | "own" | "all" {
+    if (!p) return "none";
+    if (action === "read") {
+      if (!p.can_read) return "none";
+      return p.read_global ? "all" : "own";
+    }
+    if (action === "update") {
+      if (!p.can_update) return "none";
+      return p.update_global ? "all" : "own";
+    }
+    if (action === "delete") {
+      if (!p.can_delete) return "none";
+      return p.delete_global ? "all" : "own";
+    }
+    return "none";
+  }
+
+  function setActionScope(p: CrudPermState, action: "read" | "update" | "delete", val: "none" | "own" | "all") {
+    if (!p) return;
+    if (action === "read") {
+      p.can_read = val !== "none";
+      p.read_global = val === "all";
+    } else if (action === "update") {
+      p.can_update = val !== "none";
+      p.update_global = val === "all";
+    } else if (action === "delete") {
+      p.can_delete = val !== "none";
+      p.delete_global = val === "all";
+    }
+    p.row_level_only = !p.read_global && !p.update_global && !p.delete_global;
+  }
+
   // Пресеты
   function applyPreset(preset: "readonly" | "full" | "reset") {
     for (const m of availableModels) {
@@ -235,24 +283,33 @@
         crudPerms[m.key] = {
           can_create: false,
           can_read: true,
+          read_global: true,
           can_update: false,
+          update_global: false,
           can_delete: false,
-          row_level_only: true
+          delete_global: false,
+          row_level_only: false
         };
       } else if (preset === "full") {
         crudPerms[m.key] = {
           can_create: true,
           can_read: true,
+          read_global: true,
           can_update: true,
+          update_global: true,
           can_delete: true,
+          delete_global: true,
           row_level_only: false
         };
       } else if (preset === "reset") {
         crudPerms[m.key] = {
           can_create: false,
           can_read: false,
+          read_global: false,
           can_update: false,
+          update_global: false,
           can_delete: false,
+          delete_global: false,
           row_level_only: true
         };
       }
@@ -419,16 +476,15 @@
               <tr>
                 <th class="p-2.5 font-medium">{t.colModel}</th>
                 <th class="p-2.5 font-medium text-center w-24">{t.colCreate}</th>
-                <th class="p-2.5 font-medium text-center w-24">{t.colRead}</th>
-                <th class="p-2.5 font-medium text-center w-24">{t.colUpdate}</th>
-                <th class="p-2.5 font-medium text-center w-24">{t.colDelete}</th>
-                <th class="p-2.5 font-medium w-56">{t.colScope}</th>
+                <th class="p-2.5 font-medium w-36">{t.colRead}</th>
+                <th class="p-2.5 font-medium w-36">{t.colUpdate}</th>
+                <th class="p-2.5 font-medium w-36">{t.colDelete}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono text-xs">
               {#if filteredModels.length === 0}
                 <tr>
-                  <td colspan="6" class="p-4 text-center text-slate-400 font-sans text-sm">
+                  <td colspan="5" class="p-4 text-center text-slate-400 font-sans text-sm">
                     {t.noModels}
                   </td>
                 </tr>
@@ -463,49 +519,64 @@
                         </div>
                       </td>
 
-                      <!-- R -->
-                      <td class="p-2.5 text-center">
-                        <div class="inline-flex flex-col items-center">
-                          <Checkbox bind:checked={p.can_read} />
-                          {#if inh?.can_read && targetType === "user"}
-                            <span class="text-[10px] text-purple-600 dark:text-purple-400 font-sans">🔒</span>
-                          {/if}
-                        </div>
-                      </td>
-
-                      <!-- U -->
-                      <td class="p-2.5 text-center">
-                        <div class="inline-flex flex-col items-center">
-                          <Checkbox bind:checked={p.can_update} />
-                          {#if inh?.can_update && targetType === "user"}
-                            <span class="text-[10px] text-purple-600 dark:text-purple-400 font-sans">🔒</span>
-                          {/if}
-                        </div>
-                      </td>
-
-                      <!-- D -->
-                      <td class="p-2.5 text-center">
-                        <div class="inline-flex flex-col items-center">
-                          <Checkbox bind:checked={p.can_delete} />
-                          {#if inh?.can_delete && targetType === "user"}
-                            <span class="text-[10px] text-purple-600 dark:text-purple-400 font-sans">🔒</span>
-                          {/if}
-                        </div>
-                      </td>
-
-                      <!-- Область действия (Row-Level vs Global) -->
+                      <!-- R (Чтение) -->
                       <td class="p-2.5 font-sans">
                         <Select
                           size="sm"
-                          value={p.row_level_only ? "row" : "global"}
-                          onchange={(e: any) => {
-                            p.row_level_only = e.target.value === "row";
-                          }}
+                          class="w-full text-xs font-sans"
+                          value={getActionScope(p, "read")}
+                          onchange={(e: any) => setActionScope(p, "read", e.target.value)}
                           options={[
-                            { value: "row", label: t.scopeRow },
-                            { value: "global", label: t.scopeGlobal }
+                            { value: "none", label: t.scopeNone },
+                            { value: "own", label: t.scopeOwn },
+                            { value: "all", label: t.scopeAll }
                           ]}
                         />
+                        {#if inh && targetType === "user" && inh.can_read}
+                          <div class="text-[10px] text-purple-600 dark:text-purple-400 font-sans mt-0.5">
+                            🔒 {inh.read_global ? t.scopeAll : t.scopeOwn}
+                          </div>
+                        {/if}
+                      </td>
+
+                      <!-- U (Изменение) -->
+                      <td class="p-2.5 font-sans">
+                        <Select
+                          size="sm"
+                          class="w-full text-xs font-sans"
+                          value={getActionScope(p, "update")}
+                          onchange={(e: any) => setActionScope(p, "update", e.target.value)}
+                          options={[
+                            { value: "none", label: t.scopeNone },
+                            { value: "own", label: t.scopeOwn },
+                            { value: "all", label: t.scopeAll }
+                          ]}
+                        />
+                        {#if inh && targetType === "user" && inh.can_update}
+                          <div class="text-[10px] text-purple-600 dark:text-purple-400 font-sans mt-0.5">
+                            🔒 {inh.update_global ? t.scopeAll : t.scopeOwn}
+                          </div>
+                        {/if}
+                      </td>
+
+                      <!-- D (Удаление) -->
+                      <td class="p-2.5 font-sans">
+                        <Select
+                          size="sm"
+                          class="w-full text-xs font-sans"
+                          value={getActionScope(p, "delete")}
+                          onchange={(e: any) => setActionScope(p, "delete", e.target.value)}
+                          options={[
+                            { value: "none", label: t.scopeNone },
+                            { value: "own", label: t.scopeOwn },
+                            { value: "all", label: t.scopeAll }
+                          ]}
+                        />
+                        {#if inh && targetType === "user" && inh.can_delete}
+                          <div class="text-[10px] text-purple-600 dark:text-purple-400 font-sans mt-0.5">
+                            🔒 {inh.delete_global ? t.scopeAll : t.scopeOwn}
+                          </div>
+                        {/if}
                       </td>
                     </tr>
                   {/if}

@@ -201,11 +201,17 @@ async def handle_permissions_get(
 
                 crud_perms = {}
                 for p in role.permissions:
+                    is_r_glob = getattr(p, "read_global", False) or not getattr(p, "row_level_only", True)
+                    is_u_glob = getattr(p, "update_global", False) or not getattr(p, "row_level_only", True)
+                    is_d_glob = getattr(p, "delete_global", False) or not getattr(p, "row_level_only", True)
                     crud_perms[p.model_name] = {
                         "can_create": p.can_create,
                         "can_read": p.can_read,
                         "can_update": p.can_update,
                         "can_delete": p.can_delete,
+                        "read_global": is_r_glob,
+                        "update_global": is_u_glob,
+                        "delete_global": is_d_glob,
                         "row_level_only": p.row_level_only
                     }
                 rpc_perms = [rp.name for rp in role.rpc_permissions]
@@ -241,16 +247,23 @@ async def handle_permissions_get(
                             inherited_crud[m] = {
                                 "can_create": False, "can_read": False,
                                 "can_update": False, "can_delete": False,
+                                "read_global": False, "update_global": False, "delete_global": False,
                                 "row_level_only": True
                             }
                         if p.can_create:
                             inherited_crud[m]["can_create"] = True
                         if p.can_read:
                             inherited_crud[m]["can_read"] = True
+                            if getattr(p, "read_global", False) or not p.row_level_only:
+                                inherited_crud[m]["read_global"] = True
                         if p.can_update:
                             inherited_crud[m]["can_update"] = True
+                            if getattr(p, "update_global", False) or not p.row_level_only:
+                                inherited_crud[m]["update_global"] = True
                         if p.can_delete:
                             inherited_crud[m]["can_delete"] = True
+                            if getattr(p, "delete_global", False) or not p.row_level_only:
+                                inherited_crud[m]["delete_global"] = True
                         if not p.row_level_only:
                             inherited_crud[m]["row_level_only"] = False
                     for rp in getattr(r, "rpc_permissions", []):
@@ -259,11 +272,17 @@ async def handle_permissions_get(
                 # Персональные надбавки
                 personal_crud = {}
                 for p in user.permissions:
+                    is_r_glob = getattr(p, "read_global", False) or not getattr(p, "row_level_only", True)
+                    is_u_glob = getattr(p, "update_global", False) or not getattr(p, "row_level_only", True)
+                    is_d_glob = getattr(p, "delete_global", False) or not getattr(p, "row_level_only", True)
                     personal_crud[p.model_name] = {
                         "can_create": p.can_create,
                         "can_read": p.can_read,
                         "can_update": p.can_update,
                         "can_delete": p.can_delete,
+                        "read_global": is_r_glob,
+                        "update_global": is_u_glob,
+                        "delete_global": is_d_glob,
                         "row_level_only": p.row_level_only
                     }
                 personal_rpc = [rp.name for rp in user.rpc_permissions]
@@ -354,6 +373,11 @@ async def handle_permissions_save(
                 # Создаем новые разрешения для непустых записей
                 for m_name, p_data in crud_permissions.items():
                     if any(p_data.get(k) for k in ("can_create", "can_read", "can_update", "can_delete")):
+                        is_r_glob = bool(p_data.get("read_global", False)) or not bool(p_data.get("row_level_only", True))
+                        is_u_glob = bool(p_data.get("update_global", False)) or not bool(p_data.get("row_level_only", True))
+                        is_d_glob = bool(p_data.get("delete_global", False)) or not bool(p_data.get("row_level_only", True))
+                        all_local = not is_r_glob and not is_u_glob and not is_d_glob
+
                         new_p = RolePermission(
                             role_id=role.id,
                             model_name=m_name,
@@ -361,7 +385,10 @@ async def handle_permissions_save(
                             can_read=bool(p_data.get("can_read", False)),
                             can_update=bool(p_data.get("can_update", False)),
                             can_delete=bool(p_data.get("can_delete", False)),
-                            row_level_only=bool(p_data.get("row_level_only", True))
+                            read_global=is_r_glob,
+                            update_global=is_u_glob,
+                            delete_global=is_d_glob,
+                            row_level_only=all_local
                         )
                         db.add(new_p)
 
@@ -384,6 +411,11 @@ async def handle_permissions_save(
                 # Создаем новые персональные разрешения
                 for m_name, p_data in crud_permissions.items():
                     if any(p_data.get(k) for k in ("can_create", "can_read", "can_update", "can_delete")):
+                        is_r_glob = bool(p_data.get("read_global", False)) or not bool(p_data.get("row_level_only", True))
+                        is_u_glob = bool(p_data.get("update_global", False)) or not bool(p_data.get("row_level_only", True))
+                        is_d_glob = bool(p_data.get("delete_global", False)) or not bool(p_data.get("row_level_only", True))
+                        all_local = not is_r_glob and not is_u_glob and not is_d_glob
+
                         new_p = UserPermission(
                             user_id=user.id,
                             model_name=m_name,
@@ -391,7 +423,10 @@ async def handle_permissions_save(
                             can_read=bool(p_data.get("can_read", False)),
                             can_update=bool(p_data.get("can_update", False)),
                             can_delete=bool(p_data.get("can_delete", False)),
-                            row_level_only=bool(p_data.get("row_level_only", True))
+                            read_global=is_r_glob,
+                            update_global=is_u_glob,
+                            delete_global=is_d_glob,
+                            row_level_only=all_local
                         )
                         db.add(new_p)
 

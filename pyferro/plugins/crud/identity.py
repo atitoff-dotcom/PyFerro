@@ -173,12 +173,49 @@ class DefaultIdentityProvider:
 
 
     async def effective_user_ids(self, user_id: int, model_name: str, db: AsyncSession) -> Set[int]:
-        return {user_id} if user_id is not None else set()
+        if user_id is None:
+            return set()
+        ids = {user_id}
+        try:
+            from pyferro.auth.models import UserDelegation
+            from sqlalchemy import select, or_
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            stmt = select(UserDelegation.from_user_id).where(
+                UserDelegation.to_user_id == user_id,
+                UserDelegation.is_active == True,
+                or_(UserDelegation.valid_from == None, UserDelegation.valid_from <= now),
+                or_(UserDelegation.valid_to == None, UserDelegation.valid_to >= now),
+                or_(UserDelegation.model_name == None, UserDelegation.model_name == model_name)
+            )
+            delegated = (await db.execute(stmt)).scalars().all()
+            ids.update(delegated)
+        except Exception:
+            pass
+        return ids
 
     async def user_team_ids(self, user_id: int, db: AsyncSession) -> Set[int]:
+        if user_id is None:
+            return set()
+        try:
+            from pyferro.auth.models import User
+            user = await db.get(User, user_id)
+            if user:
+                return set(user.get_team_ids())
+        except Exception:
+            pass
         return set()
 
     async def primary_team_id(self, user_id: int, db: AsyncSession) -> Optional[int]:
+        if user_id is None:
+            return None
+        try:
+            from pyferro.auth.models import User
+            user = await db.get(User, user_id)
+            if user:
+                return user.primary_team_id
+        except Exception:
+            pass
         return None
 
 

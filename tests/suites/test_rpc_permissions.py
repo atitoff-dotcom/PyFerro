@@ -10,7 +10,7 @@ from pyferro.core.session import (
 from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, SYSTEM_ROLES
 from pyferro.auth.models import Role, RpcPermission, User
 from pyferro.auth.core import AuthSession
-from pyferro.auth.discovery import sync_rpc_permissions, reload_public_rpc_cache
+from pyferro.auth.discovery import sync_rpc_permissions, reload_public_rpc_cache, _ensure_auth_columns
 from pyferro.plugins.crud.handlers import handle_crud_delete, handle_crud_update_cell
 from pyferro.db import async_session, Base, engine
 
@@ -231,6 +231,7 @@ async def test_permissions_api_flow():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(_ensure_auth_columns)
 
         async with async_session() as db:
             # Создаем или находим тестовую роль и пользователя

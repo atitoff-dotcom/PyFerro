@@ -164,6 +164,12 @@ class RolePermission(RowSecureModel):
     can_update: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     can_delete: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     
+    # Раздельные глобальные скоупы (True = все записи, False = только свои)
+    read_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    update_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    delete_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    
+    # Сохраняем row_level_only для обратной совместимости
     row_level_only: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
     class Crud:
@@ -186,6 +192,12 @@ class UserPermission(RowSecureModel):
     can_update: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     can_delete: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     
+    # Раздельные глобальные скоупы (True = все записи, False = только свои)
+    read_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    update_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    delete_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    
+    # Сохраняем row_level_only для обратной совместимости
     row_level_only: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
     class Crud:
@@ -193,6 +205,44 @@ class UserPermission(RowSecureModel):
         verbose_name = "User Permission"
         verbose_name_plural = "User Permissions"
         search_fields = ["model_name", "user_id"]
+
+
+class UserDelegation(RowSecureModel):
+    """
+    Модель замещения и делегирования полномочий между пользователями.
+    Позволяет пользователю to_user_id временно действовать с записями from_user_id.
+    """
+    __tablename__ = "auth_user_delegation"
+
+    from_user_id: Mapped[int] = mapped_column(
+        ForeignKey("auth_user.id", ondelete="CASCADE"), index=True, comment="Кого замещают"
+    )
+    to_user_id: Mapped[int] = mapped_column(
+        ForeignKey("auth_user.id", ondelete="CASCADE"), index=True, comment="Кто замещает"
+    )
+
+    from_user: Mapped["User"] = relationship(
+        "User", foreign_keys=[from_user_id], back_populates="delegations_given"
+    )
+    to_user: Mapped["User"] = relationship(
+        "User", foreign_keys=[to_user_id], back_populates="delegations_received"
+    )
+
+    valid_from: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="Дата начала действия"
+    )
+    valid_to: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="Дата окончания действия"
+    )
+    model_name: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, comment="Конкретная модель данных (NULL = все модели)"
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+
+    class Crud:
+        verbose_name = "Делегирование"
+        verbose_name_plural = "Делегирования"
+        search_fields = ["model_name"]
 
 
 class RefreshToken(Base):
@@ -276,12 +326,19 @@ class User(RowSecureModel):
     refresh_tokens: Mapped[List["RefreshToken"]] = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     active_sessions: Mapped[List["ActiveSession"]] = relationship("ActiveSession", back_populates="user", cascade="all, delete-orphan")
     oauth_accounts: Mapped[List["OAuthAccount"]] = relationship("OAuthAccount", back_populates="user", cascade="all, delete-orphan")
+    
+    delegations_given: Mapped[List["UserDelegation"]] = relationship(
+        "UserDelegation", foreign_keys="UserDelegation.from_user_id", back_populates="from_user", cascade="all, delete-orphan"
+    )
+    delegations_received: Mapped[List["UserDelegation"]] = relationship(
+        "UserDelegation", foreign_keys="UserDelegation.to_user_id", back_populates="to_user", cascade="all, delete-orphan"
+    )
 
     class Crud:
         verbose_name = "Пользователь"
         verbose_name_plural = "Пользователи"
-        hidden = {"password_hash", "creator_id", "team_id"}
-        protected = {"roles", "rpc_permissions", "permissions"}
+        hidden = {"password_hash", "creator_id", "owner_id", "team_id"}
+        protected = {"roles", "rpc_permissions", "permissions", "delegations_given", "delegations_received"}
         search_fields = ["name", "login", "email"]
 
     def __str__(self):
@@ -295,6 +352,26 @@ class User(RowSecureModel):
             team_ids.insert(0, self.primary_team_id)
         return team_ids
 
+    def get_delegated_user_ids(self) -> list:
+        """Возвращает список ID пользователей, которых данный пользователь сейчас активно замещает."""
+        now = datetime.now(timezone.utc)
+        user_ids = []
+        for d in getattr(self, "delegations_received", []):
+            if not getattr(d, "is_active", True):
+                continue
+            vf = getattr(d, "valid_from", None)
+            vt = getattr(d, "valid_to", None)
+            if vf:
+                vf_tz = vf if vf.tzinfo else vf.replace(tzinfo=timezone.utc)
+                if vf_tz > now:
+                    continue
+            if vt:
+                vt_tz = vt if vt.tzinfo else vt.replace(tzinfo=timezone.utc)
+                if vt_tz < now:
+                    continue
+            user_ids.append(d.from_user_id)
+        return user_ids
+
     @staticmethod
     def _apply_perm_to_dict(merged_perms: dict, p) -> None:
         m = p.model_name
@@ -305,21 +382,28 @@ class User(RowSecureModel):
                 "can_delete": False, "delete_global": False,
                 "can_create": False, "create_global": False,
             }
+        # Чтение
         if p.can_read:
             merged_perms[m]["can_read"] = True
-            if not p.row_level_only:
+            is_global = getattr(p, "read_global", False) or not getattr(p, "row_level_only", True)
+            if is_global:
                 merged_perms[m]["read_global"] = True
+        # Изменение
         if p.can_update:
             merged_perms[m]["can_update"] = True
-            if not p.row_level_only:
+            is_global = getattr(p, "update_global", False) or not getattr(p, "row_level_only", True)
+            if is_global:
                 merged_perms[m]["update_global"] = True
+        # Создание
         if p.can_create:
             merged_perms[m]["can_create"] = True
-            if not p.row_level_only:
+            if not getattr(p, "row_level_only", True):
                 merged_perms[m]["create_global"] = True
+        # Удаление
         if p.can_delete:
             merged_perms[m]["can_delete"] = True
-            if not p.row_level_only:
+            is_global = getattr(p, "delete_global", False) or not getattr(p, "row_level_only", True)
+            if is_global:
                 merged_perms[m]["delete_global"] = True
 
     def _get_permissions_dict(self) -> dict:
@@ -355,6 +439,7 @@ class User(RowSecureModel):
         return type("UserContext", (), {
             "user_id": self.id,
             "team_ids": self.get_team_ids(),
+            "delegated_user_ids": self.get_delegated_user_ids(),
             "perms_dict": self._get_permissions_dict(),
             "allowed_rpc_methods": self.get_allowed_rpc_methods(),
             "is_superadmin": self.is_superadmin
@@ -392,7 +477,8 @@ class User(RowSecureModel):
                 selectinload(cls.roles).selectinload(Role.rpc_permissions),
                 selectinload(cls.teams),
                 selectinload(cls.permissions),
-                selectinload(cls.rpc_permissions)
+                selectinload(cls.rpc_permissions),
+                selectinload(cls.delegations_received)
             ).where(cls.id == user_id)
             result = await db_session.execute(stmt)
             user = result.scalar_one_or_none()
