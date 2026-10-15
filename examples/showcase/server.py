@@ -95,12 +95,6 @@ async def init_database():
 
             # Seed initial demo tasks, documents, roles and delegations
             async with async_session() as db:
-                # 1. Update existing tasks creator_id & owner_id if NULL
-                await db.execute(update(Task).where(Task.id == 1, Task.creator_id == None).values(creator_id=1, owner_id=1))
-                await db.execute(update(Task).where(Task.id.in_([2, 3]), Task.creator_id == None).values(creator_id=2, owner_id=2))
-                await db.execute(update(Task).where(Task.id >= 4, Task.creator_id == None).values(creator_id=3, owner_id=3))
-                await db.execute(update(Task).where(Task.owner_id == None).values(owner_id=Task.creator_id))
-
                 count_tasks = (await db.execute(select(func.count(Task.id)))).scalar_one()
                 if count_tasks == 0:
                     demo_tasks = [
@@ -154,30 +148,54 @@ async def init_database():
                         )
                         db.add(perm_task)
 
-                count_users = (await db.execute(select(func.count(User.id)))).scalar_one()
-                if count_users == 0:
-                    user_admin = User(login="admin", name="Administrator", first_name="Admin", last_name="System", email="admin@example.com", password_hash=User._hash_password("admin123"))
-                    user_alice = User(login="alice", name="Alice Wonderland", first_name="Alice", last_name="Wonderland", email="alice@example.com", password_hash=User._hash_password("user123"))
-                    user_bob = User(login="bob", name="Bob Builder", first_name="Bob", last_name="Builder", email="bob@example.com", password_hash=User._hash_password("bob123"))
-                    db.add_all([user_admin, user_alice, user_bob])
+                # Ensure admin, alice, and bob exist in auth_user
+                u_admin = (await db.execute(select(User).where(User.login == "admin"))).scalar_one_or_none()
+                if not u_admin:
+                    u_admin = User(login="admin", name="Administrator", first_name="Admin", last_name="System", email="admin@example.com", password_hash=User._hash_password("admin123"))
+                    db.add(u_admin)
                     await db.flush()
-
                     if r_admin:
-                        user_admin.roles.append(r_admin)
-                    if r_user:
-                        user_alice.roles.append(r_user)
-                        user_bob.roles.append(r_user)
+                        user_roles = [r.name for r in u_admin.roles] if u_admin.roles else []
+                        if "admin" not in user_roles:
+                            u_admin.roles.append(r_admin)
 
-                # 3. Seed demo delegation (Bob delegates Task rights to Alice)
+                u_alice = (await db.execute(select(User).where(User.login == "alice"))).scalar_one_or_none()
+                if not u_alice:
+                    u_alice = User(login="alice", name="Alice Wonderland", first_name="Alice", last_name="Wonderland", email="alice@example.com", password_hash=User._hash_password("user123"))
+                    db.add(u_alice)
+                    await db.flush()
+                    if r_user:
+                        user_roles = [r.name for r in u_alice.roles] if u_alice.roles else []
+                        if "user" not in user_roles:
+                            u_alice.roles.append(r_user)
+
+                u_bob = (await db.execute(select(User).where(User.login == "bob"))).scalar_one_or_none()
+                if not u_bob:
+                    u_bob = User(login="bob", name="Bob Builder", first_name="Bob", last_name="Builder", email="bob@example.com", password_hash=User._hash_password("bob123"))
+                    db.add(u_bob)
+                    await db.flush()
+                    if r_user:
+                        user_roles = [r.name for r in u_bob.roles] if u_bob.roles else []
+                        if "user" not in user_roles:
+                            u_bob.roles.append(r_user)
+
+                # 3. Seed demo delegation (Bob delegates Task rights to Alice using their verified database IDs)
                 count_delegations = (await db.execute(select(func.count(UserDelegation.id)))).scalar_one()
-                if count_delegations == 0:
+                if count_delegations == 0 and u_alice and u_bob:
                     demo_delegation = UserDelegation(
-                        from_user_id=3,  # Bob
-                        to_user_id=2,    # Alice
+                        from_user_id=u_bob.id,
+                        to_user_id=u_alice.id,
                         model_name="Task",
                         is_active=True,
                     )
                     db.add(demo_delegation)
+
+                # Link tasks to existing users
+                if u_admin and u_alice and u_bob:
+                    await db.execute(update(Task).where(Task.id == 1, Task.creator_id == None).values(creator_id=u_admin.id, owner_id=u_admin.id))
+                    await db.execute(update(Task).where(Task.id.in_([2, 3]), Task.creator_id == None).values(creator_id=u_alice.id, owner_id=u_alice.id))
+                    await db.execute(update(Task).where(Task.id >= 4, Task.creator_id == None).values(creator_id=u_bob.id, owner_id=u_bob.id))
+                    await db.execute(update(Task).where(Task.owner_id == None).values(owner_id=Task.creator_id))
 
                 await db.commit()
                 logger.info("[Showcase] Initial demo records and permissions seeded successfully.")
