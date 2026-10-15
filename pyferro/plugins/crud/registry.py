@@ -51,12 +51,13 @@ class ModelRegistry:
 
     @classmethod
     def register_auth_models(cls) -> None:
-        """Регистрирует стандартные модели безопасности (User, Role, RpcPermission) в CRUD."""
+        """Регистрирует стандартные модели безопасности (User, Role, RpcPermission, UserDelegation) в CRUD."""
         try:
-            from pyferro.auth import User, Role, RpcPermission
+            from pyferro.auth import User, Role, RpcPermission, UserDelegation
             cls.register(User)
             cls.register(Role)
             cls.register(RpcPermission)
+            cls.register(UserDelegation)
         except Exception:
             pass
 

@@ -192,23 +192,23 @@
       "id": "rbac",
       "number": 9,
       "icon": "🔐",
-      "tag": "RLS Engine • SQLAlchemy 2.0",
+      "tag": "RLS Engine • SQLAlchemy 2.0 • v0.5.14",
       "title": {
         "ru": "Роли, права и безопасность (RLS)",
         "en": "RBAC & Row-Level Security (RLS)"
       },
       "summary": {
-        "ru": "Гибридный контроль доступа: динамические роли в БД, разделение прав на CRUD и RPC, Row-Level Security по командам и владельцам.",
-        "en": "Hybrid access control: dynamic DB roles, separate CRUD & RPC permissions, and Row-Level Security by teams and owners."
+        "ru": "Гранулярная матрица CRUD-прав (C R U D: Запрет / Свои / Все), разделение автора (creator_id) и владельца (owner_id), временное делегирование полномочий (UserDelegation).",
+        "en": "Granular CRUD matrix (C R U D: Deny / Own / All), creator_id & owner_id separation, and temporary delegation (UserDelegation)."
       },
       "callout": {
-        "ru": "По умолчанию гостям открыт только login.* (Default Deny). Модели RowSecureModel содержат team_id и creator_id, гарантируя, что пользователи видят только данные своей команды.",
-        "en": "By default, unauthenticated guests only access login.* (Default Deny). RowSecureModel enforces team_id and creator_id scoping so users only see their team records."
+        "ru": "В v0.5.14 автор (creator_id) неизменяем, а ответственность (owner_id) можно передавать. Матрица прав поддерживает сценарий 'Читать все, изменять только свои', а UserDelegation позволяет временно замещать коллег без изменения исходных данных.",
+        "en": "In v0.5.14, creator_id is immutable, while owner_id is transferable. Granular scopes enable 'Read all, edit only own', and UserDelegation enables temporary colleagues substitution with zero extra DB updates."
       },
       "code": {
-        "python": "class Task(RowSecureModel):\n    __tablename__ = \"tasks\"\n    title: Mapped[str] = mapped_column(String(100))\n    # id, creator_id, team_id, created_at встроены в RowSecureModel!\n\n# В handlers.py:\n@rpc_method(\"tasks.create\")\nasync def create_task(session, title: str):\n    check_permissions(\"create\", \"Task\")\n    # Права проверяются на уровне ORM",
-        "typescript": "const me = await rpc.call('auth.me');\nconsole.log(me.role, me.permissions);",
-        "wire": "--> {\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"tasks.list\", \"params\": {\"only_mine\": true}}\n<-- {\"jsonrpc\": \"2.0\", \"id\": 9, \"result\": {\"$tabular\": true, \"rows\": [...]}}"
+        "python": "class Task(RowSecureModel):\n    __tablename__ = \"tasks\"\n    title: Mapped[str] = mapped_column(String(100))\n    # creator_id (неизменяем), owner_id (ответственный), team_id\n\n# Временное замещение полномочий (UserDelegation):\ndelegation = UserDelegation(from_user_id=bob.id, to_user_id=alice.id, is_active=True)\n# Алиса законно получает доступ к задачам Боба без изменения самих записей!",
+        "typescript": "// Вызов метода с проверкой замещения:\nconst res = await rpc.call('tasks.update', { id: 4, title: 'Обновлено Алисой по замещению' });\nconsole.log(res);",
+        "wire": "--> {\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"tasks.update\", \"params\": {\"id\": 4, \"title\": \"New\"}}\n<-- {\"jsonrpc\": \"2.0\", \"id\": 9, \"result\": {\"id\": 4, \"creator_id\": 3, \"owner_id\": 3, ...}}"
       }
     },
     {

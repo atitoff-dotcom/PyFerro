@@ -8,23 +8,22 @@ and declarative mapping for pyferro.plugins.crud (class Crud:).
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text
 from pyferro.db import Base
+from pyferro.auth import RowSecureModel
 
 
-class Task(Base):
+class Task(RowSecureModel):
     __tablename__ = "showcase_tasks"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(255), nullable=False)
     completed = Column(Boolean, default=False, nullable=False)
     priority = Column(String(20), default="normal", nullable=False)
-    owner_id = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    # id, creator_id, owner_id, team_id, created_at, updated_at inherit from RowSecureModel!
 
     class Crud:
         verbose_name = "Task"
         verbose_name_plural = "Tasks"
-        readonly = {"created_at"}
-        protected = {"owner_id"}
+        readonly = {"created_at", "updated_at", "creator_id"}
+        protected = {"creator_id"}
 
     def to_dict(self):
         return {
@@ -32,7 +31,9 @@ class Task(Base):
             "title": self.title,
             "completed": self.completed,
             "priority": self.priority,
+            "creator_id": self.creator_id,
             "owner_id": self.owner_id,
+            "team_id": self.team_id,
             "created_at": self.created_at.strftime("%H:%M:%S") if self.created_at else "",
         }
 

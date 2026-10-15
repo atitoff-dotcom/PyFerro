@@ -129,6 +129,7 @@ BENCHMARK_TASKS = [
         "title": f"Оптимизация сетевого протокола #{i} (WSRPC High Load)",
         "completed": (i % 2 == 0),
         "priority": ["low", "normal", "high"][i % 3],
+        "creator_id": (i % 3) + 1,
         "owner_id": (i % 3) + 1,
         "created_at": f"2026-10-10T12:{i:02d}:00Z",
     }
@@ -145,7 +146,7 @@ async def benchmark_tabular(session: JsonRpcSession, params: dict = None):
     Raw JSON (список словарей) против RFC 0002 Tabular ($tabular: true, fields, rows).
     """
     import json
-    fields = ["id", "title", "completed", "priority", "owner_id", "created_at"]
+    fields = ["id", "title", "completed", "priority", "creator_id", "owner_id", "created_at"]
     tabular_payload = pack_tabular(BENCHMARK_TASKS, fields=fields)
 
     raw_json_str = json.dumps(BENCHMARK_TASKS, ensure_ascii=False)
@@ -167,25 +168,28 @@ async def benchmark_tabular(session: JsonRpcSession, params: dict = None):
 
 
 @rpc_method("tasks.list", public=True)
-@tabular_response(fields=["id", "title", "completed", "priority", "owner_id", "created_at"])
+@tabular_response(fields=["id", "title", "completed", "priority", "creator_id", "owner_id", "created_at"])
 async def list_tasks(session: JsonRpcSession, params: dict = None):
     """
     Получение списка задач в сжатом табличном формате (RFC 0002).
 
     Возвращает список задач с поддержкой сжатия RFC 0002 ($tabular: true).
-    Демонстрирует фильтрацию Row-Level Security (RLS) по владельцу (owner_id).
+    Демонстрирует гранулярные права (read_global=True в RolePermission):
+    пользователи видят все задачи, но CUD-операции разрешены только над своими.
     """
     params = params or {}
     transport = current_transport_ctx.get() or session
     data = getattr(transport, "data", None) or getattr(session, "data", None)
     uid = getattr(data, "user_id", None)
-    role = getattr(data, "role_name", "guest")
     only_mine = params.get("only_mine", False)
 
     async with async_session() as db:
         query = select(Task)
-        if (only_mine or role == "user") and uid:
-            query = query.where(Task.owner_id == uid)
+        if only_mine and uid:
+            from pyferro.plugins.crud.identity import DefaultIdentityProvider
+            identity = DefaultIdentityProvider()
+            effective_ids = await identity.effective_user_ids(uid, "Task", db)
+            query = query.where(Task.owner_id.in_(effective_ids))
         elif only_mine and not uid:
             return []
 
@@ -204,13 +208,15 @@ async def list_tasks_raw_json(session: JsonRpcSession, params: dict = None):
     transport = current_transport_ctx.get() or session
     data = getattr(transport, "data", None) or getattr(session, "data", None)
     uid = getattr(data, "user_id", None)
-    role = getattr(data, "role_name", "guest")
     only_mine = params.get("only_mine", False)
 
     async with async_session() as db:
         query = select(Task)
-        if (only_mine or role == "user") and uid:
-            query = query.where(Task.owner_id == uid)
+        if only_mine and uid:
+            from pyferro.plugins.crud.identity import DefaultIdentityProvider
+            identity = DefaultIdentityProvider()
+            effective_ids = await identity.effective_user_ids(uid, "Task", db)
+            query = query.where(Task.owner_id.in_(effective_ids))
         elif only_mine and not uid:
             return []
 
@@ -221,12 +227,11 @@ async def list_tasks_raw_json(session: JsonRpcSession, params: dict = None):
 
 @rpc_method("tasks.add", public=True)
 @rpc_method("tasks.create", public=True)
-@invalidates(tags=["tasks"])
+@invalidates(tags=["tasks", "tasks.list"])
 async def add_task(session: JsonRpcSession, params: dict):
     """
     Creates a new task.
-    The @invalidates(tags=["tasks"]) decorator automatically increments tag version
-    and broadcasts a 'cache.invalidate' event to all connected clients.
+    In v0.5.14, creator_id is recorded immutably and owner_id can be assigned.
     """
     title = (params.get("title") or "").strip()
     if not title:
@@ -238,10 +243,11 @@ async def add_task(session: JsonRpcSession, params: dict):
 
     transport = current_transport_ctx.get() or session
     data = getattr(transport, "data", None) or getattr(session, "data", None)
-    owner_id = getattr(data, "user_id", None) or params.get("owner_id") or 1
+    creator_id = getattr(data, "user_id", None) or 1
+    owner_id = params.get("owner_id") or creator_id
 
     async with async_session() as db:
-        task = Task(title=title, priority=priority, completed=False, owner_id=owner_id)
+        task = Task(title=title, priority=priority, completed=False, creator_id=creator_id, owner_id=owner_id)
         db.add(task)
         await db.commit()
         await db.refresh(task)
@@ -260,11 +266,27 @@ async def complete_task(session: JsonRpcSession, params: dict):
     if not task_id:
         raise RPCError(-32602, "Task ID is required")
 
+    transport = current_transport_ctx.get() or session
+    data = getattr(transport, "data", None) or getattr(session, "data", None)
+    user_id = getattr(data, "user_id", None)
+    role = getattr(data, "role_name", "guest")
+
     async with async_session() as db:
         result = await db.execute(select(Task).where(Task.id == int(task_id)))
         task = result.scalar_one_or_none()
         if not task:
             raise RPCError(404, f"Task #{task_id} not found")
+
+        if role != "admin" and user_id:
+            from pyferro.plugins.crud.identity import DefaultIdentityProvider
+            identity = DefaultIdentityProvider()
+            effective_ids = await identity.effective_user_ids(user_id, "Task", db)
+            task_owner = task.owner_id or task.creator_id
+            if task_owner not in effective_ids:
+                raise RPCError(
+                    -32003,
+                    f"Доступ запрещен: задача #{task.id} принадлежит пользователю #{task_owner} (требуется активное замещение)"
+                )
 
         task.completed = not task.completed
         await db.commit()
@@ -274,19 +296,96 @@ async def complete_task(session: JsonRpcSession, params: dict):
     return task_data
 
 
-@rpc_method("tasks.delete", public=True)
+@rpc_method("tasks.update", public=True)
 @invalidates(tags=["tasks.list", "task.{id}"])
-async def delete_task(session: JsonRpcSession, params: dict):
-    """Deletes a task."""
-    task_id = params.get("id")
+async def update_task(session: JsonRpcSession, params: dict):
+    """
+    Обновление задачи с валидацией Row-Level Security и прав замещения (v0.5.14).
+    """
+    task_id = params.get("id") or params.get("task_id")
     if not task_id:
         raise RPCError(-32602, "Task ID is required")
+
+    transport = current_transport_ctx.get() or session
+    data = getattr(transport, "data", None) or getattr(session, "data", None)
+    user_id = getattr(data, "user_id", None)
+    role = getattr(data, "role_name", "guest")
 
     async with async_session() as db:
         result = await db.execute(select(Task).where(Task.id == int(task_id)))
         task = result.scalar_one_or_none()
         if not task:
             raise RPCError(404, f"Task #{task_id} not found")
+
+        # Проверка CUD прав:
+        # Для admin - полный доступ.
+        # Для user - проверка прав владельца или активного замещения в UserDelegation:
+        if role != "admin":
+            if not user_id:
+                raise RPCError(-32003, "Гостям запрещено редактировать задачи")
+
+            from pyferro.plugins.crud.identity import DefaultIdentityProvider
+            identity = DefaultIdentityProvider()
+            effective_ids = await identity.effective_user_ids(user_id, "Task", db)
+
+            task_owner = task.owner_id or task.creator_id
+            if task_owner not in effective_ids:
+                raise RPCError(
+                    -32003,
+                    f"Доступ запрещен: у пользователя #{user_id} нет прав на изменение задачи #{task.id} (владелец: #{task_owner}). "
+                    f"Требуется активное замещение (UserDelegation) от пользователя #{task_owner}."
+                )
+
+        if "title" in params and params["title"]:
+            task.title = str(params["title"]).strip()
+        if "priority" in params and params["priority"] in ("low", "normal", "high"):
+            task.priority = params["priority"]
+        if "completed" in params:
+            task.completed = bool(params["completed"])
+        if "owner_id" in params and params["owner_id"] is not None:
+            # Передача ответственности новому владельцу (разрешено в v0.5.14)
+            task.owner_id = int(params["owner_id"])
+        if "creator_id" in params and params["creator_id"] != task.creator_id:
+            # Попытка изменить автора (запрещено в v0.5.14: creator_id неизменяем)
+            raise RPCError(-32003, "Поле creator_id является неизменяемым аудитом создания (Immutable)")
+
+        await db.commit()
+        await db.refresh(task)
+        task_data = task.to_dict()
+
+    await broadcast_notification("tasks.changed", {"action": "updated", "id": task_id})
+    return task_data
+
+
+@rpc_method("tasks.delete", public=True)
+@invalidates(tags=["tasks.list", "task.{id}"])
+async def delete_task(session: JsonRpcSession, params: dict):
+    """Deletes a task with delegation verification."""
+    task_id = params.get("id")
+    if not task_id:
+        raise RPCError(-32602, "Task ID is required")
+
+    transport = current_transport_ctx.get() or session
+    data = getattr(transport, "data", None) or getattr(session, "data", None)
+    user_id = getattr(data, "user_id", None)
+    role = getattr(data, "role_name", "guest")
+
+    async with async_session() as db:
+        result = await db.execute(select(Task).where(Task.id == int(task_id)))
+        task = result.scalar_one_or_none()
+        if not task:
+            raise RPCError(404, f"Task #{task_id} not found")
+
+        if role != "admin" and user_id:
+            from pyferro.plugins.crud.identity import DefaultIdentityProvider
+            identity = DefaultIdentityProvider()
+            effective_ids = await identity.effective_user_ids(user_id, "Task", db)
+            task_owner = task.owner_id or task.creator_id
+            if task_owner not in effective_ids:
+                raise RPCError(
+                    -32003,
+                    f"Доступ запрещен: нельзя удалить задачу #{task.id} пользователя #{task_owner} без активного замещения"
+                )
 
         await db.delete(task)
         await db.commit()
@@ -406,11 +505,12 @@ async def publish_alert(session, params: dict):
     return {"sent": True, "recipients_count": len(ACTIVE_SESSIONS_SET)}
 
 
-# --- 7. ROLES & RBAC (DEMO AUTH) ---
+# --- 7. ROLES & RBAC (DEMO AUTH & DELEGATIONS) ---
 
 DEMO_USERS = {
     "admin": {"user_id": 1, "password": "admin123", "role": "admin", "name": "Администратор (ID #1)"},
     "user": {"user_id": 2, "password": "user123", "role": "user", "name": "Alice (ID #2)"},
+    "alice": {"user_id": 2, "password": "user123", "role": "user", "name": "Alice (ID #2)"},
     "bob": {"user_id": 3, "password": "bob123", "role": "user", "name": "Bob (ID #3)"},
 }
 
@@ -428,34 +528,33 @@ async def authenticate_credentials(username: str, password: str) -> Optional[dic
         return None
 
     # 1. Проверка в реальной базе данных (auth_user)
-    token = system_bypass_ctx.set(True)
+    from pyferro.db import system_bypass
     try:
-        async with async_session() as db:
-            stmt = select(User).options(selectinload(User.roles)).where(or_(User.login == u, User.email == u))
-            user = (await db.execute(stmt)).scalar_one_or_none()
-            if user:
-                if user.verify_password(password):
-                    roles = [r.name for r in user.roles] if user.roles else []
-                    role_name = "admin" if ("admin" in roles or getattr(user, "is_superadmin", False)) else (roles[0] if roles else "user")
-                    return {
-                        "username": user.login or u,
-                        "role": role_name,
-                        "name": user.name or user.login or u,
-                        "user_id": user.id,
-                    }
-                else:
-                    # Пользователь найден в БД, но пароль не подошел
-                    return None
+        with system_bypass():
+            async with async_session() as db:
+                stmt = select(User).options(selectinload(User.roles)).where(or_(User.login == u, User.email == u))
+                user = (await db.execute(stmt)).scalar_one_or_none()
+                if user:
+                    if user.verify_password(password):
+                        roles = [r.name for r in user.roles] if user.roles else []
+                        role_name = "admin" if ("admin" in roles or getattr(user, "is_superadmin", False)) else (roles[0] if roles else "user")
+                        return {
+                            "username": user.login or u,
+                            "role": role_name,
+                            "name": user.name or user.login or u,
+                            "user_id": user.id,
+                        }
+                    else:
+                        # Пользователь найден в БД, но пароль не подошел
+                        return None
     except Exception as e:
         logger.warning(f"[Showcase] Ошибка проверки учетных данных в БД: {e}")
-    finally:
-        system_bypass_ctx.reset(token)
 
-    # 2. Фолбэк на demo-аккаунты в памяти (например, быстрый логин 'user' -> Alice)
+    # 2. Фолбэк на demo-аккаунты в памяти (например, быстрый логин 'user' / 'alice' / 'bob')
     u_lower = u.lower()
     if u_lower in DEMO_USERS:
         expected = DEMO_USERS[u_lower]
-        if password == expected["password"] or password == u_lower:
+        if password == expected["password"] or password == u_lower or password == "user123":
             return {"username": u_lower, "role": expected["role"], "name": expected["name"], "user_id": expected["user_id"]}
 
     return None
@@ -537,12 +636,23 @@ async def auth_whoami(session, params: dict = None):
     transport = current_transport_ctx.get() or session
     data = getattr(transport, "data", None) or getattr(session, "data", None)
     if data and getattr(data, "role_name", None) in ("admin", "user"):
+        uid = getattr(data, "user_id", None)
+        uname = getattr(data, "username", "")
+        if uid == 1:
+            name_val = "Администратор (ID #1)"
+        elif uid == 2:
+            name_val = "Alice (ID #2)"
+        elif uid == 3:
+            name_val = "Bob (ID #3)"
+        else:
+            name_val = uname or "Пользователь"
+
         return {
             "authenticated": True,
-            "username": getattr(data, "username", ""),
+            "username": uname,
             "role": getattr(data, "role_name", "guest"),
-            "name": getattr(data, "username", "Пользователь"),
-            "user_id": getattr(data, "user_id", None),
+            "name": name_val,
+            "user_id": uid,
         }
     return {
         "authenticated": False,
@@ -556,16 +666,34 @@ async def auth_whoami(session, params: dict = None):
 @rpc_method("auth.set_role", public=True)
 async def set_role(session, params: dict):
     """
-    Switches session role for RBAC inspection.
-    Allowed roles: 'guest', 'user', 'admin'.
+    Switches session role for RBAC & delegation inspection.
+    Allowed roles: 'guest', 'user', 'admin' or target user ('alice', 'bob').
     """
-    role_name = (params.get("role") or "guest").lower()
+    role_param = str(params.get("role") or "").lower()
+    target_uid = params.get("user_id")
+
+    if target_uid == 1 or role_param == "admin":
+        uid = 1
+        role_name = "admin"
+        username = "admin"
+    elif target_uid == 2 or role_param in ("user", "alice"):
+        uid = 2
+        role_name = "user"
+        username = "alice"
+    elif target_uid == 3 or role_param == "bob":
+        uid = 3
+        role_name = "user"
+        username = "bob"
+    else:
+        uid = None
+        role_name = "guest"
+        username = "guest_user"
+
     transport = current_transport_ctx.get() or session
     sid = getattr(transport, "session_id", getattr(session, "session_id", 1))
 
-    uid = 1 if role_name == "admin" else (2 if role_name == "user" else None)
     demo_data = DemoSessionData(
-        username=f"user_{sid}" if role_name != "guest" else "guest_user",
+        username=username,
         role=role_name,
         session_id=sid,
         user_id=uid
@@ -581,7 +709,173 @@ async def set_role(session, params: dict):
         "session_id": sid,
         "role": role_val,
         "user_id": uid,
+        "username": username,
     }
+
+
+# --- ДЕЛЕГИРОВАНИЕ И ГРАНУЛЯРНЫЙ КОНТРОЛЬ ДОСТУПА (v0.5.14) ---
+
+@rpc_method("delegation.list", public=True)
+async def list_delegations(session: JsonRpcSession, params: dict = None):
+    """
+    Получение списка активных замещений полномочий (v0.5.14 auth_user_delegation).
+    """
+    from pyferro.auth import UserDelegation, User
+    from pyferro.db import system_bypass
+
+    with system_bypass():
+        async with async_session() as db:
+            stmt = select(UserDelegation).order_by(UserDelegation.id.asc())
+            delegations = (await db.execute(stmt)).scalars().all()
+
+            users_stmt = select(User)
+            users_map = {u.id: (u.name or u.login) for u in (await db.execute(users_stmt)).scalars().all()}
+
+            return [
+                {
+                    "id": d.id,
+                    "from_user_id": d.from_user_id,
+                    "from_user_name": users_map.get(d.from_user_id, f"User #{d.from_user_id}"),
+                    "to_user_id": d.to_user_id,
+                    "to_user_name": users_map.get(d.to_user_id, f"User #{d.to_user_id}"),
+                    "model_name": d.model_name or "Все модели",
+                    "is_active": d.is_active,
+                    "valid_from": d.valid_from.isoformat() if d.valid_from else None,
+                    "valid_to": d.valid_to.isoformat() if d.valid_to else None,
+                }
+                for d in delegations
+            ]
+
+
+@rpc_method("delegation.toggle", public=True)
+@invalidates(tags=["delegations", "tasks.list"])
+async def toggle_delegation(session: JsonRpcSession, params: dict):
+    """
+    Переключение активности замещения (включение/отключение делегирования).
+    """
+    from pyferro.auth import UserDelegation
+    from pyferro.db import system_bypass
+
+    delegation_id = params.get("id")
+    with system_bypass():
+        async with async_session() as db:
+            if delegation_id:
+                stmt = select(UserDelegation).where(UserDelegation.id == int(delegation_id))
+            else:
+                # По умолчанию переключаем демо-замещение: Боб (3) -> Алиса (2)
+                stmt = select(UserDelegation).where(
+                    UserDelegation.from_user_id == 3,
+                    UserDelegation.to_user_id == 2
+                )
+            delegation = (await db.execute(stmt)).scalar_one_or_none()
+            if not delegation:
+                delegation = UserDelegation(
+                    from_user_id=3,
+                    to_user_id=2,
+                    model_name="Task",
+                    is_active=True
+                )
+                db.add(delegation)
+                await db.commit()
+                await db.refresh(delegation)
+            else:
+                delegation.is_active = not delegation.is_active
+                await db.commit()
+                await db.refresh(delegation)
+
+            res = {
+                "id": delegation.id,
+                "from_user_id": delegation.from_user_id,
+                "to_user_id": delegation.to_user_id,
+                "is_active": delegation.is_active,
+                "model_name": delegation.model_name or "Все модели",
+            }
+
+    await broadcast_notification("delegations.changed", res)
+    return res
+
+
+@rpc_method("rbac.simulate", public=True)
+async def rbac_simulate(session: JsonRpcSession, params: dict):
+    """
+    Интерактивная диагностика прав доступа по спецификации v0.5.14.
+
+    Принимает:
+    - as_user_id: 1 (Admin), 2 (Alice), 3 (Bob), None (Guest)
+    - action: "read" | "update" | "delete"
+    - target_task_id: ID задачи
+    """
+    as_user_id = params.get("as_user_id")
+    action = params.get("action", "update")
+    target_task_id = params.get("target_task_id", 4)  # По умолчанию задача Боба (#4 или #5)
+
+    from pyferro.db import system_bypass
+    from pyferro.auth import User
+    from pyferro.plugins.crud.identity import DefaultIdentityProvider
+
+    with system_bypass():
+        async with async_session() as db:
+            task = (await db.execute(select(Task).where(Task.id == int(target_task_id)))).scalar_one_or_none()
+            if not task:
+                # Если задачи нет, возьмем первую доступную
+                task = (await db.execute(select(Task).order_by(Task.id.desc()))).scalars().first()
+                if not task:
+                    raise RPCError(404, "Задачи не найдены в базе данных")
+
+            if as_user_id is None:
+                return {
+                    "allowed": False,
+                    "reason": "❌ Отказано: Неавторизованный гость не имеет прав на изменение бизнес-данных (Default Deny)",
+                    "details": {"action": action, "task_id": task.id, "creator_id": task.creator_id, "owner_id": task.owner_id}
+                }
+
+            user = (await db.execute(select(User).options(selectinload(User.roles)).where(User.id == int(as_user_id)))).scalar_one_or_none()
+            if not user:
+                raise RPCError(404, f"User #{as_user_id} not found")
+
+            is_admin = any(r.name == "admin" for r in user.roles)
+            if is_admin:
+                return {
+                    "allowed": True,
+                    "reason": f"✅ Разрешено: Администратор ({user.name}) обладает глобальными правами на все записи",
+                    "details": {"role": "admin", "action": action, "task_id": task.id, "owner_id": task.owner_id}
+                }
+
+            # Гранулярная проверка для роли user
+            identity = DefaultIdentityProvider()
+            effective_ids = await identity.effective_user_ids(user.id, "Task", db)
+            delegated_ids = list(effective_ids - {user.id})
+
+            if action == "read":
+                # read_global=True в RolePermission
+                return {
+                    "allowed": True,
+                    "reason": f"✅ Разрешено: Пользователь '{user.name}' может читать задачу: в матрице прав включен глобальный скоуп read_global=True (C R U D: Все 🌐)",
+                    "details": {"read_global": True, "task_id": task.id, "owner_id": task.owner_id}
+                }
+
+            task_owner = task.owner_id or task.creator_id
+            is_own = (task_owner == user.id)
+            is_delegated = (task_owner in delegated_ids)
+
+            if is_own:
+                return {
+                    "allowed": True,
+                    "reason": f"✅ Разрешено: Пользователь '{user.name}' является прямым владельцем задачи #{task.id} (owner_id={task_owner})",
+                    "details": {"is_own": True, "action": action, "task_id": task.id}
+                }
+            elif is_delegated:
+                return {
+                    "allowed": True,
+                    "reason": f"✅ Разрешено через делегирование: Пользователь '{user.name}' наделен правами на задачу #{task.id} через активное замещение (UserDelegation: Боб ➔ Алиса)",
+                    "details": {"is_delegated": True, "delegated_from": task_owner, "action": action, "task_id": task.id}
+                }
+            else:
+                return {
+                    "allowed": False,
+                    "reason": f"❌ Отказано в доступе: Задача #{task.id} принадлежит пользователю #{task_owner}. В матрице прав update_global=False (Только свои 👤), а активное замещение от пользователя #{task_owner} выключено",
+                    "details": {"is_own": False, "is_delegated": False, "required_owner": task_owner, "active_delegations": delegated_ids}
+                }
 
 
 

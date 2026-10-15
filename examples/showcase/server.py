@@ -64,82 +64,126 @@ setup_logging()
 @app.on_startup
 async def init_database():
     """Asynchronously creates SQLite database tables and seeds demo data on server startup."""
-    from pyferro.auth import system_bypass_ctx, User, Role
-    token = system_bypass_ctx.set(True)
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            # Safe migration for existing SQLite database if owner_id column is absent
-            try:
-                from sqlalchemy import text
-                await conn.execute(text("ALTER TABLE showcase_tasks ADD COLUMN owner_id INTEGER"))
-            except Exception:
-                pass
-        logger.info("[Showcase] SQLite database initialized successfully.")
+    from pyferro.db import system_bypass
+    from pyferro.auth import User, Role, RolePermission, UserDelegation
+    from sqlalchemy import select, func, update, text
 
-        # Initialize Smart Cache tag version registry
-        await version_registry.initialize()
+    with system_bypass():
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+                # Safe migration for existing SQLite database if creator_id/owner_id/updated_at columns are absent
+                for col_ddl in [
+                    "ALTER TABLE showcase_tasks ADD COLUMN creator_id INTEGER",
+                    "ALTER TABLE showcase_tasks ADD COLUMN owner_id INTEGER",
+                    "ALTER TABLE showcase_tasks ADD COLUMN updated_at DATETIME",
+                    "ALTER TABLE auth_role_permission ADD COLUMN read_global BOOLEAN DEFAULT 0",
+                    "ALTER TABLE auth_role_permission ADD COLUMN update_global BOOLEAN DEFAULT 0",
+                    "ALTER TABLE auth_role_permission ADD COLUMN delete_global BOOLEAN DEFAULT 0",
+                    "ALTER TABLE auth_user_permission ADD COLUMN read_global BOOLEAN DEFAULT 0",
+                    "ALTER TABLE auth_user_permission ADD COLUMN update_global BOOLEAN DEFAULT 0",
+                    "ALTER TABLE auth_user_permission ADD COLUMN delete_global BOOLEAN DEFAULT 0",
+                ]:
+                    try:
+                        await conn.execute(text(col_ddl))
+                    except Exception:
+                        pass
+            logger.info("[Showcase] SQLite database schema initialized successfully.")
 
-        # Seed initial demo tasks and documents if tables are empty
-        from sqlalchemy import select, func, update
-        async with async_session() as db:
-            # Update existing tasks owner_id if NULL
-            await db.execute(update(Task).where(Task.id == 1, Task.owner_id == None).values(owner_id=1))
-            await db.execute(update(Task).where(Task.id.in_([2, 3]), Task.owner_id == None).values(owner_id=2))
-            await db.execute(update(Task).where(Task.id >= 4, Task.owner_id == None).values(owner_id=3))
+            # Initialize Smart Cache tag version registry
+            await version_registry.initialize()
 
-            count_tasks = (await db.execute(select(func.count(Task.id)))).scalar_one()
-            if count_tasks == 0:
-                demo_tasks = [
-                    Task(title="Start PyFerro showcase server (Admin)", priority="high", completed=True, owner_id=1),
-                    Task(title="Inspect traffic savings with RFC 0002 ($tabular) (Alice)", priority="high", completed=False, owner_id=2),
-                    Task(title="Test Smart Cache tag invalidation across tabs (Alice)", priority="normal", completed=False, owner_id=2),
-                    Task(title="Run multi-return streaming task with live chunks (Bob)", priority="normal", completed=False, owner_id=3),
-                    Task(title="Trigger symmetric Reverse RPC call from server (Bob)", priority="low", completed=False, owner_id=3),
-                ]
-                db.add_all(demo_tasks)
+            # Seed initial demo tasks, documents, roles and delegations
+            async with async_session() as db:
+                # 1. Update existing tasks creator_id & owner_id if NULL
+                await db.execute(update(Task).where(Task.id == 1, Task.creator_id == None).values(creator_id=1, owner_id=1))
+                await db.execute(update(Task).where(Task.id.in_([2, 3]), Task.creator_id == None).values(creator_id=2, owner_id=2))
+                await db.execute(update(Task).where(Task.id >= 4, Task.creator_id == None).values(creator_id=3, owner_id=3))
+                await db.execute(update(Task).where(Task.owner_id == None).values(owner_id=Task.creator_id))
 
-            count_docs = (await db.execute(select(func.count(Document.id)))).scalar_one()
-            if count_docs == 0:
-                demo_docs = [
-                    Document(title="PyFerro Architecture Manifesto", category="architecture", views=142, content="Granian RSGI + JSON-RPC 2.0 full duplex"),
-                    Document(title="RFC 0002 Tabular Compression Specification", category="specs", views=98, content="40-70% wire traffic reduction"),
-                    Document(title="Universal Reactive CRUD Guide", category="guides", views=64, content="Declarative class Crud: mapping"),
-                ]
-                db.add_all(demo_docs)
+                count_tasks = (await db.execute(select(func.count(Task.id)))).scalar_one()
+                if count_tasks == 0:
+                    demo_tasks = [
+                        Task(title="Start PyFerro showcase server (Admin)", priority="high", completed=True, creator_id=1, owner_id=1),
+                        Task(title="Inspect traffic savings with RFC 0002 ($tabular) (Alice)", priority="high", completed=False, creator_id=2, owner_id=2),
+                        Task(title="Test Smart Cache tag invalidation across tabs (Alice)", priority="normal", completed=False, creator_id=2, owner_id=2),
+                        Task(title="Run multi-return streaming task with live chunks (Bob)", priority="normal", completed=False, creator_id=3, owner_id=3),
+                        Task(title="Trigger symmetric Reverse RPC call from server (Bob)", priority="low", completed=False, creator_id=3, owner_id=3),
+                    ]
+                    db.add_all(demo_tasks)
 
-            # Seed demo roles and users
-            count_roles = (await db.execute(select(func.count(Role.id)))).scalar_one()
-            if count_roles == 0:
-                role_admin = Role(name="admin", description="Full administrator access")
-                role_user = Role(name="user", description="Regular user with basic access")
-                role_editor = Role(name="editor", description="Content editor")
-                db.add_all([role_admin, role_user, role_editor])
-                await db.flush()
+                count_docs = (await db.execute(select(func.count(Document.id)))).scalar_one()
+                if count_docs == 0:
+                    demo_docs = [
+                        Document(title="PyFerro Architecture Manifesto", category="architecture", views=142, content="Granian RSGI + JSON-RPC 2.0 full duplex"),
+                        Document(title="RFC 0002 Tabular Compression Specification", category="specs", views=98, content="40-70% wire traffic reduction"),
+                        Document(title="Universal Reactive CRUD Guide", category="guides", views=64, content="Declarative class Crud: mapping"),
+                    ]
+                    db.add_all(demo_docs)
 
-            count_users = (await db.execute(select(func.count(User.id)))).scalar_one()
-            if count_users == 0:
-                user_admin = User(login="admin", name="Administrator", first_name="Admin", last_name="System", email="admin@example.com", password_hash=User._hash_password("admin123"))
-                user_alice = User(login="alice", name="Alice Wonderland", first_name="Alice", last_name="Wonderland", email="alice@example.com", password_hash=User._hash_password("user123"))
-                user_bob = User(login="bob", name="Bob Builder", first_name="Bob", last_name="Builder", email="bob@example.com", password_hash=User._hash_password("bob123"))
-                db.add_all([user_admin, user_alice, user_bob])
-                await db.flush()
+                # 2. Seed demo roles and users
+                count_roles = (await db.execute(select(func.count(Role.id)))).scalar_one()
+                if count_roles == 0:
+                    role_admin = Role(name="admin", description="Full administrator access")
+                    role_user = Role(name="user", description="Regular user with granular RLS access")
+                    role_editor = Role(name="editor", description="Content editor")
+                    db.add_all([role_admin, role_user, role_editor])
+                    await db.flush()
 
                 r_admin = (await db.execute(select(Role).where(Role.name == "admin"))).scalar_one_or_none()
                 r_user = (await db.execute(select(Role).where(Role.name == "user"))).scalar_one_or_none()
-                if r_admin:
-                    user_admin.roles.append(r_admin)
+
+                # Seed Granular Permissions for role 'user' on 'Task' if missing
                 if r_user:
-                    user_alice.roles.append(r_user)
-                    user_bob.roles.append(r_user)
+                    perm_check = (await db.execute(select(RolePermission).where(
+                        RolePermission.role_id == r_user.id,
+                        RolePermission.model_name == "Task"
+                    ))).scalar_one_or_none()
+                    if not perm_check:
+                        perm_task = RolePermission(
+                            role_id=r_user.id,
+                            model_name="Task",
+                            can_create=True,
+                            can_read=True,
+                            can_update=True,
+                            can_delete=True,
+                            read_global=True,    # Пользователи видят ВСЕ задачи
+                            update_global=False, # Изменяют ТОЛЬКО СВОИ или ДЕЛЕГИРОВАННЫЕ
+                            delete_global=False, # Удаляют ТОЛЬКО СВОИ или ДЕЛЕГИРОВАННЫЕ
+                            row_level_only=True,
+                        )
+                        db.add(perm_task)
 
-            await db.commit()
-            logger.info("[Showcase] Initial demo records seeded successfully.")
+                count_users = (await db.execute(select(func.count(User.id)))).scalar_one()
+                if count_users == 0:
+                    user_admin = User(login="admin", name="Administrator", first_name="Admin", last_name="System", email="admin@example.com", password_hash=User._hash_password("admin123"))
+                    user_alice = User(login="alice", name="Alice Wonderland", first_name="Alice", last_name="Wonderland", email="alice@example.com", password_hash=User._hash_password("user123"))
+                    user_bob = User(login="bob", name="Bob Builder", first_name="Bob", last_name="Builder", email="bob@example.com", password_hash=User._hash_password("bob123"))
+                    db.add_all([user_admin, user_alice, user_bob])
+                    await db.flush()
 
-    except Exception as e:
-        logger.error(f"[Showcase] Database initialization error: {e}", exc_info=True)
-    finally:
-        system_bypass_ctx.reset(token)
+                    if r_admin:
+                        user_admin.roles.append(r_admin)
+                    if r_user:
+                        user_alice.roles.append(r_user)
+                        user_bob.roles.append(r_user)
+
+                # 3. Seed demo delegation (Bob delegates Task rights to Alice)
+                count_delegations = (await db.execute(select(func.count(UserDelegation.id)))).scalar_one()
+                if count_delegations == 0:
+                    demo_delegation = UserDelegation(
+                        from_user_id=3,  # Bob
+                        to_user_id=2,    # Alice
+                        model_name="Task",
+                        is_active=True,
+                    )
+                    db.add(demo_delegation)
+
+                await db.commit()
+                logger.info("[Showcase] Initial demo records and permissions seeded successfully.")
+
+        except Exception as e:
+            logger.error(f"[Showcase] Database initialization error: {e}", exc_info=True)
 
 
 @app.route("/health", ["GET"])

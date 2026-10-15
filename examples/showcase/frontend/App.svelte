@@ -102,8 +102,9 @@
   let uploadStatus = $state("");
   let uploadedFilesCount = $state(0);
   let currentFolderHash = $state("");
-  // 9. RBAC
+  // 9. RBAC & Granular Delegations (v0.5.14)
   let rbacLogs = $state<LogItem[]>([]);
+  let isDelegationActive = $state<boolean>(true);
   // 10. SEO
   let seoLogs = $state<LogItem[]>([]);
 
@@ -224,12 +225,18 @@
       ];
     });
 
+    // Прослушивание изменений делегирований (v0.5.14)
+    rpc.on("delegations.changed", (data: any) => {
+      isDelegationActive = !!data.is_active;
+    });
+
     // Статус сокета
     canonicalWsStatus.subscribe((s) => {
       if (s === "CONNECTED") {
         wsState = "CONNECTED";
         measureRtt();
         checkAuthMe();
+        loadDelegationStatus();
       } else if (s === "CONNECTING") {
         wsState = "CONNECTING";
       } else {
@@ -407,18 +414,155 @@
     }
   }
 
-  async function testCreateTask() {
+  // --- 9. RBAC & DELEGATION (v0.5.14) ---
+  async function loadDelegationStatus() {
     try {
-      const res = await rpc.call("tasks.create", { title: `Задача от ${auth.username} (${getTimeStr()})` });
+      const list: any = await rpc.call("delegation.list", {});
+      if (Array.isArray(list) && list.length > 0) {
+        isDelegationActive = !!list[0].is_active;
+      }
+    } catch {}
+  }
+
+  async function toggleDelegationStatus() {
+    try {
+      const res: any = await rpc.call("delegation.toggle", {});
+      isDelegationActive = !!res.is_active;
       rbacLogs = [
         ...rbacLogs,
-        { time: getTimeStr(), text: `✔ tasks.create успешно: ${JSON.stringify(res)}`, type: "success" }
+        {
+          time: getTimeStr(),
+          text: `🔄 Замещение Боб ➔ Алиса: ${isDelegationActive ? 'ВКЛЮЧЕНО (Активно ✅)' : 'ОТКЛЮЧЕНО (Неактивно ⏸️)'}`,
+          type: isDelegationActive ? "success" : "warn"
+        }
+      ];
+    } catch (e: any) {
+      rbacLogs = [...rbacLogs, { time: getTimeStr(), text: `✖ Ошибка: ${e?.message || String(e)}`, type: "error" }];
+    }
+  }
+
+  async function switchUserDirectly(target: "admin" | "alice" | "bob" | "guest") {
+    try {
+      await rpc.call("auth.set_role", { role: target });
+      const who: any = await rpc.call("auth.whoami", {});
+      auth = {
+        authenticated: who.authenticated,
+        role: who.role,
+        username: who.name || who.username,
+        userId: who.user_id
+      };
+      rbacLogs = [
+        ...rbacLogs,
+        { time: getTimeStr(), text: `👤 Переключена сессия сокета: ${auth.username} (${auth.role})`, type: "info" }
+      ];
+    } catch (e: any) {
+      rbacLogs = [...rbacLogs, { time: getTimeStr(), text: `✖ Ошибка: ${e?.message || String(e)}`, type: "error" }];
+    }
+  }
+
+  async function testGranularRead() {
+    try {
+      const res: any = await rpc.call("tasks.list", {});
+      const count = res?.rows ? res.rows.length : (Array.isArray(res) ? res.length : 0);
+      rbacLogs = [
+        ...rbacLogs,
+        {
+          time: getTimeStr(),
+          text: `✔ [ЧТЕНИЕ] Получено ${count} задач. Гранулярный скоуп 'read_global=True' (Все 🌐) успешно применен ORM!`,
+          type: "success"
+        }
+      ];
+    } catch (e: any) {
+      rbacLogs = [...rbacLogs, { time: getTimeStr(), text: `🔒 Ошибка чтения: ${e?.message || String(e)}`, type: "error" }];
+    }
+  }
+
+  async function testEditOwnTask() {
+    try {
+      const myId = auth.userId || 2;
+      const targetId = myId === 1 ? 1 : (myId === 3 ? 4 : 2);
+      const res: any = await rpc.call("tasks.update", {
+        id: targetId,
+        title: `Обновлено владельцем в ${getTimeStr()}`
+      });
+      rbacLogs = [
+        ...rbacLogs,
+        {
+          time: getTimeStr(),
+          text: `✔ [ИЗМЕНЕНИЕ СВОЕЙ] Задача #${res.id} обновлена: пользователь является прямым владельцем (owner_id=${res.owner_id})`,
+          type: "success"
+        }
+      ];
+    } catch (e: any) {
+      rbacLogs = [...rbacLogs, { time: getTimeStr(), text: `🔒 Отказ: ${e?.message || String(e)}`, type: "error" }];
+    }
+  }
+
+  async function testEditBobsTask() {
+    try {
+      const res: any = await rpc.call("tasks.update", {
+        id: 4,
+        title: `Алиса изменила задачу Боба в ${getTimeStr()}`
+      });
+      rbacLogs = [
+        ...rbacLogs,
+        {
+          time: getTimeStr(),
+          text: `✔ [ДЕЛЕГИРОВАНИЕ] Задача Боба (#4) успешно обновлена Алисой по активному замещению UserDelegation!`,
+          type: "success"
+        }
       ];
     } catch (e: any) {
       rbacLogs = [
         ...rbacLogs,
-        { time: getTimeStr(), text: `🔒 Отказ в доступе: ${e.message}`, type: "error" }
+        {
+          time: getTimeStr(),
+          text: `🔒 [ОТКАЗ] ${e?.message || String(e)}`,
+          type: "error"
+        }
       ];
+    }
+  }
+
+  async function testImmutableCreator() {
+    try {
+      await rpc.call("tasks.update", {
+        id: 2,
+        creator_id: 999
+      });
+      rbacLogs = [
+        ...rbacLogs,
+        { time: getTimeStr(), text: `✖ Ошибка: Сервер не должен был разрешить подмену creator_id!`, type: "error" }
+      ];
+    } catch (e: any) {
+      rbacLogs = [
+        ...rbacLogs,
+        {
+          time: getTimeStr(),
+          text: `🛡️ [ЗАЩИТА IMMUTABLE] Сервер успешно заблокировал попытку: ${e?.message || String(e)}`,
+          type: "warn"
+        }
+      ];
+    }
+  }
+
+  async function runRbacSimulation() {
+    try {
+      const res: any = await rpc.call("rbac.simulate", {
+        as_user_id: auth.userId,
+        action: "update",
+        target_task_id: 4
+      });
+      rbacLogs = [
+        ...rbacLogs,
+        {
+          time: getTimeStr(),
+          text: `🔍 [ДИАГНОСТИКА v0.5.14] ${res.reason}`,
+          type: res.allowed ? "success" : "warn"
+        }
+      ];
+    } catch (e: any) {
+      rbacLogs = [...rbacLogs, { time: getTimeStr(), text: `✖ Ошибка: ${e?.message || String(e)}`, type: "error" }];
     }
   }
 
@@ -465,13 +609,16 @@
     auth = { authenticated: false, role: "guest", username: t.guest, userId: null };
   }
 
-  function setPreset(role: "admin" | "user" | "guest") {
+  function setPreset(role: "admin" | "alice" | "bob" | "user" | "guest") {
     if (role === "admin") {
       loginUsername = "admin";
       loginPassword = "admin123";
-    } else if (role === "user") {
-      loginUsername = "user";
+    } else if (role === "alice" || role === "user") {
+      loginUsername = "alice";
       loginPassword = "user123";
+    } else if (role === "bob") {
+      loginUsername = "bob";
+      loginPassword = "bob123";
     } else {
       performLogout();
       isLoginModalOpen = false;
@@ -763,20 +910,86 @@
                   Потоковая загрузка 2PC: файлы стримятся на диск в POST /upload и фиксируются через WSRPC files.commit.
                 </div>
 
-              <!-- 9. RBAC -->
+              <!-- 9. RBAC & DELEGATION (v0.5.14) -->
               {:else if section.id === "rbac"}
-                <div class="flex gap-2 items-center">
-                  <Button variant="primary" size="sm" onclick={testCreateTask}>{t.btnTestCreateTask}</Button>
-                  <Button variant="secondary" size="sm" onclick={() => (isLoginModalOpen = true)}>
-                    Сменить роль ({auth.role})
-                  </Button>
+                <div class="flex flex-col gap-3">
+                  <!-- User Switcher Bar -->
+                  <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+                    <div class="flex items-center gap-1.5 text-xs">
+                      <span class="text-slate-400">Субъект:</span>
+                      <span class="font-semibold text-sky-400">{auth.username}</span>
+                      <Badge variant={auth.role === 'admin' ? 'red' : (auth.role === 'user' ? 'blue' : 'gray')}>
+                        {auth.role}
+                      </Badge>
+                    </div>
+                    <div class="flex gap-1.5 flex-wrap">
+                      <Button variant={auth.userId === 1 ? 'primary' : 'outline'} size="xs" onclick={() => switchUserDirectly("admin")}>
+                        Admin (#1)
+                      </Button>
+                      <Button variant={auth.userId === 2 ? 'primary' : 'outline'} size="xs" onclick={() => switchUserDirectly("alice")}>
+                        Alice (#2)
+                      </Button>
+                      <Button variant={auth.userId === 3 ? 'primary' : 'outline'} size="xs" onclick={() => switchUserDirectly("bob")}>
+                        Bob (#3)
+                      </Button>
+                      <Button variant={!auth.authenticated ? 'primary' : 'outline'} size="xs" onclick={() => switchUserDirectly("guest")}>
+                        Guest
+                      </Button>
+                    </div>
+                  </div>
+
+                  <!-- Delegation Switcher Box -->
+                  <div class="flex items-center justify-between gap-3 p-2.5 bg-slate-900/80 rounded-lg border border-slate-800 text-xs">
+                    <div class="flex flex-col gap-0.5">
+                      <div class="font-medium text-slate-200 flex items-center gap-2">
+                        <span>🤝 Замещение: Боб (ID #3) ➔ Алиса (ID #2)</span>
+                        <Badge variant={isDelegationActive ? 'green' : 'amber'}>
+                          {isDelegationActive ? 'Активно ✅' : 'Выключено ⏸️'}
+                        </Badge>
+                      </div>
+                      <span class="text-slate-400 text-[11px]">
+                        {isDelegationActive 
+                          ? 'Алиса наделена правами на задачи Боба (accessible_owners=[2, 3])'
+                          : 'Замещение деактивировано: Алисе запрещено изменять задачи Боба (update_global=False)'}
+                      </span>
+                    </div>
+                    <Button variant={isDelegationActive ? 'outline' : 'secondary'} size="sm" onclick={toggleDelegationStatus}>
+                      {isDelegationActive ? 'Отключить' : 'Включить'}
+                    </Button>
+                  </div>
+
+                  <!-- Test Action Grid -->
+                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                    <Button variant="secondary" size="xs" onclick={testGranularRead}>
+                      1. Чтение всех (read_global)
+                    </Button>
+                    <Button variant="secondary" size="xs" onclick={testEditOwnTask}>
+                      2. Изменить свою (owner_id)
+                    </Button>
+                    <Button variant={isDelegationActive ? 'primary' : 'secondary'} size="xs" onclick={testEditBobsTask}>
+                      3. Изменить задачу Боба (#4)
+                    </Button>
+                    <Button variant="outline" size="xs" onclick={testImmutableCreator}>
+                      4. Защита creator_id
+                    </Button>
+                  </div>
+
+                  <div class="flex justify-between items-center text-xs">
+                    <Button variant="outline" size="xs" onclick={runRbacSimulation}>
+                      🔍 Запустить диагностику матрицы прав (rbac.simulate)
+                    </Button>
+                    <span class="text-slate-500 text-[11px]">PyFerro v0.5.14</span>
+                  </div>
                 </div>
-                <div class="bg-slate-900 border border-slate-800 rounded p-2 text-xs font-mono max-h-36 overflow-y-auto divide-y divide-slate-800/50">
+
+                <div class="bg-slate-900 border border-slate-800 rounded p-2 text-xs font-mono max-h-40 overflow-y-auto divide-y divide-slate-800/50">
                   {#if rbacLogs.length === 0}
-                    <div class="text-slate-500 py-1">Проверьте права на вызов методов...</div>
+                    <div class="text-slate-500 py-1">Нажмите кнопки выше для тестирования гранулярных прав и замещений...</div>
                   {/if}
                   {#each rbacLogs as item}
-                    <div class="py-1 text-slate-300">[{item.time}] {item.text}</div>
+                    <div class="py-1 {item.type === 'error' ? 'text-rose-400' : (item.type === 'success' ? 'text-emerald-400' : (item.type === 'warn' ? 'text-amber-400' : 'text-slate-300'))}">
+                      [{item.time}] {item.text}
+                    </div>
                   {/each}
                 </div>
 
@@ -836,9 +1049,10 @@
 
       <div>
         <div class="text-xs font-medium text-slate-400 mb-1.5">{t.quickPresets}</div>
-        <div class="flex gap-2">
+        <div class="flex gap-2 flex-wrap">
           <Button variant="secondary" size="sm" onclick={() => setPreset("admin")}>Admin</Button>
-          <Button variant="secondary" size="sm" onclick={() => setPreset("user")}>User</Button>
+          <Button variant="secondary" size="sm" onclick={() => setPreset("alice")}>Alice</Button>
+          <Button variant="secondary" size="sm" onclick={() => setPreset("bob")}>Bob</Button>
           <Button variant="outline" size="sm" onclick={() => setPreset("guest")}>Guest</Button>
         </div>
       </div>
