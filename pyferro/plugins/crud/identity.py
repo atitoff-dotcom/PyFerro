@@ -161,7 +161,9 @@ class DefaultIdentityProvider:
         action = perm.split(":")[-1] if ":" in perm else perm
         model_part = perm.split(":")[0] if ":" in perm else ""
         if model_part in ("User", "Role", "RpcPermission", "RolePermission", "UserPermission",
-                          "auth_user", "auth_role", "auth_rpc_permission", "auth_role_permission"):
+                          "auth_user", "auth_role", "auth_rpc_permission", "auth_role_permission",
+                          "pf_auth_user", "pf_auth_role", "pf_auth_rpc_permission", "pf_auth_role_permission") or \
+           (model_part.startswith("pf_") and model_part.endswith(("_user", "_role", "_permission"))):
             if action in ("create", "update", "delete", "transfer"):
                 return False
 

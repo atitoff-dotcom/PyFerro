@@ -70,7 +70,6 @@
     update_global: boolean;
     can_delete: boolean;
     delete_global: boolean;
-    row_level_only?: boolean;
   }
 
   let crudPerms = $state<Record<string, CrudPermState>>({});
@@ -180,7 +179,6 @@
           update_global: false,
           can_delete: false,
           delete_global: false,
-          row_level_only: true
         };
       }
 
@@ -188,17 +186,15 @@
         const can_read = Boolean(p.can_read);
         const can_update = Boolean(p.can_update);
         const can_delete = Boolean(p.can_delete);
-        const is_legacy_global = p.row_level_only === false;
 
         return {
           can_create: Boolean(p.can_create),
           can_read,
-          read_global: can_read && (Boolean(p.read_global) || is_legacy_global),
+          read_global: can_read && Boolean(p.read_global),
           can_update,
-          update_global: can_update && (Boolean(p.update_global) || is_legacy_global),
+          update_global: can_update && Boolean(p.update_global),
           can_delete,
-          delete_global: can_delete && (Boolean(p.delete_global) || is_legacy_global),
-          row_level_only: Boolean(p.row_level_only)
+          delete_global: can_delete && Boolean(p.delete_global),
         };
       }
 
@@ -273,7 +269,6 @@
       p.can_delete = val !== "none";
       p.delete_global = val === "all";
     }
-    p.row_level_only = !p.read_global && !p.update_global && !p.delete_global;
   }
 
   // Пресеты
@@ -288,7 +283,6 @@
           update_global: false,
           can_delete: false,
           delete_global: false,
-          row_level_only: false
         };
       } else if (preset === "full") {
         crudPerms[m.key] = {
@@ -299,7 +293,6 @@
           update_global: true,
           can_delete: true,
           delete_global: true,
-          row_level_only: false
         };
       } else if (preset === "reset") {
         crudPerms[m.key] = {
@@ -310,7 +303,6 @@
           update_global: false,
           can_delete: false,
           delete_global: false,
-          row_level_only: true
         };
       }
     }

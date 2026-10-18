@@ -17,7 +17,7 @@ from pyferro.core.session import (
     rpc_method,
     RPCError,
     RPC_REGISTRY,
-    is_public_rpc_method
+    is_guest_rpc_allowed,
 )
 from pyferro.core.constants import ADMIN_ROLE
 from pyferro.db import system_db_session
@@ -103,7 +103,7 @@ async def handle_permissions_get_schema(session: JsonRpcSession) -> Dict[str, An
         rpc_list.append({
             "name": name,
             "group": group,
-            "is_public": is_public_rpc_method(name),
+            "is_public": is_guest_rpc_allowed(name),
             "description": first_line or f"RPC method {name}",
             "help": full_doc.strip()
         })
@@ -119,8 +119,6 @@ async def handle_permissions_get_schema(session: JsonRpcSession) -> Dict[str, An
                 if db_item:
                     if db_item.description and not db_item.description.startswith("Обертка для") and not db_item.description.startswith("RPC method"):
                         rpc_item["description"] = db_item.description
-                    if db_item.is_public:
-                        rpc_item["is_public"] = True
 
             # Также добавляем методы из БД, которых еще не было в rpc_list
             for db_item in db_rpcs:
@@ -137,7 +135,7 @@ async def handle_permissions_get_schema(session: JsonRpcSession) -> Dict[str, An
                     rpc_list.append({
                         "name": db_item.name,
                         "group": group,
-                        "is_public": db_item.is_public or is_public_rpc_method(db_item.name),
+                        "is_public": is_guest_rpc_allowed(db_item.name),
                         "description": db_item.description or f"RPC method {db_item.name}",
                         "help": full_doc.strip()
                     })
@@ -169,24 +167,45 @@ async def handle_permissions_get(
 
     async with system_db_session() as db:
             if target_type == "guest":
-                stmt_rpc = select(RpcPermission).where(RpcPermission.is_public == True)
-                db_public = list((await db.execute(stmt_rpc)).scalars().all())
-                rpc_perms = {rp.name for rp in db_public}
+                from pyferro.core.constants import GUEST_ROLE
+                stmt_guest = select(Role).options(
+                    selectinload(Role.permissions),
+                    selectinload(Role.rpc_permissions)
+                ).where(Role.name == GUEST_ROLE)
+                guest_role = (await db.execute(stmt_guest)).scalar_one_or_none()
+                if not guest_role:
+                    guest_role = Role(name=GUEST_ROLE, description="Гость / Неавторизованный посетитель")
+                    db.add(guest_role)
+                    await db.commit()
+                    await db.refresh(guest_role, ["permissions", "rpc_permissions"])
 
+                crud_perms = {}
+                for p in guest_role.permissions:
+                    if p.can_read:
+                        crud_perms[p.model_name] = {
+                            "can_create": False,
+                            "can_read": True,
+                            "can_update": False,
+                            "can_delete": False,
+                            "read_global": True,
+                            "update_global": False,
+                            "delete_global": False,
+                        }
+
+                rpc_perms = {rp.name for rp in guest_role.rpc_permissions}
                 from pyferro.core.lib.config import settings
                 login_rpc = settings.security.get("login_rpc")
-                for name, handler in RPC_REGISTRY.items():
-                    if getattr(handler, "public", False) or (bool(login_rpc) and name.startswith(login_rpc)):
-                        if not name.startswith("crud.") and not name.startswith("permissions."):
-                            rpc_perms.add(name)
+                for name in RPC_REGISTRY.keys():
+                    if name.startswith("login.") or (bool(login_rpc) and name.startswith(login_rpc)):
+                        rpc_perms.add(name)
 
                 return {
                     "target_type": "guest",
-                    "target_id": 0,
+                    "target_id": guest_role.id,
                     "target_name": "Гости",
-                    "target_description": "Разрешения для незарегистрированных пользователей (гостей)",
+                    "target_description": "Разрешения для незарегистрированных пользователей (роль guest)",
                     "is_immutable": False,
-                    "crud_permissions": {},
+                    "crud_permissions": crud_perms,
                     "rpc_permissions": sorted(list(rpc_perms))
                 }
 
@@ -201,18 +220,14 @@ async def handle_permissions_get(
 
                 crud_perms = {}
                 for p in role.permissions:
-                    is_r_glob = getattr(p, "read_global", False) or not getattr(p, "row_level_only", True)
-                    is_u_glob = getattr(p, "update_global", False) or not getattr(p, "row_level_only", True)
-                    is_d_glob = getattr(p, "delete_global", False) or not getattr(p, "row_level_only", True)
                     crud_perms[p.model_name] = {
                         "can_create": p.can_create,
                         "can_read": p.can_read,
                         "can_update": p.can_update,
                         "can_delete": p.can_delete,
-                        "read_global": is_r_glob,
-                        "update_global": is_u_glob,
-                        "delete_global": is_d_glob,
-                        "row_level_only": p.row_level_only
+                        "read_global": getattr(p, "read_global", False),
+                        "update_global": getattr(p, "update_global", False),
+                        "delete_global": getattr(p, "delete_global", False),
                     }
                 rpc_perms = [rp.name for rp in role.rpc_permissions]
 
@@ -248,42 +263,35 @@ async def handle_permissions_get(
                                 "can_create": False, "can_read": False,
                                 "can_update": False, "can_delete": False,
                                 "read_global": False, "update_global": False, "delete_global": False,
-                                "row_level_only": True
                             }
                         if p.can_create:
                             inherited_crud[m]["can_create"] = True
                         if p.can_read:
                             inherited_crud[m]["can_read"] = True
-                            if getattr(p, "read_global", False) or not p.row_level_only:
+                            if getattr(p, "read_global", False):
                                 inherited_crud[m]["read_global"] = True
                         if p.can_update:
                             inherited_crud[m]["can_update"] = True
-                            if getattr(p, "update_global", False) or not p.row_level_only:
+                            if getattr(p, "update_global", False):
                                 inherited_crud[m]["update_global"] = True
                         if p.can_delete:
                             inherited_crud[m]["can_delete"] = True
-                            if getattr(p, "delete_global", False) or not p.row_level_only:
+                            if getattr(p, "delete_global", False):
                                 inherited_crud[m]["delete_global"] = True
-                        if not p.row_level_only:
-                            inherited_crud[m]["row_level_only"] = False
                     for rp in getattr(r, "rpc_permissions", []):
                         inherited_rpc.add(rp.name)
 
                 # Персональные надбавки
                 personal_crud = {}
                 for p in user.permissions:
-                    is_r_glob = getattr(p, "read_global", False) or not getattr(p, "row_level_only", True)
-                    is_u_glob = getattr(p, "update_global", False) or not getattr(p, "row_level_only", True)
-                    is_d_glob = getattr(p, "delete_global", False) or not getattr(p, "row_level_only", True)
                     personal_crud[p.model_name] = {
                         "can_create": p.can_create,
                         "can_read": p.can_read,
                         "can_update": p.can_update,
                         "can_delete": p.can_delete,
-                        "read_global": is_r_glob,
-                        "update_global": is_u_glob,
-                        "delete_global": is_d_glob,
-                        "row_level_only": p.row_level_only
+                        "read_global": getattr(p, "read_global", False),
+                        "update_global": getattr(p, "update_global", False),
+                        "delete_global": getattr(p, "delete_global", False),
                     }
                 personal_rpc = [rp.name for rp in user.rpc_permissions]
 
@@ -321,31 +329,66 @@ async def handle_permissions_save(
 
     async with system_db_session() as db:
             if target_type == "guest":
+                from pyferro.core.constants import GUEST_ROLE
                 from pyferro.core.lib.config import settings
                 login_rpc = settings.security.get("login_rpc")
 
-                stmt_all = select(RpcPermission)
-                all_rpcs = list((await db.execute(stmt_all)).scalars().all())
-                existing_names = {rp.name for rp in all_rpcs}
+                stmt_guest = select(Role).options(
+                    selectinload(Role.permissions),
+                    selectinload(Role.rpc_permissions)
+                ).where(Role.name == GUEST_ROLE)
+                guest_role = (await db.execute(stmt_guest)).scalar_one_or_none()
+                if not guest_role:
+                    guest_role = Role(name=GUEST_ROLE, description="Гость / Неавторизованный посетитель")
+                    db.add(guest_role)
+                    await db.commit()
+                    stmt_guest = select(Role).options(
+                        selectinload(Role.permissions),
+                        selectinload(Role.rpc_permissions)
+                    ).where(Role.name == GUEST_ROLE)
+                    guest_role = (await db.execute(stmt_guest)).scalar_one()
 
-                for rp in all_rpcs:
-                    if bool(login_rpc) and rp.name.startswith(login_rpc):
-                        rp.is_public = True
-                    else:
-                        rp.is_public = (rp.name in rpc_permissions)
+                # 1. Обновляем RPC-права для роли guest
+                final_rpc_names = set(rpc_permissions)
+                for name in RPC_REGISTRY.keys():
+                    if name.startswith("login.") or (bool(login_rpc) and name.startswith(login_rpc)):
+                        final_rpc_names.add(name)
 
-                for m_name in rpc_permissions:
+                stmt_rpc = select(RpcPermission).where(RpcPermission.name.in_(final_rpc_names))
+                rpc_objs = list((await db.execute(stmt_rpc)).scalars().all())
+                existing_names = {rp.name for rp in rpc_objs}
+
+                for m_name in final_rpc_names:
                     if m_name not in existing_names:
-                        new_rp = RpcPermission(
-                            name=m_name,
-                            description=f"Метод {m_name}",
-                            is_public=True
-                        )
+                        new_rp = RpcPermission(name=m_name, description=f"Метод {m_name}")
                         db.add(new_rp)
+                        rpc_objs.append(new_rp)
+
+                guest_role.rpc_permissions = rpc_objs
+
+                # 2. Обновляем CRUD-права для роли guest (строго только can_read)
+                for old_p in list(guest_role.permissions):
+                    await db.delete(old_p)
+                guest_role.permissions.clear()
+
+                for m_name, p_data in crud_permissions.items():
+                    if p_data.get("can_read"):
+                        perm_obj = RolePermission(
+                            role_id=guest_role.id,
+                            model_name=m_name,
+                            can_create=False,
+                            can_read=True,
+                            can_update=False,
+                            can_delete=False,
+                            read_global=True,
+                            update_global=False,
+                            delete_global=False
+                        )
+                        db.add(perm_obj)
 
                 await db.commit()
-                from .discovery import reload_public_rpc_cache
-                await reload_public_rpc_cache()
+                from .discovery import reload_guest_permissions_cache
+                await reload_guest_permissions_cache()
                 return {"success": True}
 
             # Получаем или синхронизируем объекты RpcPermission
@@ -373,11 +416,6 @@ async def handle_permissions_save(
                 # Создаем новые разрешения для непустых записей
                 for m_name, p_data in crud_permissions.items():
                     if any(p_data.get(k) for k in ("can_create", "can_read", "can_update", "can_delete")):
-                        is_r_glob = bool(p_data.get("read_global", False)) or not bool(p_data.get("row_level_only", True))
-                        is_u_glob = bool(p_data.get("update_global", False)) or not bool(p_data.get("row_level_only", True))
-                        is_d_glob = bool(p_data.get("delete_global", False)) or not bool(p_data.get("row_level_only", True))
-                        all_local = not is_r_glob and not is_u_glob and not is_d_glob
-
                         new_p = RolePermission(
                             role_id=role.id,
                             model_name=m_name,
@@ -385,10 +423,9 @@ async def handle_permissions_save(
                             can_read=bool(p_data.get("can_read", False)),
                             can_update=bool(p_data.get("can_update", False)),
                             can_delete=bool(p_data.get("can_delete", False)),
-                            read_global=is_r_glob,
-                            update_global=is_u_glob,
-                            delete_global=is_d_glob,
-                            row_level_only=all_local
+                            read_global=bool(p_data.get("read_global", False)),
+                            update_global=bool(p_data.get("update_global", False)),
+                            delete_global=bool(p_data.get("delete_global", False)),
                         )
                         db.add(new_p)
 
@@ -411,11 +448,6 @@ async def handle_permissions_save(
                 # Создаем новые персональные разрешения
                 for m_name, p_data in crud_permissions.items():
                     if any(p_data.get(k) for k in ("can_create", "can_read", "can_update", "can_delete")):
-                        is_r_glob = bool(p_data.get("read_global", False)) or not bool(p_data.get("row_level_only", True))
-                        is_u_glob = bool(p_data.get("update_global", False)) or not bool(p_data.get("row_level_only", True))
-                        is_d_glob = bool(p_data.get("delete_global", False)) or not bool(p_data.get("row_level_only", True))
-                        all_local = not is_r_glob and not is_u_glob and not is_d_glob
-
                         new_p = UserPermission(
                             user_id=user.id,
                             model_name=m_name,
@@ -423,10 +455,9 @@ async def handle_permissions_save(
                             can_read=bool(p_data.get("can_read", False)),
                             can_update=bool(p_data.get("can_update", False)),
                             can_delete=bool(p_data.get("can_delete", False)),
-                            read_global=is_r_glob,
-                            update_global=is_u_glob,
-                            delete_global=is_d_glob,
-                            row_level_only=all_local
+                            read_global=bool(p_data.get("read_global", False)),
+                            update_global=bool(p_data.get("update_global", False)),
+                            delete_global=bool(p_data.get("delete_global", False)),
                         )
                         db.add(new_p)
 

@@ -6,10 +6,6 @@ with symmetric WSRPC (JSON-RPC 2.0) and Tabular Data Compression (RFC 0002).
 
 __version__ = "0.5.14"
 
-# Автоматическая активация моста обратной совместимости для плоских импортов core и plugins
-from pyferro.compat import install_compat
-install_compat()
-
 # Модули ядра первого уровня
 from pyferro import core
 from pyferro import db
@@ -42,8 +38,10 @@ from pyferro.app import FerroApp
 
 # База данных (pyferro.db)
 from pyferro.db import (
-    Base, engine, async_session, system_db_session, system_bypass, DATABASE_URL, configure_db, set_db_echo, get_db_echo
+    Base, engine, async_session, system_db_session, system_bypass, DATABASE_URL, configure_db, set_db_echo, get_db_echo,
+    DEFAULT_TABLE_PREFIX, get_system_table_prefix, set_system_table_prefix, is_system_table_name
 )
+from pyferro.core.lib.config import get_table_prefix
 
 # Аутентификация и пользователи (pyferro.auth)
 from pyferro.auth import (
@@ -112,7 +110,7 @@ __all__ = [
     "setup_logging",
     "configure",
     "get_config",
-    "install_compat",
+    "get_table_prefix",
 
     # База данных (pyferro.db)
     "Base",
@@ -124,6 +122,10 @@ __all__ = [
     "configure_db",
     "set_db_echo",
     "get_db_echo",
+    "DEFAULT_TABLE_PREFIX",
+    "get_system_table_prefix",
+    "set_system_table_prefix",
+    "is_system_table_name",
 
     # Аутентификация (pyferro.auth)
     "User",

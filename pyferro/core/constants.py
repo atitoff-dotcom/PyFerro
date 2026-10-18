@@ -17,4 +17,5 @@ WS_CLOSE_CODES = {
 # Системные роли безопасности
 ADMIN_ROLE = "admin"
 DEFAULT_USER_ROLE = "user"
-SYSTEM_ROLES = frozenset({ADMIN_ROLE, DEFAULT_USER_ROLE})
+GUEST_ROLE = "guest"
+SYSTEM_ROLES = frozenset({ADMIN_ROLE, DEFAULT_USER_ROLE, GUEST_ROLE})

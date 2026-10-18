@@ -15,9 +15,9 @@ from pyferro.db import Base
 
 class StoredFile(Base):
     """
-    Универсальная запись о сохраненном файле в таблице file_metadata.
+    Универсальная запись о сохраненном файле в таблице pf_file_metadata.
     """
-    __tablename__ = "file_metadata"
+    __tablename__ = "pf_file_metadata"
     __table_args__ = {"extend_existing": True}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

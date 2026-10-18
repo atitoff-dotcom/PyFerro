@@ -19,11 +19,11 @@ from .core import RowSecureModel, BasicSecureModel, system_bypass_ctx
 
 class UserRole(Base):
     """Связующая модель сопоставления пользователя и роли (Many-to-Many)."""
-    __tablename__ = "auth_user_auth_role"
+    __tablename__ = "pf_auth_user_auth_role"
     __table_args__ = {"extend_existing": True}
 
-    user_id: Mapped[int] = mapped_column(ForeignKey("auth_user.id", ondelete="CASCADE"), primary_key=True, info={"label": "Пользователь (ID)"})
-    role_id: Mapped[int] = mapped_column(ForeignKey("auth_role.id", ondelete="CASCADE"), primary_key=True, info={"label": "Роль (ID)"})
+    user_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_user.id", ondelete="CASCADE"), primary_key=True, info={"label": "Пользователь (ID)"})
+    role_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_role.id", ondelete="CASCADE"), primary_key=True, info={"label": "Роль (ID)"})
 
     class Crud:
         internal = True
@@ -34,11 +34,11 @@ class UserRole(Base):
 
 class UserTeam(Base):
     """Связующая модель сопоставления пользователя и команды (Many-to-Many)."""
-    __tablename__ = "auth_user_auth_team"
+    __tablename__ = "pf_auth_user_auth_team"
     __table_args__ = {"extend_existing": True}
 
-    user_id: Mapped[int] = mapped_column(ForeignKey("auth_user.id", ondelete="CASCADE"), primary_key=True, info={"label": "Пользователь (ID)"})
-    team_id: Mapped[int] = mapped_column(ForeignKey("auth_team.id", ondelete="CASCADE"), primary_key=True, info={"label": "Команда (ID)"})
+    user_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_user.id", ondelete="CASCADE"), primary_key=True, info={"label": "Пользователь (ID)"})
+    team_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_team.id", ondelete="CASCADE"), primary_key=True, info={"label": "Команда (ID)"})
 
     class Crud:
         internal = True
@@ -49,11 +49,11 @@ class UserTeam(Base):
 
 class RoleRpcPermission(Base):
     """Связующая модель сопоставления роли и RPC-права (Many-to-Many)."""
-    __tablename__ = "auth_role_auth_rpc_permission"
+    __tablename__ = "pf_auth_role_auth_rpc_permission"
     __table_args__ = {"extend_existing": True}
 
-    role_id: Mapped[int] = mapped_column(ForeignKey("auth_role.id", ondelete="CASCADE"), primary_key=True, info={"label": "Роль (ID)"})
-    rpc_permission_id: Mapped[int] = mapped_column(ForeignKey("auth_rpc_permission.id", ondelete="CASCADE"), primary_key=True, info={"label": "RPC Право (ID)"})
+    role_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_role.id", ondelete="CASCADE"), primary_key=True, info={"label": "Роль (ID)"})
+    rpc_permission_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_rpc_permission.id", ondelete="CASCADE"), primary_key=True, info={"label": "RPC Право (ID)"})
 
     class Crud:
         internal = True
@@ -64,11 +64,11 @@ class RoleRpcPermission(Base):
 
 class UserRpcPermission(Base):
     """Связующая модель сопоставления пользователя и персонального RPC-права (Many-to-Many)."""
-    __tablename__ = "auth_user_auth_rpc_permission"
+    __tablename__ = "pf_auth_user_auth_rpc_permission"
     __table_args__ = {"extend_existing": True}
 
-    user_id: Mapped[int] = mapped_column(ForeignKey("auth_user.id", ondelete="CASCADE"), primary_key=True, info={"label": "Пользователь (ID)"})
-    rpc_permission_id: Mapped[int] = mapped_column(ForeignKey("auth_rpc_permission.id", ondelete="CASCADE"), primary_key=True, info={"label": "RPC Право (ID)"})
+    user_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_user.id", ondelete="CASCADE"), primary_key=True, info={"label": "Пользователь (ID)"})
+    rpc_permission_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_rpc_permission.id", ondelete="CASCADE"), primary_key=True, info={"label": "RPC Право (ID)"})
 
     class Crud:
         internal = True
@@ -85,7 +85,7 @@ user_rpc_permission_association = UserRpcPermission.__table__
 
 
 class Team(RowSecureModel):
-    __tablename__ = "auth_team"
+    __tablename__ = "pf_auth_team"
 
     name: Mapped[str] = mapped_column(String(100))
 
@@ -99,10 +99,9 @@ class RpcPermission(RowSecureModel):
     Модель для прав доступа к JSON-RPC методам.
     Поддерживает точные имена (orders.dispatch) и маски с префиксами (orders.*).
     """
-    __tablename__ = "auth_rpc_permission"
+    __tablename__ = "pf_auth_rpc_permission"
 
     name: Mapped[str] = mapped_column(String(150), unique=True, index=True)
-    is_public: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     roles: Mapped[List["Role"]] = relationship(
@@ -120,12 +119,11 @@ class RpcPermission(RowSecureModel):
         search_fields = ["name", "description"]
 
     def __str__(self):
-        pub = " (public)" if self.is_public else ""
-        return f"RPC-метод {self.name}{pub} [{self.id}]"
+        return f"RPC-метод {self.name} [{self.id}]"
 
 
 class Role(RowSecureModel):
-    __tablename__ = "auth_role"
+    __tablename__ = "pf_auth_role"
 
     name: Mapped[str] = mapped_column(String(50), unique=True)
     description: Mapped[str] = mapped_column(Text)
@@ -152,9 +150,9 @@ class Role(RowSecureModel):
 
 
 class RolePermission(RowSecureModel):
-    __tablename__ = "auth_role_permission"
+    __tablename__ = "pf_auth_role_permission"
 
-    role_id: Mapped[int] = mapped_column(ForeignKey("auth_role.id", ondelete="CASCADE"), index=True)
+    role_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_role.id", ondelete="CASCADE"), index=True)
     role: Mapped["Role"] = relationship("Role", back_populates="permissions")
 
     model_name: Mapped[str] = mapped_column(String(100))
@@ -168,9 +166,6 @@ class RolePermission(RowSecureModel):
     read_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     update_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     delete_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    
-    # Сохраняем row_level_only для обратной совместимости
-    row_level_only: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
     class Crud:
         internal = True
@@ -180,9 +175,9 @@ class RolePermission(RowSecureModel):
 
 class UserPermission(RowSecureModel):
     """Персональные CRUD-разрешения пользователя (надбавка к ролевым правам)."""
-    __tablename__ = "auth_user_permission"
+    __tablename__ = "pf_auth_user_permission"
 
-    user_id: Mapped[int] = mapped_column(ForeignKey("auth_user.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_user.id", ondelete="CASCADE"), index=True)
     user: Mapped["User"] = relationship("User", back_populates="permissions")
 
     model_name: Mapped[str] = mapped_column(String(100))
@@ -196,9 +191,6 @@ class UserPermission(RowSecureModel):
     read_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     update_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     delete_global: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    
-    # Сохраняем row_level_only для обратной совместимости
-    row_level_only: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
     class Crud:
         internal = True
@@ -212,13 +204,13 @@ class UserDelegation(RowSecureModel):
     Модель замещения и делегирования полномочий между пользователями.
     Позволяет пользователю to_user_id временно действовать с записями from_user_id.
     """
-    __tablename__ = "auth_user_delegation"
+    __tablename__ = "pf_auth_user_delegation"
 
     from_user_id: Mapped[int] = mapped_column(
-        ForeignKey("auth_user.id", ondelete="CASCADE"), index=True, comment="Кого замещают"
+        ForeignKey("pf_auth_user.id", ondelete="CASCADE"), index=True, comment="Кого замещают"
     )
     to_user_id: Mapped[int] = mapped_column(
-        ForeignKey("auth_user.id", ondelete="CASCADE"), index=True, comment="Кто замещает"
+        ForeignKey("pf_auth_user.id", ondelete="CASCADE"), index=True, comment="Кто замещает"
     )
 
     from_user: Mapped["User"] = relationship(
@@ -249,12 +241,12 @@ class RefreshToken(Base):
     """
     Модель для хранения токенов обновления (RefreshToken).
     """
-    __tablename__ = "refresh_tokens"
+    __tablename__ = "pf_refresh_tokens"
     __table_args__ = {"extend_existing": True}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     
-    user_id: Mapped[int] = mapped_column(ForeignKey("auth_user.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_user.id", ondelete="CASCADE"))
     user: Mapped["User"] = relationship("User", back_populates="refresh_tokens")
     
     token: Mapped[str] = mapped_column(String(512), unique=True, index=True, comment="Сам токен обновления")
@@ -270,18 +262,18 @@ class ActiveSession(Base):
     """
     Модель для отслеживания активных WebSocket-сессий.
     """
-    __tablename__ = "active_sessions"
+    __tablename__ = "pf_active_sessions"
     __table_args__ = {"extend_existing": True}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     
-    user_id: Mapped[int] = mapped_column(ForeignKey("auth_user.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_user.id", ondelete="CASCADE"))
     user: Mapped["User"] = relationship("User", back_populates="active_sessions")
     
     ip_address: Mapped[str] = mapped_column(String(45), comment="IP-адрес клиента")
     user_agent: Mapped[str] = mapped_column(String(500), comment="User-Agent клиента")
     
-    refresh_token_id: Mapped[Optional[int]] = mapped_column(ForeignKey("refresh_tokens.id", ondelete="SET NULL"), nullable=True)
+    refresh_token_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pf_refresh_tokens.id", ondelete="SET NULL"), nullable=True)
     refresh_token: Mapped[Optional["RefreshToken"]] = relationship("RefreshToken")
     
     created_at: Mapped[datetime] = mapped_column(
@@ -298,7 +290,7 @@ class ActiveSession(Base):
 
 
 class User(RowSecureModel):
-    __tablename__ = "auth_user"
+    __tablename__ = "pf_auth_user"
 
     name: Mapped[str] = mapped_column(String(100))
     first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -385,25 +377,20 @@ class User(RowSecureModel):
         # Чтение
         if p.can_read:
             merged_perms[m]["can_read"] = True
-            is_global = getattr(p, "read_global", False) or not getattr(p, "row_level_only", True)
-            if is_global:
+            if getattr(p, "read_global", False):
                 merged_perms[m]["read_global"] = True
         # Изменение
         if p.can_update:
             merged_perms[m]["can_update"] = True
-            is_global = getattr(p, "update_global", False) or not getattr(p, "row_level_only", True)
-            if is_global:
+            if getattr(p, "update_global", False):
                 merged_perms[m]["update_global"] = True
         # Создание
         if p.can_create:
             merged_perms[m]["can_create"] = True
-            if not getattr(p, "row_level_only", True):
-                merged_perms[m]["create_global"] = True
         # Удаление
         if p.can_delete:
             merged_perms[m]["can_delete"] = True
-            is_global = getattr(p, "delete_global", False) or not getattr(p, "row_level_only", True)
-            if is_global:
+            if getattr(p, "delete_global", False):
                 merged_perms[m]["delete_global"] = True
 
     def _get_permissions_dict(self) -> dict:
@@ -538,7 +525,7 @@ class SystemData(Base):
     """
     Таблица для хранения произвольных системных данных в формате JSON.
     """
-    __tablename__ = "system_data"
+    __tablename__ = "pf_system_data"
     __table_args__ = {"extend_existing": True}
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
@@ -558,11 +545,11 @@ class OAuthAccount(Base):
     """
     Модель для привязки внешних аккаунтов авторизации (VK ID, Yandex ID и др.).
     """
-    __tablename__ = "oauth_accounts"
+    __tablename__ = "pf_oauth_accounts"
     __table_args__ = {"extend_existing": True}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("auth_user.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("pf_auth_user.id", ondelete="CASCADE"), index=True)
     user: Mapped["User"] = relationship("User", back_populates="oauth_accounts")
 
     provider: Mapped[str] = mapped_column(String(50), index=True, comment="Имя провайдера (например, vk)")

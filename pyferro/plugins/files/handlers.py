@@ -41,7 +41,7 @@ def _get_current_user_id() -> Optional[int]:
     return None
 
 
-@rpc_method("files.init_upload", public=True)
+@rpc_method("files.init_upload")
 async def files_init_upload(
     files_count: int = 1,
     total_expected_size: int = 0,
@@ -68,7 +68,7 @@ async def files_init_upload(
     }
 
 
-@rpc_method("files.commit", public=True)
+@rpc_method("files.commit")
 async def files_commit(
     folder_hash: str,
     metadata: Optional[List[Dict[str, Any]]] = None,
@@ -97,7 +97,7 @@ async def files_commit(
     }
 
 
-@rpc_method("files.rollback", public=True)
+@rpc_method("files.rollback")
 async def files_rollback(folder_hash: str) -> Dict[str, Any]:
     """
     Явный откат транзакции загрузки со стороны клиента.

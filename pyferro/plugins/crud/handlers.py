@@ -74,6 +74,24 @@ def _get_model_meta(model_name: str) -> ModelMeta:
     return meta
 
 
+def _is_guest(session: Any) -> bool:
+    if session is None:
+        return True
+    user_role = None
+    if hasattr(session, "data") and session.data is not None:
+        user_role = getattr(session.data, "user_role", None)
+    if not user_role:
+        user_role = getattr(session, "user_role", None)
+
+    if user_role:
+        return user_role == "guest"
+
+    if hasattr(session, "authenticated"):
+        return not bool(session.authenticated)
+
+    return True
+
+
 # -----------------------------------------------------------------------------
 # Хендлеры логики CRUD
 # -----------------------------------------------------------------------------
@@ -109,6 +127,43 @@ async def handle_crud_schema(session: JsonRpcSession, params: Dict[str, Any]) ->
                 is_super = True
 
     target_model = params.get("model")
+    is_guest = not is_super and _is_guest(session)
+    from pyferro.core.session import GUEST_ALLOWED_CRUD_MODELS
+
+    if is_guest:
+        if target_model:
+            meta = _get_model_meta(target_model)
+            if meta.key not in GUEST_ALLOWED_CRUD_MODELS:
+                raise RPCError(-32003, f"Доступ к модели '{target_model}' запрещен для гостей")
+            perms = {
+                "can_read": True,
+                "can_create": False,
+                "can_update": False,
+                "can_delete": False,
+            }
+            return {"model": meta.to_schema_dict(perms)}
+
+        if not ModelRegistry.all():
+            from pyferro.db import Base
+            ModelRegistry.auto_discover(Base)
+
+        models_list = []
+        for meta in ModelRegistry.all().values():
+            if meta.is_internal or meta.key not in GUEST_ALLOWED_CRUD_MODELS:
+                continue
+            perms = {
+                "can_read": True,
+                "can_create": False,
+                "can_update": False,
+                "can_delete": False,
+            }
+            models_list.append(meta.to_schema_dict(perms))
+
+        allow_guests = bool(settings.security.get("allow_guests", True))
+        return {
+            "models": models_list,
+            "allow_guests": allow_guests
+        }
 
     def make_perms(meta: ModelMeta) -> Dict[str, bool]:
         name = meta.key
@@ -116,13 +171,11 @@ async def handle_crud_schema(session: JsonRpcSession, params: Dict[str, Any]) ->
         can_c = is_super or provider.has_permission(uid, f"{name}:create")
         can_u = is_super or provider.has_permission(uid, f"{name}:update")
         can_d = is_super or provider.has_permission(uid, f"{name}:delete")
-        row_level_only = not (is_super or provider.has_permission(uid, f"{name}:view_all"))
         return {
             "can_read": can_r,
             "can_create": can_c,
             "can_update": can_u,
             "can_delete": can_d,
-            "row_level_only": row_level_only,
         }
 
     if target_model:
@@ -162,9 +215,18 @@ async def handle_crud_get(session: JsonRpcSession, params: Dict[str, Any]) -> Di
     provider = get_identity_provider()
     policy = get_access_policy()
 
+    is_guest = _is_guest(session)
+    if is_guest:
+        from pyferro.core.session import GUEST_ALLOWED_CRUD_MODELS
+        if meta.key not in GUEST_ALLOWED_CRUD_MODELS:
+            raise RPCError(-32003, f"Доступ к модели '{model_name}' запрещен для гостей")
+
     async with system_db_session() as db:
-            ctx = await create_access_context(provider, session, model_name, db)
-            scope = await policy.scope(ctx, meta, "read", db)
+            if is_guest:
+                scope = None
+            else:
+                ctx = await create_access_context(provider, session, model_name, db)
+                scope = await policy.scope(ctx, meta, "read", db)
 
             mapper = inspect(cls)
             pk_cols = list(mapper.primary_key)
@@ -182,6 +244,8 @@ async def handle_crud_get(session: JsonRpcSession, params: Dict[str, Any]) -> Di
                 stmt = stmt.options(selectinload(getattr(cls, m.name)))
             if scope is not None:
                 stmt = stmt.where(scope)
+            if is_guest and meta.is_archivable:
+                stmt = stmt.where(cls.is_archived == False)
 
             res = await db.execute(stmt)
             obj = res.scalar_one_or_none()
@@ -217,6 +281,12 @@ async def handle_crud_list(session: JsonRpcSession, params: Dict[str, Any]) -> D
     provider = get_identity_provider()
     policy = get_access_policy()
 
+    is_guest = _is_guest(session)
+    if is_guest:
+        from pyferro.core.session import GUEST_ALLOWED_CRUD_MODELS
+        if meta.key not in GUEST_ALLOWED_CRUD_MODELS:
+            raise RPCError(-32003, f"Доступ к модели '{model_name}' запрещен для гостей")
+
     page = max(1, int(params.get("page", 1)))
     page_size = min(500, max(1, int(params.get("page_size", 50))))
     sort_field = params.get("sort_field")
@@ -232,8 +302,11 @@ async def handle_crud_list(session: JsonRpcSession, params: Dict[str, Any]) -> D
     fields_dict = {f.name: f for f in public_fields}
 
     async with system_db_session() as db:
-            ctx = await create_access_context(provider, session, model_name, db)
-            scope = await policy.scope(ctx, meta, "read", db)
+            if is_guest:
+                scope = None
+            else:
+                ctx = await create_access_context(provider, session, model_name, db)
+                scope = await policy.scope(ctx, meta, "read", db)
 
             if m2m_fields:
                 query = select(cls)
@@ -338,6 +411,9 @@ async def handle_crud_update_cell(session: JsonRpcSession, params: Dict[str, Any
     if not all([model_name, record_id is not None, field]):
         raise RPCError(-32602, "Параметры 'model', 'id' и 'field' обязательны")
 
+    if _is_guest(session):
+        raise RPCError(-32003, "Мутации в CRUD запрещены для роли Гость. Используйте специализированные RPC-методы.")
+
     meta = _get_model_meta(model_name)
     cls = meta.model_cls
     provider = get_identity_provider()
@@ -355,7 +431,7 @@ async def handle_crud_update_cell(session: JsonRpcSession, params: Dict[str, Any
             raise RPCError(-32602, f"Поле '{field}' недоступно для редактирования")
 
         # Защита системных ролей от переименования
-        if model_name in ("auth_role", "Role") and field == "name":
+        if (model_name in ("auth_role", "pf_auth_role", "Role") or model_name.endswith("auth_role")) and field == "name":
             from pyferro.core.constants import SYSTEM_ROLES
             stmt_check = select(cls).where(cls.id == record_id)
             role_obj = (await db.execute(stmt_check)).scalar_one_or_none()
@@ -424,13 +500,6 @@ async def handle_crud_update_cell(session: JsonRpcSession, params: Dict[str, Any
             exclude_session=session
         )
 
-        if model_name in ("auth_rpc_permission", "RpcPermission"):
-            try:
-                from pyferro.auth.discovery import reload_public_rpc_cache
-                await reload_public_rpc_cache()
-            except Exception:
-                pass
-
         return {"success": True, "field": field, "value": coerced_value}
 
 
@@ -443,13 +512,13 @@ async def handle_crud_bulk_update(session: JsonRpcSession, params: Dict[str, Any
     if not model_name or not record_ids or not patch:
         raise RPCError(-32602, "Параметры 'model', 'ids' и 'patch' обязательны")
 
-    if len(record_ids) > 500:
-        raise RPCError(-32602, "Пакетное обновление ограничено 500 записями за один вызов")
-
-    meta = _get_model_meta(model_name)
-    cls = meta.model_cls
     provider = get_identity_provider()
     policy = get_access_policy()
+    uid = provider.user_id(session)
+    is_super = provider.is_superuser(uid)
+
+    if not is_super and _is_guest(session):
+        raise RPCError(-32003, "Мутации в CRUD запрещены для роли Гость. Используйте специализированные RPC-методы.")
 
     async with system_db_session() as db:
         ctx = await create_access_context(provider, session, model_name, db)
@@ -506,6 +575,9 @@ async def handle_crud_delete(session: JsonRpcSession, params: Dict[str, Any]) ->
     if not model_name or record_id is None:
         raise RPCError(-32602, "Параметры 'model' и 'id' обязательны")
 
+    if _is_guest(session):
+        raise RPCError(-32003, "Мутации в CRUD запрещены для роли Гость. Используйте специализированные RPC-методы.")
+
     meta = _get_model_meta(model_name)
     cls = meta.model_cls
     provider = get_identity_provider()
@@ -516,7 +588,7 @@ async def handle_crud_delete(session: JsonRpcSession, params: Dict[str, Any]) ->
         scope = await policy.scope(ctx, meta, "delete", db)
 
         # Защита системных ролей от удаления
-        if model_name in ("auth_role", "Role"):
+        if model_name in ("auth_role", "pf_auth_role", "Role") or model_name.endswith("auth_role"):
             from pyferro.core.constants import SYSTEM_ROLES
             stmt_check = select(cls).where(cls.id == record_id)
             role_obj = (await db.execute(stmt_check)).scalar_one_or_none()
@@ -552,13 +624,6 @@ async def handle_crud_delete(session: JsonRpcSession, params: Dict[str, Any]) ->
             exclude_session=session
         )
 
-        if model_name in ("auth_rpc_permission", "RpcPermission"):
-            try:
-                from pyferro.auth.discovery import reload_public_rpc_cache
-                await reload_public_rpc_cache()
-            except Exception:
-                pass
-
         return {"success": True, "id": record_id}
 
 
@@ -570,6 +635,9 @@ async def handle_crud_create(session: JsonRpcSession, params: Dict[str, Any]) ->
 
     if not model_name:
         raise RPCError(-32602, "Параметр 'model' обязателен")
+
+    if _is_guest(session):
+        raise RPCError(-32003, "Мутации в CRUD запрещены для роли Гость. Используйте специализированные RPC-методы.")
 
     meta = _get_model_meta(model_name)
     cls = meta.model_cls

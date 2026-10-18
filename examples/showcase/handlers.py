@@ -30,7 +30,7 @@ from pyferro.core.logger import logger
 from pyferro.db import async_session
 from pyferro.broadcast import broadcast_notification
 from pyferro.smart_cache import invalidates, version_registry, invalidate_tags
-from pyferro.plugins.seo import is_bot, is_search_bot
+from pyferro.plugins.seo import is_bot
 from pyferro.auth import User, system_bypass_ctx
 
 try:
@@ -91,7 +91,7 @@ def get_current_role(session) -> str:
 
 # --- 1. SYSTEM METHODS (HEALTH & PING) ---
 
-@rpc_method("system.ping", public=True)
+@rpc_method("system.ping")
 async def ping(session, params: dict):
     """Ultra-fast ping-pong to measure network Round Trip Time (RTT)."""
     return {
@@ -101,7 +101,7 @@ async def ping(session, params: dict):
     }
 
 
-@rpc_method("system.info", public=True)
+@rpc_method("system.info")
 async def system_info(session, params: dict):
     """System information, active sessions, and environment metrics."""
     transport = current_transport_ctx.get() or session
@@ -137,9 +137,9 @@ BENCHMARK_TASKS = [
 ]
 
 
-@rpc_method("tasks.benchmark_tabular", public=True)
-@rpc_method("tasks.tabular_demo", public=True)
-@rpc_method("tasks.benchmark", public=True)
+@rpc_method("tasks.benchmark_tabular")
+@rpc_method("tasks.tabular_demo")
+@rpc_method("tasks.benchmark")
 async def benchmark_tabular(session: JsonRpcSession, params: dict = None):
     """
     Честное сравнение сетевого объема одного и того же заранее сгенерированного массива:
@@ -167,7 +167,7 @@ async def benchmark_tabular(session: JsonRpcSession, params: dict = None):
     }
 
 
-@rpc_method("tasks.list", public=True)
+@rpc_method("tasks.list")
 @tabular_response(fields=["id", "title", "completed", "priority", "creator_id", "owner_id", "created_at"])
 async def list_tasks(session: JsonRpcSession, params: dict = None):
     """
@@ -198,7 +198,7 @@ async def list_tasks(session: JsonRpcSession, params: dict = None):
         return [t.to_dict() for t in tasks]
 
 
-@rpc_method("tasks.list_raw_json", public=True)
+@rpc_method("tasks.list_raw_json")
 async def list_tasks_raw_json(session: JsonRpcSession, params: dict = None):
     """
     Returns the exact same tasks WITHOUT tabular compression (regular list of dicts).
@@ -225,8 +225,8 @@ async def list_tasks_raw_json(session: JsonRpcSession, params: dict = None):
         return [t.to_dict() for t in tasks]
 
 
-@rpc_method("tasks.add", public=True)
-@rpc_method("tasks.create", public=True)
+@rpc_method("tasks.add")
+@rpc_method("tasks.create")
 @invalidates(tags=["tasks", "tasks.list"])
 async def add_task(session: JsonRpcSession, params: dict):
     """
@@ -257,8 +257,8 @@ async def add_task(session: JsonRpcSession, params: dict):
     return task_data
 
 
-@rpc_method("tasks.complete", public=True)
-@rpc_method("tasks.toggle", public=True)
+@rpc_method("tasks.complete")
+@rpc_method("tasks.toggle")
 @invalidates(tags=["tasks.list", "task.{id}"])
 async def complete_task(session: JsonRpcSession, params: dict):
     """Toggles / completes task status and invalidates tags."""
@@ -296,7 +296,7 @@ async def complete_task(session: JsonRpcSession, params: dict):
     return task_data
 
 
-@rpc_method("tasks.update", public=True)
+@rpc_method("tasks.update")
 @invalidates(tags=["tasks.list", "task.{id}"])
 async def update_task(session: JsonRpcSession, params: dict):
     """
@@ -357,7 +357,7 @@ async def update_task(session: JsonRpcSession, params: dict):
     return task_data
 
 
-@rpc_method("tasks.delete", public=True)
+@rpc_method("tasks.delete")
 @invalidates(tags=["tasks.list", "task.{id}"])
 async def delete_task(session: JsonRpcSession, params: dict):
     """Deletes a task with delegation verification."""
@@ -396,14 +396,14 @@ async def delete_task(session: JsonRpcSession, params: dict):
 
 # --- 3. SMART CACHE (RFC 0001) & TAG INVALIDATION ---
 
-@rpc_method("cache.get_versions", public=True)
+@rpc_method("cache.get_versions")
 async def cache_get_versions(session: JsonRpcSession, params: dict = None):
     """Returns current monotonic cache tag versions directly from server memory."""
     return version_registry.get_all_versions()
 
 
-@rpc_method("tasks.invalidate_cache", public=True)
-@rpc_method("cache.manual_invalidate", public=True)
+@rpc_method("tasks.invalidate_cache")
+@rpc_method("cache.manual_invalidate")
 async def cache_manual_invalidate(session: JsonRpcSession, params: dict):
     """Manually invalidates specified tags for testing and UI demonstration."""
     tags = params.get("tags") or params.get("tag") or ["tasks.list"]
@@ -415,8 +415,8 @@ async def cache_manual_invalidate(session: JsonRpcSession, params: dict):
 
 # --- 4. MULTI-RETURN STREAMING ---
 
-@rpc_method("analytics.generate", public=True)
-@rpc_method("stream.heavy_job", public=True)
+@rpc_method("analytics.generate")
+@rpc_method("stream.heavy_job")
 async def generate_analytics(session, params: dict = None):
     """
     Demonstrates multi-return streaming (stream: true).
@@ -453,8 +453,8 @@ async def generate_analytics(session, params: dict = None):
 
 # --- 5. REVERSE RPC (SERVER CALLS CLIENT) ---
 
-@rpc_method("admin.inspect_client", public=True)
-@rpc_method("reverse_rpc.ask_client", public=True)
+@rpc_method("admin.inspect_client")
+@rpc_method("reverse_rpc.ask_client")
 async def inspect_client(session, params: dict = None):
     """
     Symmetric JSON-RPC 2.0: The server initiates a request to the browser
@@ -481,8 +481,8 @@ async def inspect_client(session, params: dict = None):
 
 # --- 6. REALTIME BROADCAST ---
 
-@rpc_method("alerts.publish", public=True)
-@rpc_method("broadcast.send_announcement", public=True)
+@rpc_method("alerts.publish")
+@rpc_method("broadcast.send_announcement")
 async def publish_alert(session, params: dict):
     """
     Broadcasts message to all active WebSocket sessions in O(1)
@@ -560,7 +560,7 @@ async def authenticate_credentials(username: str, password: str) -> Optional[dic
     return None
 
 
-@rpc_method("auth.login", public=True)
+@rpc_method("auth.login")
 async def auth_login(session, params: dict):
     """
     Аутентификация с проверкой логина и пароля в базе данных и demo-аккаунтах.
@@ -610,7 +610,7 @@ async def auth_login(session, params: dict):
     }
 
 
-@rpc_method("auth.logout", public=True)
+@rpc_method("auth.logout")
 async def auth_logout(session, params: dict = None):
     """Выход из аккаунта и сброс роли до Guest."""
     token = (params or {}).get("token")
@@ -629,8 +629,8 @@ async def auth_logout(session, params: dict = None):
     return {"success": True, "role": "guest"}
 
 
-@rpc_method("auth.me", public=True)
-@rpc_method("auth.whoami", public=True)
+@rpc_method("auth.me")
+@rpc_method("auth.whoami")
 async def auth_whoami(session, params: dict = None):
     """Возвращает информацию о текущей роли и сессии сокета."""
     transport = current_transport_ctx.get() or session
@@ -663,7 +663,7 @@ async def auth_whoami(session, params: dict = None):
     }
 
 
-@rpc_method("auth.set_role", public=True)
+@rpc_method("auth.set_role")
 async def set_role(session, params: dict):
     """
     Switches session role for RBAC & delegation inspection.
@@ -715,7 +715,7 @@ async def set_role(session, params: dict):
 
 # --- ДЕЛЕГИРОВАНИЕ И ГРАНУЛЯРНЫЙ КОНТРОЛЬ ДОСТУПА (v0.5.14) ---
 
-@rpc_method("delegation.list", public=True)
+@rpc_method("delegation.list")
 async def list_delegations(session: JsonRpcSession, params: dict = None):
     """
     Получение списка активных замещений полномочий (v0.5.14 auth_user_delegation).
@@ -747,7 +747,7 @@ async def list_delegations(session: JsonRpcSession, params: dict = None):
             ]
 
 
-@rpc_method("delegation.toggle", public=True)
+@rpc_method("delegation.toggle")
 @invalidates(tags=["delegations", "tasks.list"])
 async def toggle_delegation(session: JsonRpcSession, params: dict):
     """
@@ -795,7 +795,7 @@ async def toggle_delegation(session: JsonRpcSession, params: dict):
     return res
 
 
-@rpc_method("rbac.simulate", public=True)
+@rpc_method("rbac.simulate")
 async def rbac_simulate(session: JsonRpcSession, params: dict):
     """
     Интерактивная диагностика прав доступа по спецификации v0.5.14.
@@ -879,7 +879,7 @@ async def rbac_simulate(session: JsonRpcSession, params: dict):
 
 
 
-@rpc_method("admin.system_info", role="admin")
+@rpc_method("admin.system_info")
 async def admin_system_info(session: JsonRpcSession, params: dict):
     """
     Protected method: accessible ONLY with admin role.
@@ -900,7 +900,7 @@ async def admin_system_info(session: JsonRpcSession, params: dict):
 
 # --- 8. DOCUMENTS (SECOND MODEL FOR CRUD & TABULAR) ---
 
-@rpc_method("documents.list", public=True)
+@rpc_method("documents.list")
 @tabular_response(fields=["id", "title", "category", "views", "updated_at"])
 async def list_documents(session: JsonRpcSession, params: dict):
     """
@@ -917,8 +917,8 @@ async def list_documents(session: JsonRpcSession, params: dict):
 
 # --- 9. SEO & BOT DETECTOR (PLUGINS.SEO) ---
 
-@rpc_method("seo.simulate_bot", public=True)
-@rpc_method("seo.simulate", public=True)
+@rpc_method("seo.simulate_bot")
+@rpc_method("seo.simulate")
 async def simulate_bot_check(session: JsonRpcSession, params: dict):
     """
     Simulates User-Agent inspection using plugins.seo.detector.
@@ -930,12 +930,10 @@ async def simulate_bot_check(session: JsonRpcSession, params: dict):
     else:
         user_agent = params.get("user_agent") or "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
     is_a_bot = is_bot(user_agent)
-    is_a_search_bot = is_search_bot(user_agent)
 
     return {
         "user_agent": user_agent,
         "is_bot": is_a_bot,
-        "is_search_bot": is_a_search_bot,
         "type": "SSR Static HTML" if is_a_bot else "Interactive SPA",
         "content_preview": "Bot crawler detected" if is_a_bot else "Regular browser connection",
         "recommendation": "Render Static HTML with OpenGraph tags" if is_a_bot else "Serve Single-Page App WebSockets",

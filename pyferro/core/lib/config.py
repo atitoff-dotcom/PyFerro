@@ -97,6 +97,7 @@ def _build_default_settings() -> dict:
         },
         "database_url": "sqlite+aiosqlite:///app.db",
         "files_path": "./files",
+        "table_prefix": "pf_",
     }
 
 
@@ -115,6 +116,7 @@ def configure(
     token_expire_hours: Optional[int] = None,
     login_rpc: Optional[str] = None,
     session_prefix: Optional[str] = None,
+    table_prefix: Optional[str] = None,
     database_url: Optional[str] = None,
     files_path: Optional[str] = None,
     custom: Optional[Dict[str, Any]] = None,
@@ -173,6 +175,13 @@ def configure(
             logger.debug(f"[CONFIG] Авто-настройка БД: {e}")
     if files_path is not None:
         updates["files_path"] = files_path
+    if table_prefix is not None:
+        updates["table_prefix"] = table_prefix
+        try:
+            from pyferro.db.naming import set_system_table_prefix
+            set_system_table_prefix(table_prefix)
+        except Exception as e:
+            logger.debug(f"[CONFIG] Обновление префикса таблиц: {e}")
 
     if custom:
         updates = deep_merge(updates, custom)
@@ -194,4 +203,9 @@ def get_config() -> Settings:
 def get_settings() -> Settings:
     """Алиас для get_config()."""
     return settings
+
+
+def get_table_prefix() -> str:
+    """Возвращает префикс системных таблиц фреймворка (по умолчанию 'pf_')."""
+    return str(settings.get("table_prefix", "pf_"))
 

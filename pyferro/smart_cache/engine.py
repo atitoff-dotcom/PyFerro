@@ -26,7 +26,7 @@ class CacheTagVersion(Base):
     Модель персистентного хранения версий тегов кэша в базе данных.
     Позволяет сохранять монотонность версий после перезапуска сервера.
     """
-    __tablename__ = "cache_tag_versions"
+    __tablename__ = "pf_cache_tag_versions"
 
     tag = Column(String(128), primary_key=True)
     version = Column(Integer, default=1, nullable=False)

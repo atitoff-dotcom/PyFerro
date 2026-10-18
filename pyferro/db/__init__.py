@@ -18,6 +18,13 @@ from .session import (
     orjson_dumps,
     AsyncEngineProxy,
 )
+from .naming import (
+    DEFAULT_TABLE_PREFIX,
+    get_system_table_prefix,
+    set_system_table_prefix,
+    is_system_table_name,
+    SYSTEM_TABLE_BASES,
+)
 
 __all__ = [
     "Base",
@@ -32,4 +39,10 @@ __all__ = [
     "apply_pagination",
     "orjson_dumps",
     "AsyncEngineProxy",
+    "DEFAULT_TABLE_PREFIX",
+    "get_system_table_prefix",
+    "set_system_table_prefix",
+    "is_system_table_name",
+    "SYSTEM_TABLE_BASES",
 ]
+

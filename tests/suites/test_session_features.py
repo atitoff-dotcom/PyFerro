@@ -64,27 +64,20 @@ async def test_session_send_request_cleanup_on_timeout():
 
 @pytest.mark.asyncio
 async def test_session_multi_roles_access():
-    @rpc_method("editor.only", role="admin")
+    # 1. rpc_method requires string name
+    with pytest.raises(TypeError):
+        @rpc_method(None)  # type: ignore
+        async def invalid_method():
+            pass
+
+    # 2. Valid registration
+    @rpc_method("editor.only")
     async def editor_action(session, params):
         return {"status": "ok"}
 
-    # Case 1: Session has "admin" in user_roles
-    class MockAuthSession:
-        user_role = "user"
-        user_roles = ["user", "admin"]
-
     handler = RPC_REGISTRY["editor.only"]
-    res = await handler(MockAuthSession(), {})
+    res = await handler(None, {})
     assert res == {"status": "ok"}
-
-    # Case 2: Session has only "user"
-    class MockUserSession:
-        user_role = "user"
-        user_roles = ["user"]
-
-    with pytest.raises(RPCError) as exc:
-        await handler(MockUserSession(), {})
-    assert exc.value.code == -32003
 
 
 @pytest.mark.asyncio

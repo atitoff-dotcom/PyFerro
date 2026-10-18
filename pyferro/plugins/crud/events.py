@@ -29,13 +29,6 @@ async def notify_crud_change(
         params["ids"] = record_id
     else:
         params["id"] = record_id
-
-    # Для обратной совместимости с фронтендом:
-    if kind == "created":
-        params["created"] = True
-    elif kind == "deleted":
-        params["deleted"] = True
-
     payload_str = orjson.dumps({
         "jsonrpc": "2.0",
         "method": "cache.patch",

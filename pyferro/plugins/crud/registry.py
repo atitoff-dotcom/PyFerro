@@ -41,8 +41,21 @@ class ModelRegistry:
 
     @classmethod
     def get(cls, model_name: str) -> Optional[ModelMeta]:
-        """Возвращает метаданные модели по имени."""
-        return cls._models.get(model_name)
+        """Возвращает метаданные модели по имени ключа или имени таблицы."""
+        meta = cls._models.get(model_name)
+        if meta:
+            return meta
+        # Поиск по имени таблицы или историческому имени без системного префикса
+        for m in cls._models.values():
+            if m.table_name == model_name:
+                return m
+            # Если запрос без префикса pf_ (например, auth_role -> pf_auth_role)
+            if m.table_name.startswith("pf_") and m.table_name[3:] == model_name:
+                return m
+            # Если запрос с префиксом pf_, а таблица без него (или наоборот)
+            if model_name.startswith("pf_") and m.table_name == model_name[3:]:
+                return m
+        return None
 
     @classmethod
     def all(cls) -> Dict[str, ModelMeta]:

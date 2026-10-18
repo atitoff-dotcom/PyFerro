@@ -103,6 +103,10 @@ class MockSession:
         self.session_id = 999
         self.user = {"id": user_id, "username": username, "role": "admin" if is_admin else "user", "is_superuser": is_admin}
         self.ws = None
+        self.authenticated = True
+        self.data = self.user
+        self.user_role = "admin" if is_admin else "user"
+        self.user_roles = [self.user_role]
 
 
 class MockIdentityProvider:

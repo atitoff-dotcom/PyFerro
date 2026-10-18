@@ -11,14 +11,19 @@ from typing import Set
 from sqlalchemy import select
 
 from pyferro.core.logger import logger
-from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, SYSTEM_ROLES
-from pyferro.core.session import RPC_REGISTRY, PUBLIC_RPC_METHODS
+from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, GUEST_ROLE, SYSTEM_ROLES
+from pyferro.core.session import (
+    RPC_REGISTRY,
+    GUEST_ALLOWED_RPC_METHODS,
+    GUEST_ALLOWED_CRUD_MODELS,
+)
 from pyferro.core.lifecycle import on_startup
 from pyferro.db import system_db_session
-from .models import Role, RpcPermission, user_role_association, role_rpc_permission_association
+from sqlalchemy.orm import selectinload
+from .models import Role, RpcPermission, RolePermission, user_role_association, role_rpc_permission_association
 
-# Системные методы, которые по умолчанию публичны при начальной инициализации
-DEFAULT_PUBLIC_METHODS = frozenset({
+# Системные методы авторизации, доступные роли guest по умолчанию
+DEFAULT_LOGIN_METHODS = frozenset({
     "login.get_key",
     "login.secure",
     "login.submit",
@@ -26,96 +31,92 @@ DEFAULT_PUBLIC_METHODS = frozenset({
     "login.register",
     "login.get_oauth_providers",
     "login.oauth_vk",
-    "system.ping",
-    "system.info",
+    "login.whoami",
+    "auth.login",
+    "auth.submit",
+    "auth.whoami",
+    "auth.me",
 })
 
 
-async def reload_public_rpc_cache() -> Set[str]:
+async def reload_guest_permissions_cache() -> None:
     """
-    Перезагружает in-memory кэш публичных RPC-методов (PUBLIC_RPC_METHODS) из БД.
+    Перезагружает in-memory кэш разрешенных RPC-методов и CRUD-моделей для роли guest из БД.
     """
     try:
         async with system_db_session() as db:
-            stmt = select(RpcPermission.name).where(RpcPermission.is_public == True)
-            result = await db.execute(stmt)
-            public_names = set(result.scalars().all())
+            stmt = select(Role).where(Role.name == GUEST_ROLE).options(
+                selectinload(Role.rpc_permissions),
+                selectinload(Role.permissions)
+            )
+            guest_role = (await db.execute(stmt)).scalar_one_or_none()
 
-            # Всегда гарантируем доступность базовых методов логина в памяти
-            public_names.update(DEFAULT_PUBLIC_METHODS)
+            allowed_rpcs = set()
+            allowed_crud = set()
 
-            PUBLIC_RPC_METHODS.clear()
-            PUBLIC_RPC_METHODS.update(public_names)
-            return public_names
+            if guest_role:
+                for rp in guest_role.rpc_permissions:
+                    allowed_rpcs.add(rp.name)
+                for cp in guest_role.permissions:
+                    if cp.can_read:
+                        allowed_crud.add(cp.model_name)
+
+            # Всегда гарантируем методы логина в памяти для роли guest
+            for name in RPC_REGISTRY.keys():
+                if name.startswith("login."):
+                    allowed_rpcs.add(name)
+            allowed_rpcs.update(DEFAULT_LOGIN_METHODS)
+
+            GUEST_ALLOWED_RPC_METHODS.clear()
+            GUEST_ALLOWED_RPC_METHODS.update(allowed_rpcs)
+
+            GUEST_ALLOWED_CRUD_MODELS.clear()
+            GUEST_ALLOWED_CRUD_MODELS.update(allowed_crud)
     except Exception as e:
-        logger.warning(f"[Discovery] Не удалось перезагрузить публичный кэш из БД: {e}")
-        PUBLIC_RPC_METHODS.update(DEFAULT_PUBLIC_METHODS)
-        return set(DEFAULT_PUBLIC_METHODS)
-
-
-def _ensure_auth_columns(sync_conn) -> None:
-    """Безопасная эволюция схемы: добавляет недостающие колонки в существующие таблицы."""
-    from sqlalchemy import inspect as sa_inspect, text
-    try:
-        inspector = sa_inspect(sync_conn)
-        tables = set(inspector.get_table_names())
-
-        # 1. Добавляем owner_id во все таблицы с Row-Level Security (где есть creator_id)
-        for t_name in tables:
-            cols = {c["name"] for c in inspector.get_columns(t_name)}
-            if "creator_id" in cols and "owner_id" not in cols:
-                sync_conn.execute(text(f"ALTER TABLE {t_name} ADD COLUMN owner_id INTEGER"))
-
-        # Явный список таблиц auth на случай создания без creator_id
-        for t_name in ("auth_user", "auth_role", "auth_team", "auth_rpc_permission", "auth_role_permission", "auth_user_permission"):
-            if t_name in tables:
-                cols = {c["name"] for c in inspector.get_columns(t_name)}
-                if "owner_id" not in cols:
-                    sync_conn.execute(text(f"ALTER TABLE {t_name} ADD COLUMN owner_id INTEGER"))
-
-        # 2. Добавляем гранулярные скоупы в таблицы прав
-        for t_name in ("auth_role_permission", "auth_user_permission"):
-            if t_name in tables:
-                cols = {c["name"] for c in inspector.get_columns(t_name)}
-                if "read_global" not in cols:
-                    sync_conn.execute(text(f"ALTER TABLE {t_name} ADD COLUMN read_global BOOLEAN DEFAULT 0"))
-                if "update_global" not in cols:
-                    sync_conn.execute(text(f"ALTER TABLE {t_name} ADD COLUMN update_global BOOLEAN DEFAULT 0"))
-                if "delete_global" not in cols:
-                    sync_conn.execute(text(f"ALTER TABLE {t_name} ADD COLUMN delete_global BOOLEAN DEFAULT 0"))
-    except Exception as e:
-        logger.debug(f"[Discovery] Пропуск автоматической миграции колонок: {e}")
+        logger.warning(f"[Discovery] Не удалось перезагрузить кэш гостя из БД: {e}")
+        GUEST_ALLOWED_RPC_METHODS.update(DEFAULT_LOGIN_METHODS)
 
 
 async def sync_rpc_permissions() -> None:
     """
     Синхронизирует зарегистрированные в коде RPC-методы с базой данных.
-    1. Создает системные роли (admin, user), если их еще нет.
+    1. Создает системные роли (admin, user, guest), если их еще нет.
     2. Сканирует RPC_REGISTRY и добавляет новые методы в auth_rpc_permission.
-    3. Загружает список публичных методов в память PUBLIC_RPC_METHODS.
+    3. Привязывает к роли guest только методы логина (Default Deny).
+    4. Загружает права гостя в O(1) in-memory кэш (GUEST_ALLOWED_RPC_METHODS / GUEST_ALLOWED_CRUD_MODELS).
     """
     try:
         from ..db import engine, Base
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            await conn.run_sync(_ensure_auth_columns)
 
         async with system_db_session() as db:
             # 1. Проверяем и создаем системные роли
-            stmt_roles = select(Role.name)
-            existing_role_names = set((await db.execute(stmt_roles)).scalars().all())
+            stmt_roles = select(Role).options(selectinload(Role.rpc_permissions))
+            existing_roles = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
 
-            if ADMIN_ROLE not in existing_role_names:
+            if ADMIN_ROLE not in existing_roles:
                 admin_role = Role(name=ADMIN_ROLE, description="Системный администратор (Superadmin)")
                 db.add(admin_role)
+                existing_roles[ADMIN_ROLE] = admin_role
                 logger.info(f"[Discovery] Создана системная роль '{ADMIN_ROLE}'")
 
-            if DEFAULT_USER_ROLE not in existing_role_names:
+            if DEFAULT_USER_ROLE not in existing_roles:
                 user_role = Role(name=DEFAULT_USER_ROLE, description="Базовый зарегистрированный пользователь")
                 db.add(user_role)
+                existing_roles[DEFAULT_USER_ROLE] = user_role
                 logger.info(f"[Discovery] Создана системная роль '{DEFAULT_USER_ROLE}'")
 
+            if GUEST_ROLE not in existing_roles:
+                guest_role = Role(name=GUEST_ROLE, description="Гость / Неавторизованный посетитель")
+                db.add(guest_role)
+                existing_roles[GUEST_ROLE] = guest_role
+                logger.info(f"[Discovery] Создана системная роль '{GUEST_ROLE}'")
+
             await db.commit()
+
+            guest_role = existing_roles[GUEST_ROLE]
+            guest_rpc_ids = {rp.id for rp in guest_role.rpc_permissions}
 
             # 2. Сканируем зарегистрированные методы
             stmt_perms = select(RpcPermission)
@@ -134,17 +135,12 @@ async def sync_rpc_permissions() -> None:
                     logger.warning(f"[Discovery] ⚠️ RPC-метод '{method_name}' не имеет docstring! Добавьте краткое описание функции.")
                     first_line = f"RPC method {method_name}"
 
-                # Проверяем дефолтную публичность
-                is_public = (
-                    method_name in DEFAULT_PUBLIC_METHODS
-                    or method_name.startswith("login.")
-                    or getattr(handler, "public", False)
-                )
+                # Дефолтная привязка к guest: строго только методы логина
+                is_login = method_name in DEFAULT_LOGIN_METHODS or method_name.startswith("login.")
 
                 if method_name not in existing_perms:
                     new_perm = RpcPermission(
                         name=method_name,
-                        is_public=is_public,
                         description=first_line
                     )
                     db.add(new_perm)
@@ -163,15 +159,24 @@ async def sync_rpc_permissions() -> None:
                 if updated_count > 0:
                     logger.info(f"[Discovery] Обновлено {updated_count} описаний RPC-методов из docstrings")
 
-            # 3. Актуализируем in-memory кэш публичных методов
-            public_names = {p.name for p in existing_perms.values() if p.is_public}
-            public_names.update(DEFAULT_PUBLIC_METHODS)
-            PUBLIC_RPC_METHODS.clear()
-            PUBLIC_RPC_METHODS.update(public_names)
+            # 3. Гарантируем привязку методов логина к роли guest
+            guest_role_updated = False
+            for method_name, perm in existing_perms.items():
+                is_login = method_name in DEFAULT_LOGIN_METHODS or method_name.startswith("login.")
+                if is_login and perm.id not in guest_rpc_ids:
+                    guest_role.rpc_permissions.append(perm)
+                    guest_rpc_ids.add(perm.id)
+                    guest_role_updated = True
+
+            if guest_role_updated:
+                await db.commit()
+
+            # 4. Актуализируем in-memory кэш гостя
+            await reload_guest_permissions_cache()
 
     except Exception as e:
         logger.warning(f"[Discovery] Пропущен авто-синк RPC методов (БД не инициализирована или офлайн): {e}")
-        PUBLIC_RPC_METHODS.update(DEFAULT_PUBLIC_METHODS)
+        GUEST_ALLOWED_RPC_METHODS.update(DEFAULT_LOGIN_METHODS)
 
 
 # Регистрируем авто-синк при старте приложения

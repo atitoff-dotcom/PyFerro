@@ -69,6 +69,7 @@ class FerroApp:
         password_iterations: Optional[int] = None,
         token_expire_hours: Optional[int] = None,
         session_prefix: str = "ferro",
+        table_prefix: str = "pf_",
         max_message_size: Optional[int] = None,
         # HTTP и CORS
         cors: bool = True,
@@ -91,6 +92,8 @@ class FerroApp:
     ):
         # 1. Применяем конфигурацию к ядру
         config_kwargs: Dict[str, Any] = {}
+        if table_prefix is not None:
+            config_kwargs["table_prefix"] = table_prefix
         if secret_key is not None:
             config_kwargs["secret_key"] = secret_key
         if database_url is not None:
@@ -327,9 +330,9 @@ class FerroApp:
 
     # --- ДЕКОРАТОРЫ ---
 
-    def rpc(self, name: Optional[str] = None, role: Optional[Any] = None, http: bool = False, public: bool = False, description: Optional[str] = None):
-        """Декоратор для регистрации JSON-RPC метода."""
-        return rpc_method(name=name, role=role, http=http, public=public, description=description)
+    def rpc(self, name: str, description: Optional[str] = None, http: bool = False):
+        """Декоратор для регистрации JSON-RPC 2.0 метода."""
+        return rpc_method(name=name, description=description, http=http)
 
     def route(self, path: str, methods: Optional[List[str]] = None):
         """Декоратор для регистрации HTTP-обработчика."""

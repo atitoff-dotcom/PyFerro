@@ -5,12 +5,12 @@ from sqlalchemy import select
 
 from pyferro.core.session import (
     JsonRpcSession, rpc_method, RPC_REGISTRY, RPCError,
-    PUBLIC_RPC_METHODS, register_public_method, unregister_public_method, is_public_rpc_method
+    GUEST_ALLOWED_RPC_METHODS, is_guest_rpc_allowed
 )
 from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, SYSTEM_ROLES
 from pyferro.auth.models import Role, RpcPermission, User
 from pyferro.auth.core import AuthSession
-from pyferro.auth.discovery import sync_rpc_permissions, reload_public_rpc_cache, _ensure_auth_columns
+from pyferro.auth.discovery import sync_rpc_permissions, reload_guest_permissions_cache
 from pyferro.plugins.crud.handlers import handle_crud_delete, handle_crud_update_cell
 from pyferro.db import async_session, Base, engine
 
@@ -43,17 +43,17 @@ class MockTransport:
 
 
 @pytest.mark.asyncio
-async def test_public_rpc_methods_cache():
-    register_public_method("catalog.list")
-    register_public_method("public_api.*")
+async def test_guest_allowed_rpc_methods_cache():
+    GUEST_ALLOWED_RPC_METHODS.add("catalog.list")
+    GUEST_ALLOWED_RPC_METHODS.add("public_api.*")
 
-    assert is_public_rpc_method("catalog.list") is True
-    assert is_public_rpc_method("public_api.items") is True
-    assert is_public_rpc_method("public_api.details") is True
-    assert is_public_rpc_method("secret.data") is False
+    assert is_guest_rpc_allowed("catalog.list") is True
+    assert is_guest_rpc_allowed("public_api.items") is True
+    assert is_guest_rpc_allowed("public_api.details") is True
+    assert is_guest_rpc_allowed("secret.data") is False
 
-    unregister_public_method("catalog.list")
-    assert is_public_rpc_method("catalog.list") is False
+    GUEST_ALLOWED_RPC_METHODS.discard("catalog.list")
+    assert is_guest_rpc_allowed("catalog.list") is False
 
 
 @pytest.mark.asyncio
@@ -150,7 +150,9 @@ async def test_user_personal_permissions_merging():
         can_create=False,
         can_update=False,
         can_delete=False,
-        row_level_only=True
+        read_global=False,
+        update_global=False,
+        delete_global=False,
     )
     role.permissions = [role_perm]
     rpc_view = RpcPermission(id=101, name="reports.view", description="View reports")
@@ -177,7 +179,7 @@ async def test_user_personal_permissions_merging():
         can_create=False,
         can_update=False,
         can_delete=True,
-        row_level_only=False
+        delete_global=True,
     )
     user.permissions = [user_perm]
 
@@ -231,7 +233,6 @@ async def test_permissions_api_flow():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            await conn.run_sync(_ensure_auth_columns)
 
         async with async_session() as db:
             # Создаем или находим тестовую роль и пользователя
@@ -261,7 +262,7 @@ async def test_permissions_api_flow():
             "can_create": True,
             "can_update": False,
             "can_delete": False,
-            "row_level_only": True
+            "read_global": False,
         }
     }
     save_res = await handle_permissions_save(
@@ -278,13 +279,13 @@ async def test_permissions_api_flow():
     assert role_perms["target_name"] == "tester_role"
     assert role_perms["crud_permissions"]["Task"]["can_read"] is True
     assert role_perms["crud_permissions"]["Task"]["can_create"] is True
-    assert role_perms["crud_permissions"]["Task"]["row_level_only"] is True
+    assert role_perms["crud_permissions"]["Task"]["read_global"] is False
 
     # 5. Save personal permissions for user
     user_crud_cfg = {
         "Task": {
             "can_delete": True,
-            "row_level_only": False
+            "delete_global": True,
         }
     }
     user_save_res = await handle_permissions_save(
@@ -321,5 +322,5 @@ async def test_permissions_api_flow():
     guest_perms = await handle_permissions_get(admin_session, target_type="guest", target_id=0)
     assert guest_perms["target_name"] == "Гости"
     assert "catalog.items" in guest_perms["rpc_permissions"]
-    assert is_public_rpc_method("catalog.items") is True
+    assert is_guest_rpc_allowed("catalog.items") is True
 

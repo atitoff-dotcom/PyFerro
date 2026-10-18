@@ -97,6 +97,9 @@
         auth_rpc_permission: "Права RPC-методов",
         auth_role: "Роли",
         auth_user: "Пользователи",
+        pf_auth_rpc_permission: "Права RPC-методов",
+        pf_auth_role: "Роли",
+        pf_auth_user: "Пользователи",
         Task: "Задачи",
         Document: "Документы",
         "RPC Permission": "Права RPC-методов",
@@ -175,6 +178,9 @@
         auth_rpc_permission: "RPC Permissions",
         auth_role: "Roles",
         auth_user: "Users",
+        pf_auth_rpc_permission: "RPC Permissions",
+        pf_auth_role: "Roles",
+        pf_auth_user: "Users",
         Task: "Tasks",
         Document: "Documents",
         "RPC Permission": "RPC Permissions",
@@ -224,8 +230,8 @@
   let currentSchema = $derived(models.find((m) => m.key === selectedModelName) || null);
   let isLoadingSchema = $state(true);
 
-  let userModel = $derived(models.find((m) => m.key === "User" || m.table_name === "auth_user" || m.key === "auth_user"));
-  let roleModel = $derived(models.find((m) => m.key === "Role" || m.table_name === "auth_role" || m.key === "auth_role"));
+  let userModel = $derived(models.find((m) => m.key === "User" || m.table_name === "pf_auth_user" || m.table_name === "auth_user" || m.key === "auth_user" || m.key === "pf_auth_user"));
+  let roleModel = $derived(models.find((m) => m.key === "Role" || m.table_name === "pf_auth_role" || m.table_name === "auth_role" || m.key === "auth_role" || m.key === "pf_auth_role"));
   let otherModels = $derived(models.filter((m) => m !== userModel && m !== roleModel));
 
   function selectNav(nav: "guest" | "user" | "role") {
@@ -274,8 +280,8 @@
   let permissionsTargetId = $state<number>(0);
   let permissionsTargetName = $state<string>("");
 
-  let isRoleModel = $derived(selectedModelName === "auth_role" || selectedModelName === "Role");
-  let isUserModel = $derived(selectedModelName === "auth_user" || selectedModelName === "User");
+  let isRoleModel = $derived(selectedModelName === "pf_auth_role" || selectedModelName === "auth_role" || selectedModelName === "Role");
+  let isUserModel = $derived(selectedModelName === "pf_auth_user" || selectedModelName === "auth_user" || selectedModelName === "User");
   let isRoleOrUserModel = $derived(isRoleModel || isUserModel);
 
   function openPermissions(row: any[], recId: any) {
@@ -600,14 +606,14 @@
     if (!params || params.model !== selectedModelName) return;
     const recId = params.id;
 
-    if (params.deleted) {
+    if (params.kind === "deleted" || params.deleted) {
       console.info(`[CRUD Admin] 🗑 Удалена запись #${recId} из локального кэша`);
       rows = rows.filter((r) => getRowId(r) !== recId);
       total = Math.max(0, total - 1);
       return;
     }
 
-    if (params.created) {
+    if (params.kind === "created" || params.created) {
       console.info("[CRUD Admin] ➕ Создана новая запись, перезагрузка данных...");
       loadData();
       return;

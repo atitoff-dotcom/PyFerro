@@ -51,9 +51,6 @@ class RowSecureModel(BasicSecureModel):
     )
 
 
-# Совместимый алиас
-SecureModelBase = RowSecureModel
-
 
 class AuthSession:
     """
@@ -100,6 +97,10 @@ class AuthSession:
     @property
     def roles(self) -> list:
         return self.user_roles
+
+    @property
+    def authenticated(self) -> bool:
+        return True
 
     @property
     def role_name(self) -> Any:

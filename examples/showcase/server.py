@@ -72,6 +72,24 @@ async def init_database():
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
+
+                # Автоматическая синхронизация отсутствующих колонок в SQLite таблицах (например, team_id в RowSecureModel)
+                def _sync_sqlite_columns(connection):
+                    for table_name, table in Base.metadata.tables.items():
+                        try:
+                            res = connection.exec_driver_sql(f"PRAGMA table_info({table_name})").fetchall()
+                            existing_cols = {row[1] for row in res}
+                            if not existing_cols:
+                                continue
+                            for col in table.columns:
+                                if col.name not in existing_cols:
+                                    col_type = col.type.compile(connection.dialect)
+                                    logger.info(f"[Showcase] Adding missing column '{col.name}' ({col_type}) to table '{table_name}'")
+                                    connection.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}")
+                        except Exception as sync_err:
+                            logger.warning(f"[Showcase] Column sync warning for {table_name}: {sync_err}")
+
+                await conn.run_sync(_sync_sqlite_columns)
             logger.info("[Showcase] SQLite database schema initialized successfully.")
 
             # Initialize Smart Cache tag version registry
@@ -81,11 +99,17 @@ async def init_database():
             async with async_session() as db:
                 count_users = (await db.execute(select(func.count(User.id)))).scalar_one()
                 if count_users == 0:
-                    # 1. Seed demo roles
-                    role_admin = Role(name="admin", description="Full administrator access")
-                    role_user = Role(name="user", description="Regular user with granular RLS access")
-                    role_editor = Role(name="editor", description="Content editor")
-                    db.add_all([role_admin, role_user, role_editor])
+                    # 1. Seed or retrieve demo roles
+                    stmt_roles = select(Role).where(Role.name.in_(["admin", "user", "editor"]))
+                    existing_roles = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
+
+                    role_admin = existing_roles.get("admin") or Role(name="admin", description="Full administrator access")
+                    role_user = existing_roles.get("user") or Role(name="user", description="Regular user with granular RLS access")
+                    role_editor = existing_roles.get("editor") or Role(name="editor", description="Content editor")
+
+                    for r in (role_admin, role_user, role_editor):
+                        if r.name not in existing_roles:
+                            db.add(r)
                     await db.flush()
 
                     # 2. Seed default users
@@ -130,7 +154,6 @@ async def init_database():
                         read_global=True,    # Пользователи видят ВСЕ задачи
                         update_global=False, # Изменяют ТОЛЬКО СВОИ или ДЕЛЕГИРОВАННЫЕ
                         delete_global=False, # Удаляют ТОЛЬКО СВОИ или ДЕЛЕГИРОВАННЫЕ
-                        row_level_only=True,
                     )
                     db.add(perm_task)
 

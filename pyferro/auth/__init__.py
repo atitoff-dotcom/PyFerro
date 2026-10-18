@@ -10,7 +10,6 @@ from .core import (
     AuthSession,
     BasicSecureModel,
     RowSecureModel,
-    SecureModelBase,
 )
 from .models import (
     User,
@@ -31,7 +30,7 @@ from .models import (
 )
 from .discovery import (
     sync_rpc_permissions,
-    reload_public_rpc_cache,
+    reload_guest_permissions_cache,
 )
 from .permissions import (
     check_permissions,
@@ -56,7 +55,6 @@ __all__ = [
     "AuthSession",
     "BasicSecureModel",
     "RowSecureModel",
-    "SecureModelBase",
     # Модели ORM
     "User",
     "Role",
@@ -75,7 +73,7 @@ __all__ = [
     "UserDelegation",
     # Service Discovery
     "sync_rpc_permissions",
-    "reload_public_rpc_cache",
+    "reload_guest_permissions_cache",
     # Проверки прав
     "check_permissions",
     "prefill_ownership",
