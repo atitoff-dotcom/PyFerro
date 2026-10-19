@@ -30,6 +30,60 @@ def is_guest_rpc_allowed(method_name: str) -> bool:
             return True
     return False
 
+
+def _is_session_admin(session: Any) -> bool:
+    """Производит проверку прав администратора для сессии, включая токены или Cookie."""
+    if not session:
+        return False
+    if getattr(session, "is_superadmin", False) is True or getattr(session, "is_admin", False) is True:
+        return True
+    data = getattr(session, "data", None)
+    if data:
+        if getattr(data, "is_superadmin", False) is True or getattr(data, "is_admin", False) is True:
+            return True
+        if isinstance(data, dict):
+            if data.get("is_superadmin"):
+                return True
+            role = data.get("role") or data.get("user_role")
+            roles = data.get("roles") or data.get("user_roles") or []
+            return role in ("admin", "ADMIN", "superadmin") or any(r in ("admin", "ADMIN", "superadmin") for r in roles)
+    if isinstance(session, dict):
+        if session.get("is_superadmin"):
+            return True
+        role = session.get("role") or session.get("user_role")
+        roles = session.get("roles") or session.get("user_roles") or []
+        return role in ("admin", "ADMIN", "superadmin") or any(r in ("admin", "ADMIN", "superadmin") for r in roles)
+    role = getattr(session, "user_role", None) or getattr(session, "role", None)
+    if isinstance(role, str) and role.lower() in ("admin", "superadmin", "administrator"):
+        return True
+    roles = getattr(session, "user_roles", None) or getattr(session, "roles", None)
+    if isinstance(roles, (list, tuple, set)) and any(isinstance(r, str) and r.lower() in ("admin", "superadmin", "administrator") for r in roles):
+        return True
+    cookies = getattr(session, "cookies", None)
+    if cookies and isinstance(cookies, dict):
+        from .http import extract_session_token
+        token = extract_session_token(cookies)
+        if token:
+            try:
+                from pyferro.plugins.crud.auth import get_crud_session
+                sdata = get_crud_session(token)
+                if sdata and (sdata.get("is_superadmin") or str(sdata.get("role") or "").lower() in ("admin", "superadmin", "administrator")):
+                    return True
+            except Exception:
+                pass
+    return False
+
+
+def require_admin(session: Any) -> None:
+    """Проверяет наличие прав администратора у сессии (session.is_superadmin).
+
+    Выбрасывает стандартизированную ошибку RPCError(-32003) при недостатке прав.
+    """
+    if getattr(session, "is_superadmin", False) is True:
+        return
+    if not _is_session_admin(session):
+        raise RPCError(-32003, "Доступ запрещен: требуются права администратора.")
+
 class RPCError(Exception):
     """
     Исключение для RPC-ошибок, сообщения которых возвращаются клиенту.
@@ -162,17 +216,65 @@ class JsonRpcSession:
 
     @property
     def user_role(self):
-        if self.data and hasattr(self.data, "user_role"):
-            return self.data.user_role
-        return "guest"
+        if not self.data:
+            return 'guest'
+        if isinstance(self.data, dict):
+            return self.data.get('role') or self.data.get('user_role') or 'guest'
+        return getattr(self.data, 'user_role', None) or getattr(self.data, 'role', 'guest')
 
     @property
     def user_roles(self):
-        if self.data and hasattr(self.data, "user_roles"):
-            return self.data.user_roles
-        if self.data and hasattr(self.data, "user_role") and self.data.user_role:
-            return [self.data.user_role]
-        return ["guest"]
+        if not self.data:
+            return ['guest']
+        if isinstance(self.data, dict):
+            roles = self.data.get('roles') or self.data.get('user_roles')
+            if roles:
+                return list(roles)
+            role = self.data.get('role') or self.data.get('user_role')
+            return [role] if role else ['guest']
+        if hasattr(self.data, 'user_roles') and self.data.user_roles:
+            return list(self.data.user_roles)
+        role = getattr(self.data, 'user_role', None) or getattr(self.data, 'role', None)
+        return [role] if role else ['guest']
+    @property
+    def user_id(self) -> Optional[int]:
+        if not self.data:
+            return None
+        if isinstance(self.data, dict):
+            val = self.data.get("user_id") or self.data.get("uid") or self.data.get("id")
+            try:
+                return int(val) if val is not None else None
+            except (ValueError, TypeError):
+                return None
+        val = getattr(self.data, "user_id", None) or getattr(self.data, "uid", None)
+        try:
+            return int(val) if val is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def username(self) -> str:
+        if not self.data:
+            return "guest"
+        if isinstance(self.data, dict):
+            return str(self.data.get("username") or self.data.get("user_name") or "guest")
+        return str(getattr(self.data, "username", None) or getattr(self.data, "user_name", "guest"))
+
+    @property
+    def is_superadmin(self) -> bool:
+        if not self.data:
+            return False
+        if isinstance(self.data, dict):
+            if self.data.get("is_superadmin"):
+                return True
+            role = self.data.get("role") or self.data.get("user_role")
+            roles = self.data.get("roles") or self.data.get("user_roles") or []
+            return role in ("admin", "ADMIN", "superadmin") or any(r in ("admin", "ADMIN", "superadmin") for r in roles)
+        return bool(getattr(self.data, "is_superadmin", False))
+
+    @property
+    def is_admin(self) -> bool:
+        return self.is_superadmin
 
     @property
     def cookies(self) -> Dict[str, str]:

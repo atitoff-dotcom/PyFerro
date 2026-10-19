@@ -72,6 +72,13 @@ class DemoSessionData:
     def roles(self) -> list:
         return self.user_roles
 
+    @property
+    def is_superadmin(self) -> bool:
+        return self.user_role == "admin" or "admin" in self.user_roles
+
+    @property
+    def is_admin(self) -> bool:
+        return self.is_superadmin
     def has_rpc_permission(self, method_name: str) -> bool:
         if self.user_role == "admin" or "admin" in self.user_roles:
             return True
@@ -396,12 +403,7 @@ async def delete_task(session: JsonRpcSession, params: dict):
 
 # --- 3. SMART CACHE (RFC 0001) & TAG INVALIDATION ---
 
-@rpc_method("cache.get_versions")
-async def cache_get_versions(session: JsonRpcSession, params: dict = None):
-    """Returns current monotonic cache tag versions directly from server memory."""
-    return version_registry.get_all_versions()
-
-
+# Uses pyferro.smart_cache.handlers.cache_get_versions
 @rpc_method("tasks.invalidate_cache")
 @rpc_method("cache.manual_invalidate")
 async def cache_manual_invalidate(session: JsonRpcSession, params: dict):

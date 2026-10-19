@@ -53,95 +53,50 @@ class DefaultIdentityProvider:
     Используется по умолчанию, если приложение не зарегистрировало свой провайдер.
     """
     def user_id(self, session: Any) -> Optional[int]:
-        from pyferro.core.session import current_user_ctx, current_transport_ctx
-        user = current_user_ctx.get()
-        if user:
-            uid = getattr(user, "id", None) if not isinstance(user, dict) else user.get("id")
-            if isinstance(uid, int):
-                return uid
-        user = getattr(session, "user", None) or getattr(getattr(session, "data", None), "user", None)
-        if user and not callable(user):
-            uid = getattr(user, "id", None) if not isinstance(user, dict) else user.get("id")
-            if isinstance(uid, int):
-                return uid
-        raw_uid = getattr(session, "user_id", None)
-        if isinstance(raw_uid, int):
-            return raw_uid
-        data = getattr(session, "data", None)
-        if data and not callable(data):
-            uid = getattr(data, "user_id", None)
-            if isinstance(uid, int):
-                return uid
-        transport = current_transport_ctx.get()
-        if transport and getattr(transport, "data", None):
-            t_data = getattr(transport, "data", None)
-            if not callable(t_data):
-                uid = getattr(t_data, "user_id", None)
-                if isinstance(uid, int):
-                    return uid
-        return None
-
+        return getattr(session, "user_id", None)
 
     def user_name(self, session: Any) -> str:
-        from pyferro.core.session import current_user_ctx, current_transport_ctx
-        user = current_user_ctx.get() or getattr(session, "user", None)
-        if user:
-            return getattr(user, "username", "") if not isinstance(user, dict) else user.get("username", "")
-        data = getattr(session, "data", None)
-        if data and hasattr(data, "username"):
-            return getattr(data, "username")
-        transport = current_transport_ctx.get()
-        if transport and hasattr(getattr(transport, "data", None), "username"):
-            return getattr(transport.data, "username")
-        return "anonymous"
-
-    def is_superuser(self, user_id: Optional[int]) -> bool:
-        from pyferro.core.session import current_user_ctx, current_transport_ctx
-        from pyferro.core.lib.config import settings
-        from pyferro.core.constants import ADMIN_ROLE
-
-        # 1. Проверка активного сокета/сессии на роль ADMIN или сессию по Cookie
-        transport = current_transport_ctx.get()
-        if transport:
-            if hasattr(transport, "cookies") and transport.cookies:
-                from pyferro.core.http import extract_session_token
-                token = extract_session_token(transport.cookies)
-                if token:
-                    from .auth import get_crud_session
-                    sdata = get_crud_session(token)
-                    if sdata and sdata.get("role") in ("admin", "ADMIN", ADMIN_ROLE):
-                        return True
-
-            role = getattr(transport, "user_role", None)
-            if hasattr(role, "value"):
-                role = role.value
-            if role in ("admin", "ADMIN", ADMIN_ROLE):
-                return True
-
-            roles = getattr(transport, "user_roles", [])
-            for r in roles:
-                val = r.value if hasattr(r, "value") else r
-                if val in ("admin", "ADMIN", ADMIN_ROLE):
-                    return True
-
-            data = getattr(transport, "data", None)
+        if session is not None:
+            name = getattr(session, "username", None) or getattr(session, "user_name", None)
+            if name:
+                return str(name)
+            data = getattr(session, "data", None)
             if data:
-                data_role = getattr(data, "user_role", None)
-                if hasattr(data_role, "value"):
-                    data_role = data_role.value
-                if data_role in ("admin", "ADMIN", ADMIN_ROLE):
-                    return True
-
-        # 3. Проверка пользователя в контексте auth
+                name = getattr(data, "username", None) or getattr(data, "user_name", None)
+                if name:
+                    return str(name)
+                if isinstance(data, dict):
+                    val = data.get("username") or data.get("user_name")
+                    if val:
+                        return str(val)
+        from pyferro.core.session import current_transport_ctx, current_user_ctx
         user = current_user_ctx.get()
         if user:
-            role = getattr(user, "role", None) if not isinstance(user, dict) else user.get("role")
-            if role in ("admin", "superuser", 1, "ADMIN", ADMIN_ROLE):
+            val = getattr(user, "username", None) if not isinstance(user, dict) else user.get("username")
+            if val:
+                return str(val)
+        transport = current_transport_ctx.get()
+        if transport and transport is not session:
+            return self.user_name(transport)
+        return "anonymous"
+
+    def is_superuser(self, session: Any = None) -> bool:
+        if session is not None and not isinstance(session, (int, bool)):
+            if getattr(session, "is_superadmin", False) is True or getattr(session, "is_admin", False) is True:
                 return True
-            if getattr(user, "is_superuser", False) if not isinstance(user, dict) else user.get("is_superuser", False):
+        from pyferro.core.session import current_transport_ctx, current_user_ctx, _is_session_admin
+        if session is not None and not isinstance(session, (int, bool)) and _is_session_admin(session):
+            return True
+        transport = current_transport_ctx.get()
+        if transport and _is_session_admin(transport):
+            return True
+        user = current_user_ctx.get()
+        if user:
+            if getattr(user, "is_superadmin", False) or getattr(user, "is_superuser", False):
+                return True
+            if isinstance(user, dict) and (user.get("is_superadmin") or user.get("is_superuser")):
                 return True
         return False
-
     def has_permission(self, user_id: Optional[int], perm: str) -> bool:
         if self.is_superuser(user_id):
             return True

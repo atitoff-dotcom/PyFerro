@@ -79,28 +79,19 @@ async def broadcast_notification(
 broadcast = broadcast_notification
 
 
-def get_session_uid(s) -> Optional[int]:
+def get_session_uid(session: Any) -> Optional[int]:
     """Извлекает ID пользователя из сессии."""
-    if hasattr(s, "uid") and s.uid:
-        try:
-            return int(s.uid)
-        except (ValueError, TypeError):
-            pass
-    data = getattr(s, "data", None)
-    if data and hasattr(data, "uid") and data.uid:
-        try:
-            return int(data.uid)
-        except (ValueError, TypeError):
-            pass
-    user_data = getattr(s, "user_data", None)
-    if isinstance(user_data, dict):
-        uid = user_data.get("user_id") or user_data.get("uid")
-        if uid:
-            try:
-                return int(uid)
-            except (ValueError, TypeError):
-                pass
-    return None
+    if session is None:
+        return None
+    uid = getattr(session, "user_id", None)
+    if uid is None and isinstance(session, dict):
+        uid = session.get("user_id")
+    if uid is None or isinstance(uid, bool):
+        return None
+    try:
+        return int(uid)
+    except (ValueError, TypeError):
+        return None
 
 
 async def send_to_user(

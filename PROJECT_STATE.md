@@ -3,7 +3,7 @@
 > **Назначение:** Единая точка входа для быстрого старта ИИ-агента (читается за 1 вызов `agentbox view PROJECT_STATE.md --start 1 --end 80`).
 
 ## 1. Профиль и стек
-- **Проект:** `PyFerro` (текущая версия в `pyproject.toml` / `pyferro/__init__.py`: `0.5.14`, в работе `0.6.x`).
+- **Проект:** `PyFerro` (текущая версия в `pyproject.toml` / `pyferro/__init__.py`: `0.7.0`).
 - **Сетевой слой:** Rust RSGI сервер **Granian** (`interface=rsgi`, не ASGI/WSGI).
 - **Протокол:** Симметричный **JSON-RPC 2.0 (WSRPC)** поверх WebSocket + HTTP роутинг + табличное сжатие **RFC 0002 (`$tabular`)**.
 - **Данные и UI:** SQLAlchemy 2.0 Async (`aiosqlite` / `asyncpg`) + встроенная админ-панель **Svelte 5** (`/crud`).

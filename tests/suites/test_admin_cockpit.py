@@ -55,7 +55,7 @@ async def test_admin_handlers_access_control():
     # 1. Гость не может вызывать системные методы
     with pytest.raises(RPCError) as exc:
         await list_active_sessions(guest_session)
-    assert exc.value.code == -32000
+    assert exc.value.code == -32003
 
     # 2. Обычный пользователь (не admin) получает ошибку доступа
     with pytest.raises(RPCError) as exc:
@@ -70,7 +70,15 @@ async def test_admin_handlers_access_control():
         await send_system_broadcast(user_session, message="Hello")
     assert exc.value.code == -32003
 
+    # 3. Суперадминистратор (is_superadmin=True) успешно получает метрики
+    class MockSuperuserSession:
+        session_id = 888
+        ip = "127.0.0.1"
+        is_superadmin = True
 
+    superuser_session = MockSuperuserSession()
+    stats = await get_cache_stats(superuser_session)
+    assert isinstance(stats, list)
 @pytest.mark.asyncio
 async def test_admin_sessions_list_and_kill():
     """Проверяет мониторинг активных сессий и kick/kill."""

@@ -106,6 +106,20 @@ class AuthSession:
     def role_name(self) -> Any:
         return self.user_role
 
+    @property
+    def is_superadmin(self) -> bool:
+        if self.user_ctx and getattr(self.user_ctx, 'is_superadmin', False):
+            return True
+        if self.user_role in ('admin', 'ADMIN', 'superadmin'):
+            return True
+        if any(r in ('admin', 'ADMIN', 'superadmin') for r in (self.user_roles or [])):
+            return True
+        return False
+
+    @property
+    def is_admin(self) -> bool:
+        return self.is_superadmin
+
     def has_rpc_permission(self, method_name: str) -> bool:
         """Проверяет право на вызов RPC-метода (O(1) in-memory)."""
         if self.user_ctx and getattr(self.user_ctx, "is_superadmin", False):

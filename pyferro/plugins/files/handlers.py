@@ -10,7 +10,6 @@ from pyferro.core.session import (
     RPCError,
     current_session_ctx,
     current_transport_ctx,
-    current_user_ctx,
     rpc_method,
 )
 from pyferro.core.tabular import tabular_response
@@ -19,27 +18,14 @@ from .service import FileStorageService
 from .upload import upload_coordinator
 
 
-def _get_current_user_id() -> Optional[int]:
-    """Извлекает ID текущего авторизованного пользователя из контекста."""
-    user = current_user_ctx.get()
-    if user:
-        if isinstance(user, dict):
-            return user.get("id") or user.get("user_id")
-        return getattr(user, "id", None)
-
-    transport = current_transport_ctx.get()
-    if transport:
-        data = getattr(transport, "data", None)
-        if data and hasattr(data, "user_id"):
-            return getattr(data, "user_id")
-        if hasattr(transport, "user_id"):
-            return getattr(transport, "user_id")
-
-    session = current_session_ctx.get()
-    if session and hasattr(session, "user_id"):
-        return getattr(session, "user_id")
-    return None
-
+def _get_current_user_id(session: Any = None) -> Optional[int]:
+    """Извлекает ID текущего аутентифицированного пользователя из сессии."""
+    s = session or current_transport_ctx.get() or current_session_ctx.get()
+    if not s:
+        return None
+    if isinstance(s, dict):
+        return s.get("user_id")
+    return getattr(s, "user_id", None)
 
 @rpc_method("files.init_upload")
 async def files_init_upload(

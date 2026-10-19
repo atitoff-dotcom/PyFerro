@@ -150,3 +150,34 @@ async def test_two_phase_file_upload():
     except Exception as e:
         # Если внешний стенд недоступен в оффлайн-режиме
         print(f"    [Skipped remote stage upload test: {e}]")
+
+
+def test_files_get_current_user_id():
+    """Проверяет получение ID пользователя через _get_current_user_id."""
+    from pyferro.plugins.files.handlers import _get_current_user_id
+    from pyferro.core.session import current_session_ctx, current_transport_ctx
+
+    # Без сессии в контексте
+    assert _get_current_user_id() is None
+
+    class MockUserSession:
+        def __init__(self, uid):
+            self.user_id = uid
+
+    # Передача сессии напрямую
+    assert _get_current_user_id(MockUserSession(123)) == 123
+    assert _get_current_user_id({"user_id": 456}) == 456
+
+    # Сессия в current_transport_ctx
+    token = current_transport_ctx.set(MockUserSession(789))
+    try:
+        assert _get_current_user_id() == 789
+    finally:
+        current_transport_ctx.reset(token)
+
+    # Сессия в current_session_ctx
+    token = current_session_ctx.set(MockUserSession(321))
+    try:
+        assert _get_current_user_id() == 321
+    finally:
+        current_session_ctx.reset(token)

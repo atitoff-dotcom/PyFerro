@@ -221,9 +221,16 @@ async def test_permissions_api_flow():
     # 1. Non-admin is rejected
     with pytest.raises(RPCError) as exc:
         await handle_permissions_get_schema(guest_session)
+    assert exc.value.code == -32003
     assert "требуются права администратора" in str(exc.value)
 
-    # 2. Admin gets schema
+    # 2. Superadmin (is_superadmin=True) gets schema
+    superadmin_session = MagicMock()
+    superadmin_session.is_superadmin = True
+    schema_super = await handle_permissions_get_schema(superadmin_session)
+    assert "models" in schema_super
+
+    # 3. Admin gets schema
     schema = await handle_permissions_get_schema(admin_session)
     assert "models" in schema
     assert "rpc_methods" in schema

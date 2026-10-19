@@ -227,11 +227,12 @@ async def test_crud_schema_strict_admin_isolation():
 
     # 1. Гость (без роли админа) не видит моделей
     guest_ws = MagicMock()
+    guest_ws.user_id = None
+    guest_ws.is_superadmin = False
     guest_ws.data = None
     guest_ws.user_role = None
     guest_ws.user_roles = []
     guest_ws.cookies = {}
-
     res_guest = await handle_crud_schema(guest_ws, {})
     assert res_guest["models"] == []
 

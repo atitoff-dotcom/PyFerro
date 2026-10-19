@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from pyferro.core.session import (
     rpc_method,
     RPCError,
+    require_admin,
     ACTIVE_SESSIONS_SET,
     current_transport_ctx,
 )
@@ -31,50 +32,6 @@ from pyferro.smart_cache.engine import version_registry, invalidate_tags
 from pyferro.db.session import get_db_echo, set_db_echo
 from pyferro.plugins.crud.registry import ModelRegistry
 
-
-def _ensure_admin(session) -> None:
-    """Проверяет права администратора для вызова системных методов."""
-    if not session:
-        raise RPCError(-32000, "Доступ запрещен: требуется авторизация администратора")
-
-    from pyferro.core.session import JsonRpcSession
-    if isinstance(session, JsonRpcSession):
-        data = session.data
-    else:
-        # Может быть объектом-оберткой с полем data или непосредственно объектом данных сессии (AuthSession / dict)
-        data = getattr(session, "data", None) if getattr(session, "data", None) is not None else session
-
-    if not data:
-        raise RPCError(-32000, "Доступ запрещен: требуется авторизация администратора")
-    roles = []
-    if isinstance(data, dict):
-        role = data.get("role") or data.get("user_role")
-        if role:
-            roles.append(str(role).lower())
-        roles.extend([str(r).lower() for r in (data.get("roles") or data.get("user_roles") or [])])
-        if data.get("is_superadmin"):
-            return
-    else:
-        role = (
-            getattr(data, "role", None)
-            or getattr(data, "user_role", None)
-            or getattr(data, "role_name", None)
-        )
-        if role:
-            roles.append(str(role).lower())
-        for r in (getattr(data, "user_roles", None) or getattr(data, "roles", None) or []):
-            roles.append(str(r).lower())
-        if getattr(data, "is_superadmin", False):
-            return
-        user_ctx = getattr(data, "user_ctx", None)
-        if user_ctx and getattr(user_ctx, "is_superadmin", False):
-            return
-
-    admin_roles = {"admin", "superadmin", "administrator"}
-    if not any(r in admin_roles for r in roles):
-        raise RPCError(-32003, "Доступ запрещен: требуются права администратора (role: admin)")
-
-
 @rpc_method("admin.sessions_list")
 async def list_active_sessions(session) -> List[Dict[str, Any]]:
     """Мониторинг активных WebSocket-подключений и сессий пользователей.
@@ -82,7 +39,7 @@ async def list_active_sessions(session) -> List[Dict[str, Any]]:
     Возвращает список подключенных клиентов с IP-адресами, именами пользователей,
     ролями и временем бездействия.
     """
-    _ensure_admin(session)
+    require_admin(session)
     now = time.time()
     transport = current_transport_ctx.get()
     current_id = getattr(transport, "session_id", None) or getattr(session, "session_id", None)
@@ -127,7 +84,7 @@ async def kill_session(session, session_id: int) -> Dict[str, Any]:
 
     :param session_id: Идентификатор активной сессии.
     """
-    _ensure_admin(session)
+    require_admin(session)
     transport = current_transport_ctx.get()
     current_sid = getattr(transport, "session_id", None) or getattr(session, "session_id", None)
     if session_id == current_sid:
@@ -155,7 +112,7 @@ async def get_cache_stats(session) -> List[Dict[str, Any]]:
     Возвращает актуальный список тегов кэша в оперативной памяти и БД
     с их текущими монотонными версиями.
     """
-    _ensure_admin(session)
+    require_admin(session)
     versions_map = version_registry.get_all_versions()
     stats = [{"tag": tag, "version": ver} for tag, ver in sorted(versions_map.items())]
     return stats
@@ -170,7 +127,7 @@ async def invalidate_cache_tags(session, tags: List[str]) -> Dict[str, Any]:
 
     :param tags: Список тегов для инвалидации (например, ['items', 'users']).
     """
-    _ensure_admin(session)
+    require_admin(session)
     if not tags or not isinstance(tags, list):
         raise RPCError(-32602, "Параметр 'tags' должен быть непустым списком строк")
     clean_tags = [str(t).strip() for t in tags if str(t).strip()]
@@ -196,7 +153,7 @@ async def send_system_broadcast(
     :param level: Уровень важности ('info', 'warning', 'error', 'success').
     :param title: Заголовок уведомления (опционально).
     """
-    _ensure_admin(session)
+    require_admin(session)
     if not message or not message.strip():
         raise RPCError(-32602, "Текст сообщения не может быть пустым")
 
@@ -222,7 +179,7 @@ async def stream_recent_logs(session, limit: int = 100) -> List[Dict[str, Any]]:
 
     :param limit: Количество последних записей (максимум 200).
     """
-    _ensure_admin(session)
+    require_admin(session)
     safe_limit = min(max(1, limit), 200)
     return get_recent_logs(safe_limit)
 
@@ -234,7 +191,7 @@ async def get_system_config(session) -> Dict[str, Any]:
     Возвращает текущие настройки безопасности, таймаутов и путей.
     Секретные ключи экранируются в целях безопасности.
     """
-    _ensure_admin(session)
+    require_admin(session)
     conf = settings.to_dict()
     # Маскируем чувствительные данные
     if "security" in conf and isinstance(conf["security"], dict):
@@ -253,7 +210,7 @@ async def get_plugin_matrix(session) -> Dict[str, Any]:
     хранилище файлов, SEO, база данных, безопасность, бродкаст, CRUD),
     а также текущие динамические параметры ядра.
     """
-    _ensure_admin(session)
+    require_admin(session)
 
     # 1. Database Plugin
     db_url = getattr(settings, "database_url", "") or ""
@@ -396,7 +353,7 @@ async def update_hot_config(
     :param user_idle_timeout: Таймаут неактивности авторизованных пользователей (> 0).
     :param allow_guests: Разрешить или запретить гостевой доступ (True/False).
     """
-    _ensure_admin(session)
+    require_admin(session)
     applied: Dict[str, Any] = {}
 
     if log_level is not None:

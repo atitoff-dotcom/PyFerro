@@ -21,16 +21,10 @@ def get_current_session_safe():
         return None
 
 def _extract_username_safe(session) -> str:
-    if not session or not getattr(session, "data", None):
+    """Извлекает имя пользователя из сессии или возвращает 'guest'."""
+    if not session:
         return "guest"
-    data = session.data
-    if isinstance(data, dict):
-        return str(data.get("user_name") or data.get("username") or data.get("sub") or "guest")
-    for attr in ("user_name", "username", "sub", "login", "name"):
-        val = getattr(data, attr, None)
-        if val:
-            return str(val)
-    return "guest"
+    return str(getattr(session, "username", "guest") or "guest")
 
 class ContextColoredFormatter(logging.Formatter):
     """

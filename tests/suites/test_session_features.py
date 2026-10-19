@@ -172,4 +172,181 @@ async def test_guest_vs_user_idle_and_auth_timeout():
     await session.close()
     await session2.close()
 
+def test_session_contract_guest_and_authenticated():
+    from pyferro.auth.core import AuthSession
 
+    ws = MockWs([])
+    session = JsonRpcSession(ws, session_id=1)
+
+    # 1. Guest state
+    assert session.authenticated is False
+    assert session.user_id is None
+    assert session.username == 'guest'
+    assert session.is_superadmin is False
+    assert session.is_admin is False
+    assert session.user_role == 'guest'
+    assert session.user_roles == ['guest']
+
+    # 2. Authenticated via dict (backward compatibility)
+    session.data = {
+        'uid': 42,
+        'username': 'alice',
+        'is_superadmin': False,
+        'role': 'editor',
+        'roles': ['editor'],
+    }
+    assert session.authenticated is True
+    assert session.user_id == 42
+    assert session.username == 'alice'
+    assert session.is_superadmin is False
+    assert session.is_admin is False
+    assert session.user_role == 'editor'
+    assert session.user_roles == ['editor']
+
+    # 3. Authenticated admin via dict
+    session.data = {
+        'id': '100',
+        'user_name': 'root',
+        'role': 'admin',
+    }
+    assert session.user_id == 100
+    assert session.username == 'root'
+    assert session.is_superadmin is True
+    assert session.is_admin is True
+
+    # 4. Authenticated via AuthSession object
+    auth_session = AuthSession(
+        uid=7,
+        user=None,
+        user_name='bob',
+        user_role='moderator',
+        user_roles=['moderator'],
+        session_db_id=1,
+    )
+    session.data = auth_session
+    assert session.user_id == 7
+    assert session.username == 'bob'
+    assert session.is_superadmin is False
+    assert session.is_admin is False
+
+    # 5. AuthSession direct properties
+    assert auth_session.user_id == 7
+    assert auth_session.username == 'bob'
+    assert auth_session.is_superadmin is False
+    assert auth_session.is_admin is False
+
+    # 6. AuthSession as admin
+    admin_auth = AuthSession(
+        uid=1,
+        user=None,
+        user_name='admin_user',
+        user_role='admin',
+        user_roles=['admin'],
+        session_db_id=2,
+    )
+    assert admin_auth.user_id == 1
+    assert admin_auth.username == 'admin_user'
+    assert admin_auth.is_superadmin is True
+    assert admin_auth.is_admin is True
+
+
+@pytest.mark.asyncio
+async def test_get_session_uid_and_send_to_user():
+    from pyferro.broadcast import get_session_uid, send_to_user
+    from pyferro.core.session import ACTIVE_SESSIONS_SET
+
+    # None and empty checks
+    assert get_session_uid(None) is None
+
+    # Object with property user_id
+    class DummySession:
+        def __init__(self, uid):
+            self._uid = uid
+
+        @property
+        def user_id(self):
+            return self._uid
+
+    assert get_session_uid(DummySession(42)) == 42
+    assert get_session_uid(DummySession("100")) == 100
+    assert get_session_uid(DummySession(None)) is None
+    assert get_session_uid(DummySession("invalid")) is None
+    assert get_session_uid(DummySession(True)) is None
+
+    # Dict compatibility
+    assert get_session_uid({"user_id": 55}) == 55
+    assert get_session_uid({"user_id": "77"}) == 77
+    assert get_session_uid({"user_id": None}) is None
+    assert get_session_uid({}) is None
+
+    # Test send_to_user with ACTIVE_SESSIONS_SET
+    ws1 = MockWs([])
+    ws2 = MockWs([])
+    s1 = JsonRpcSession(ws1, session_id=101)
+    s1.data = {"uid": 500}
+    s2 = JsonRpcSession(ws2, session_id=102)
+    s2.data = {"uid": 600}
+
+    ACTIVE_SESSIONS_SET.add(s1)
+    ACTIVE_SESSIONS_SET.add(s2)
+    try:
+        sent = await send_to_user(500, "user.notify", {"msg": "hello"})
+        assert sent == 1
+        assert len(ws1.sent) == 1
+        assert "user.notify" in ws1.sent[0]
+        assert len(ws2.sent) == 0
+
+        # Non-existent user
+        sent_none = await send_to_user(999, "user.notify", {})
+        assert sent_none == 0
+    finally:
+        ACTIVE_SESSIONS_SET.discard(s1)
+        ACTIVE_SESSIONS_SET.discard(s2)
+
+
+def test_extract_username_safe_and_context_logging():
+    from pyferro.core.logger import _extract_username_safe, ContextColoredFormatter
+    from pyferro.core.session import current_transport_ctx
+    import logging
+
+    # None and empty session
+    assert _extract_username_safe(None) == "guest"
+
+    # Guest session (no auth data)
+    ws = MockWs([])
+    guest_session = JsonRpcSession(ws, session_id=1, ip="192.168.1.50")
+    assert _extract_username_safe(guest_session) == "guest"
+
+    # Authenticated session via dict
+    auth_session_dict = JsonRpcSession(ws, session_id=2, ip="192.168.1.51")
+    auth_session_dict.data = {"username": "charlie"}
+    assert _extract_username_safe(auth_session_dict) == "charlie"
+
+    # Authenticated session via user_name in dict
+    auth_session_dict2 = JsonRpcSession(ws, session_id=3, ip="192.168.1.52")
+    auth_session_dict2.data = {"user_name": "dave"}
+    assert _extract_username_safe(auth_session_dict2) == "dave"
+
+    # Object without username attribute
+    assert _extract_username_safe(object()) == "guest"
+
+    # ContextFormatter test with session in context
+    formatter = ContextColoredFormatter()
+    record = logging.LogRecord("test", logging.INFO, "test.py", 10, "Hello", (), None)
+
+    # Without session -> SYSTEM
+    formatted_system = formatter.format(record)
+    assert "[SYSTEM]" in formatted_system
+
+    # With guest session in context
+    token = current_transport_ctx.set(guest_session)
+    try:
+        formatted_guest = formatter.format(record)
+        assert "[192.168.1.50 | guest]" in formatted_guest
+
+        # With authenticated session in context
+        current_transport_ctx.set(auth_session_dict)
+        formatted_user = formatter.format(record)
+        assert "[192.168.1.51 | charlie]" in formatted_user
+    finally:
+        current_transport_ctx.reset(token)

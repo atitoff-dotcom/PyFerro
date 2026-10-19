@@ -16,6 +16,7 @@ from pyferro.core.session import (
     JsonRpcSession,
     rpc_method,
     RPCError,
+    require_admin,
     RPC_REGISTRY,
     is_guest_rpc_allowed,
 )
@@ -23,37 +24,10 @@ from pyferro.core.constants import ADMIN_ROLE
 from pyferro.db import system_db_session
 from .models import Role, User, RolePermission, UserPermission, RpcPermission
 
-
-def _require_admin(session: JsonRpcSession) -> None:
-    """Проверяет, что текущая сессия принадлежит администратору."""
-    is_admin = False
-    role = getattr(session, "user_role", None)
-    if role in ("admin", ADMIN_ROLE):
-        is_admin = True
-    roles = getattr(session, "user_roles", None)
-    if roles and any(r in ("admin", ADMIN_ROLE) for r in roles):
-        is_admin = True
-    data = getattr(session, "data", None)
-    if data and getattr(data, "is_superadmin", False) is True:
-        is_admin = True
-    cookies = getattr(session, "cookies", None)
-    if cookies and isinstance(cookies, dict):
-        from pyferro.core.http import extract_session_token
-        token = extract_session_token(cookies)
-        if token:
-            from pyferro.plugins.crud.auth import get_crud_session
-            sdata = get_crud_session(token)
-            if sdata and sdata.get("role") in ("admin", ADMIN_ROLE):
-                is_admin = True
-
-    if not is_admin:
-        raise RPCError(-32000, "Доступ запрещен: требуются права администратора.")
-
-
 @rpc_method("permissions.get_schema")
 async def handle_permissions_get_schema(session: JsonRpcSession) -> Dict[str, Any]:
     """Возвращает список зарегистрированных моделей и RPC-методов для конфигурации прав."""
-    _require_admin(session)
+    require_admin(session)
 
     from pyferro.plugins.crud.registry import ModelRegistry
     from pyferro.db import Base
@@ -161,7 +135,7 @@ async def handle_permissions_get(
     target_id: int = 0
 ) -> Dict[str, Any]:
     """Возвращает текущие права для роли, пользователя или гостей."""
-    _require_admin(session)
+    require_admin(session)
     if target_type not in ("role", "user", "guest"):
         raise RPCError(-32602, "Параметр 'target_type' должен быть 'role', 'user' или 'guest'")
 
@@ -320,7 +294,7 @@ async def handle_permissions_save(
     rpc_permissions: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """Атомарно сохраняет CRUD и RPC права для роли, пользователя или гостей."""
-    _require_admin(session)
+    require_admin(session)
     if target_type not in ("role", "user", "guest"):
         raise RPCError(-32602, "Параметр 'target_type' должен быть 'role', 'user' или 'guest'")
 

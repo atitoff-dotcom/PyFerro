@@ -27,27 +27,26 @@
 
 ---
 
-## ✅ Выполнено в текущем релизе / подготовке:
-* [x] **v0.6.4: Изоляция системных таблиц фреймворка (Namespace Isolation) через `table_prefix='pf_'`:**
-  - **Префикс `pf_` по умолчанию:** ко всем 17 системным таблицам фреймворка (`auth_user`, `auth_role`, `auth_team`, `auth_rpc_permission`, `auth_role_permission`, `auth_user_permission`, `auth_user_delegation`, `auth_user_auth_role`, `auth_user_auth_team`, `auth_role_auth_rpc_permission`, `auth_user_auth_rpc_permission`, `refresh_tokens`, `active_sessions`, `system_data`, `oauth_accounts`, `cache_tag_versions`, `file_metadata`) добавлен единый префикс `pf_` (`pf_auth_user`, `pf_auth_role`, `pf_cache_tag_versions`, `pf_file_metadata` и т.д.).
-  - **Конфигурируемость в `FerroApp(table_prefix="pf_")`:** параметр `table_prefix` в `FerroApp` и `configure(table_prefix=...)` с безопасным дефолтом `"pf_"`.
-  - **Подсистема именования `pyferro.db.naming`:** модуль для валидации системных таблиц (`is_system_table_name`), получения текущего префикса (`get_system_table_prefix`, `get_table_prefix`) и динамического переключения (`set_system_table_prefix`).
-  - **Обратная совместимость в `ModelRegistry.get()`:** прозрачный поиск моделей как по имени класса (`"User"`, `"Role"`), так и по новому имени таблицы (`"pf_auth_user"`) и историческому имени без префикса (`"auth_user"`).
-  - **Синхронизация UI-админки:** обновлены заголовки и резолверы моделей в Svelte 5 админке (`App.svelte`), пересобран бандл (`npm run build`).
-
-* [x] **v0.6.3: Архитектура CQRS, системная роль «Гость» (`guest`), публичный CRUD (`can_read`) и полное удаление легаси-совместимости:**
-  - **Системная роль `guest` (Zero Special Cases):** сокеты до авторизации всегда имеют системную роль `guest`. Упразднены рантайм-костыли `is_public`, колонка `is_public` в `RpcPermission`, параметр `public=True` в декораторах `@rpc_method` / `@app.rpc` и сет `PUBLIC_RPC_METHODS`.
-  - **Абсолютный Default Deny при создании БД:** на пустой базе роли `guest` выдаются строго только методы `login.*`. Любые другие методы и таблицы по умолчанию наглухо закрыты, пока админ не откроет их в панели.
-  - **Концепция CQRS для гостей:** чтение и выборка каталогов/статей через декларативный и сжатый `$tabular` CRUD (`crud.list`, `crud.get`) со Smart Cache инвалидацией, а мутации и бизнес-логика — строго через прикладные RPC-методы. В CRUD мутации (`create/update/delete`) для гостей аппаратно заблокированы (`RPCError(-32003)`).
-  - **Матрица прав для Гостя:** во вкладке «Гости» админки добавлен раздел «📊 Таблицы данных (Каталоги)» с возможностью включения публичного чтения (`can_read`).
-  - **Zero-Leakage в `crud.schema`:** гость видит только разрешенные для чтения модели.
-  - **Полное удаление кода обратной совместимости (Zero Technical Debt):**
-    - Удален модуль [pyferro/compat.py](file:///home/alex/pyferro/pyferro/compat.py).
-    - Удалены устаревшие функции `register_public_method`, `unregister_public_method`, `is_public_rpc_method`, алиасы `PUBLIC_RPC_METHODS`, `DEFAULT_PUBLIC_METHODS`, `reload_public_rpc_cache`.
-    - Удалена колонка `row_level_only` из `RolePermission` и `UserPermission` и ее поддержка в GUI; управление скоупами переведено исключительно на ортогональные флаги `read_global`, `update_global`, `delete_global`.
-    - Удалены алиасы `SecureModelBase = RowSecureModel`, `is_search_bot = is_bot`, параметры обратной совместимости в `notify_crud_change`.
-    - Удалена рудиментарная авто-миграция `_ensure_auth_columns`.
-    - Перекомпилирован интерфейс панели управления Svelte 5 (`npm run build`).
+## ✅ Выполнено в текущем релизе:
+* [x] **v0.7.0: Единый контракт сессий, архитектура CQRS (роль `guest`), изоляция системных таблиц (`pf_`) и ликвидация техдолга:**
+  - **Унифицированный контракт сессий (`JsonRpcSession` & `AuthSession`):**
+    - Добавлены единообразные свойства: `user_id`, `username`, `is_superadmin`, `is_admin`, `user_role`, `user_roles` как в объекте сессии сокета `JsonRpcSession`, так и в модели сессии `AuthSession`.
+    - Поддержка обратной совместимости с `session.data` (словарь или объект) без падений и дублирования логики извлечения идентификаторов.
+    - Введена каноническая функция `require_admin(session)` в ядре (`pyferro.core.session`), возвращающая стандартизированный `RPCError(-32003)` при нехватке прав.
+    - Устранены десятки строк бойлерплейта и ручных проверок в `pyferro/plugins/crud/admin_handlers.py`, `pyferro/plugins/crud/identity.py`, `pyferro/plugins/files/handlers.py`, `pyferro/broadcast.py`, `pyferro/core/logger.py`.
+  - **Изоляция системных таблиц фреймворка (Namespace Isolation) через `table_prefix='pf_'`:**
+    - Ко всем 17 системным таблицам фреймворка (`auth_user`, `auth_role`, `auth_team`, `auth_rpc_permission`, `auth_role_permission`, `auth_user_permission`, `auth_user_delegation`, `auth_user_auth_role`, `auth_user_auth_team`, `auth_role_auth_rpc_permission`, `auth_user_auth_rpc_permission`, `refresh_tokens`, `active_sessions`, `system_data`, `oauth_accounts`, `cache_tag_versions`, `file_metadata`) добавлен единый префикс `pf_` (`pf_auth_user`, `pf_auth_role`, `pf_cache_tag_versions`, `pf_file_metadata` и т.д.).
+    - Параметр `table_prefix` в `FerroApp(table_prefix="pf_")` и `configure(table_prefix=...)`.
+    - Подсистема `pyferro.db.naming` для валидации системных таблиц (`is_system_table_name`), динамического переключения и разрешения имен.
+    - Прозрачная обратная совместимость в `ModelRegistry.get()` по имени класса (`"User"`, `"Role"`), новому имени таблицы (`"pf_auth_user"`) и историческому имени (`"auth_user"`).
+    - Обновлены заголовки и резолверы моделей в Svelte 5 админке (`App.svelte`), пересобран бандл.
+  - **Архитектура CQRS, системная роль «Гость» (`guest`), публичный CRUD (`can_read`) и полное удаление легаси-совместимости:**
+    - Системная роль `guest` (Zero Special Cases): сокеты до авторизации всегда имеют системную роль `guest`. Упразднены рантайм-костыли `is_public`, колонка `is_public` в `RpcPermission`, параметр `public=True` в декораторах `@rpc_method` / `@app.rpc` и сет `PUBLIC_RPC_METHODS`.
+    - Абсолютный Default Deny при создании БД: на пустой базе роли `guest` выдаются строго только методы `login.*`. Любые другие методы и таблицы по умолчанию наглухо закрыты, пока админ не откроет их в панели.
+    - Концепция CQRS для гостей: чтение и выборка каталогов/статей через декларативный и сжатый `$tabular` CRUD (`crud.list`, `crud.get`) со Smart Cache инвалидацией, а мутации и бизнес-логика — строго через прикладные RPC-методы. В CRUD мутации (`create/update/delete`) для гостей аппаратно заблокированы (`RPCError(-32003)`).
+    - Матрица прав для Гостя: во вкладке «Гости» админки добавлен раздел «📊 Таблицы данных (Каталоги)» с возможностью включения публичного чтения (`can_read`).
+    - Zero-Leakage в `crud.schema`: гость видит только разрешенные для чтения модели.
+    - Полное удаление кода обратной совместимости (Zero Technical Debt): удален модуль `pyferro/compat.py`, устаревшие функции `register_public_method`, `unregister_public_method`, `is_public_rpc_method`, алиасы `PUBLIC_RPC_METHODS`, колонка `row_level_only` из `RolePermission` и `UserPermission`.
 * [x] **v0.5.14: Гранулярная матрица CRUD-прав (C R U D: Запрет / Свои / Все) и Делегирование (Замещение):**
   - **Раздельные скоупы действий:** в `RolePermission` и `UserPermission` добавлены поля `read_global`, `update_global`, `delete_global`, устранив ограничение единого флага `row_level_only` и позволив сценарий *«Читать все записи, но изменять и удалять только свои»*.
   - **Разделение автора (`creator_id`) и ответственного (`owner_id`):** в базовый класс `RowSecureModel` добавлено поле `owner_id` (текущий ответственный, по умолчанию равен автору). Поле `creator_id` зафиксировано как неизменяемый аудит создания (Immutable).

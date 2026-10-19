@@ -4,7 +4,7 @@ pyferro: High-performance reactive fullstack Python framework on Rust RSGI (Gran
 with symmetric WSRPC (JSON-RPC 2.0) and Tabular Data Compression (RFC 0002).
 """
 
-__version__ = "0.5.14"
+__version__ = "0.7.0"
 
 # Модули ядра первого уровня
 from pyferro import core
