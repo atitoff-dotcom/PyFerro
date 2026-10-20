@@ -277,6 +277,24 @@
     }
   }
 
+  let isAuditing = $state(false);
+  let auditReport = $state<any>(null);
+
+  async function handleAudit() {
+    isAuditing = true;
+    errorMessage = "";
+    try {
+      auditReport = await rpcClient.call("permissions.audit_access", {
+        target_type: "guest",
+        target_id: 0
+      });
+    } catch (e: any) {
+      errorMessage = e.message || "Ошибка аудита";
+    } finally {
+      isAuditing = false;
+    }
+  }
+
   onMount(() => {
     loadData();
   });
@@ -295,6 +313,9 @@
     </div>
 
     <div class="flex items-center gap-2.5">
+      <Button variant="secondary" size="sm" onclick={handleAudit} disabled={isAuditing || isSaving || isLoading}>
+        {isAuditing ? "⏳ WS Audit..." : "🛡️ WS Audit"}
+      </Button>
       <Button variant="secondary" size="sm" onclick={presetOpenAll}>
         {t.presetFull}
       </Button>
@@ -336,11 +357,21 @@
       <span>{successMessage}</span>
     </div>
   {/if}
-
   {#if errorMessage}
     <div class="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-semibold flex items-center gap-2">
       <span>⚠️</span>
       <span>{errorMessage}</span>
+    </div>
+  {/if}
+
+  {#if auditReport}
+    <div class="p-3 rounded-lg border text-xs font-semibold flex items-center justify-between {auditReport.passed ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400'}">
+      <span>
+        {auditReport.passed ? "✅ Реальный WS аудит пройден (без запуска RPC): 100% совпадение с БД CRUD" : `⚠️ Найдены расхождения: ${auditReport.mismatches?.length || 0}`}
+      </span>
+      <span class="font-mono">
+        RPC: {auditReport.matched_rpc}/{auditReport.total_rpc} | CRUD: {auditReport.matched_crud}/{auditReport.total_crud}
+      </span>
     </div>
   {/if}
 

@@ -27,7 +27,7 @@ from pyferro.core.session import (
 )
 from pyferro.core.tabular import tabular_response, pack_tabular
 from pyferro.core.logger import logger
-from pyferro.db import async_session
+from pyferro.db import async_session, system_db_session
 from pyferro.broadcast import broadcast_notification
 from pyferro.smart_cache import invalidates, version_registry, invalidate_tags
 from pyferro.plugins.seo import is_bot
@@ -63,6 +63,21 @@ class DemoSessionData:
         else:
             self.user_role = None
             self.user_roles = []
+
+        self.team_ids = []
+        self.delegated_user_ids = []
+        self.perms_dict = {
+            "Task": {
+                "can_create": role in ("admin", "user"),
+                "can_read": True,
+                "can_update": role in ("admin", "user"),
+                "can_delete": role in ("admin", "user"),
+                "read_global": True,
+                "update_global": role == "admin",
+                "delete_global": role == "admin",
+            }
+        }
+        self.user_ctx = self
 
     @property
     def role(self) -> str:
@@ -190,7 +205,7 @@ async def list_tasks(session: JsonRpcSession, params: dict = None):
     uid = getattr(data, "user_id", None)
     only_mine = params.get("only_mine", False)
 
-    async with async_session() as db:
+    async with system_db_session() as db:
         query = select(Task)
         if only_mine and uid:
             from pyferro.plugins.crud.identity import DefaultIdentityProvider
@@ -217,7 +232,7 @@ async def list_tasks_raw_json(session: JsonRpcSession, params: dict = None):
     uid = getattr(data, "user_id", None)
     only_mine = params.get("only_mine", False)
 
-    async with async_session() as db:
+    async with system_db_session() as db:
         query = select(Task)
         if only_mine and uid:
             from pyferro.plugins.crud.identity import DefaultIdentityProvider
@@ -253,7 +268,7 @@ async def add_task(session: JsonRpcSession, params: dict):
     creator_id = getattr(data, "user_id", None) or 1
     owner_id = params.get("owner_id") or creator_id
 
-    async with async_session() as db:
+    async with system_db_session() as db:
         task = Task(title=title, priority=priority, completed=False, creator_id=creator_id, owner_id=owner_id)
         db.add(task)
         await db.commit()
@@ -278,7 +293,7 @@ async def complete_task(session: JsonRpcSession, params: dict):
     user_id = getattr(data, "user_id", None)
     role = getattr(data, "role_name", "guest")
 
-    async with async_session() as db:
+    async with system_db_session() as db:
         result = await db.execute(select(Task).where(Task.id == int(task_id)))
         task = result.scalar_one_or_none()
         if not task:
@@ -318,7 +333,7 @@ async def update_task(session: JsonRpcSession, params: dict):
     user_id = getattr(data, "user_id", None)
     role = getattr(data, "role_name", "guest")
 
-    async with async_session() as db:
+    async with system_db_session() as db:
         result = await db.execute(select(Task).where(Task.id == int(task_id)))
         task = result.scalar_one_or_none()
         if not task:
@@ -377,7 +392,7 @@ async def delete_task(session: JsonRpcSession, params: dict):
     user_id = getattr(data, "user_id", None)
     role = getattr(data, "role_name", "guest")
 
-    async with async_session() as db:
+    async with system_db_session() as db:
         result = await db.execute(select(Task).where(Task.id == int(task_id)))
         task = result.scalar_one_or_none()
         if not task:

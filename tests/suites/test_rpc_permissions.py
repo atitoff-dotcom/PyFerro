@@ -2,12 +2,13 @@
 import pytest
 from unittest.mock import MagicMock
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from pyferro.core.session import (
     JsonRpcSession, rpc_method, RPC_REGISTRY, RPCError,
     GUEST_ALLOWED_RPC_METHODS, is_guest_rpc_allowed
 )
-from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, SYSTEM_ROLES
+from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE, SYSTEM_ROLES
 from pyferro.auth.models import Role, RpcPermission, User
 from pyferro.auth.core import AuthSession
 from pyferro.auth.discovery import sync_rpc_permissions, reload_guest_permissions_cache
@@ -90,7 +91,8 @@ async def test_crud_immutable_roles_protection():
 
         async with async_session() as db:
             # Убеждаемся в наличии ролей
-            for r_name in (ADMIN_ROLE, DEFAULT_USER_ROLE):
+            # Убеждаемся в наличии ролей
+            for r_name in (ADMIN_ROLE, GUEST_ROLE):
                 stmt = select(Role).where(Role.name == r_name)
                 if not (await db.execute(stmt)).scalar_one_or_none():
                     db.add(Role(name=r_name, description=f"Builtin {r_name}"))
@@ -104,7 +106,7 @@ async def test_crud_immutable_roles_protection():
 
             # Получаем id
             admin_id = (await db.execute(select(Role.id).where(Role.name == ADMIN_ROLE))).scalar_one()
-            user_id = (await db.execute(select(Role.id).where(Role.name == DEFAULT_USER_ROLE))).scalar_one()
+            guest_id = (await db.execute(select(Role.id).where(Role.name == GUEST_ROLE))).scalar_one()
             manager_id = (await db.execute(select(Role.id).where(Role.name == "manager"))).scalar_one()
     finally:
         system_bypass_ctx.reset(token)
@@ -121,11 +123,10 @@ async def test_crud_immutable_roles_protection():
         await handle_crud_delete(admin_session, {"model": "auth_role", "id": admin_id})
     assert "не может быть удалена" in str(exc_admin.value)
 
-    # Попытка удалить user -> RPCError
-    with pytest.raises(RPCError) as exc_user:
-        await handle_crud_delete(admin_session, {"model": "auth_role", "id": user_id})
-    assert "не может быть удалена" in str(exc_user.value)
-
+    # Попытка удалить guest -> RPCError
+    with pytest.raises(RPCError) as exc_guest:
+        await handle_crud_delete(admin_session, {"model": "auth_role", "id": guest_id})
+    assert "не может быть удалена" in str(exc_guest.value)
     # Попытка переименовать admin -> RPCError
     with pytest.raises(RPCError) as exc_rename:
         await handle_crud_update_cell(admin_session, {
@@ -250,12 +251,15 @@ async def test_permissions_api_flow():
                 await db.commit()
                 await db.refresh(role)
 
-            user = (await db.execute(select(User).where(User.login == "test_user_perm"))).scalar_one_or_none()
+            stmt_user = select(User).options(selectinload(User.roles)).where(User.login == "test_user_perm")
+            user = (await db.execute(stmt_user)).scalar_one_or_none()
             if not user:
                 user = User(name="Test User", login="test_user_perm", roles=[role])
                 db.add(user)
-                await db.commit()
-                await db.refresh(user)
+            else:
+                user.roles = [role]
+            await db.commit()
+            await db.refresh(user)
 
             role_id = role.id
             user_id = user.id
@@ -331,3 +335,218 @@ async def test_permissions_api_flow():
     assert "catalog.items" in guest_perms["rpc_permissions"]
     assert is_guest_rpc_allowed("catalog.items") is True
 
+
+@pytest.mark.asyncio
+async def test_live_ws_and_cookie_audit_real_users_without_passwords_and_no_handler_execution():
+    """
+    Проверяет:
+    1. Реальное подключение по WS (login.refresh без знания пароля) и HTTP Cookie (ferro_session + rpc_jwt)
+       под разными реальными пользователями (с комбинацией кастомных ролей, персональных прав и замещений).
+    2. Проверку доступа к RPC через флаг check_access=True ГАРАНТИРОВАННО БЕЗ запуска самого обработчика RPC.
+    3. Полную сверку ответов живого сокета с базой данных CRUD (permissions.audit_access).
+    4. Мгновенный Hot-Reload прав у открытого WebSocket-соединения при сохранении в CRUD (permissions.save).
+    """
+    import secrets
+    from datetime import datetime, timedelta, timezone
+    from pyferro.db import system_db_session
+    from pyferro.auth.auditor import LiveWsAuditClient, audit_target_permissions
+    from pyferro.auth.permission_handlers import (
+        handle_permissions_audit_access,
+        handle_permissions_save,
+    )
+    from pyferro.auth.models import RefreshToken, UserDelegation
+
+    trap_executions = 0
+
+    @rpc_method("audit_trap.explode")
+    async def trap_explode():
+        """Опасный метод-ловушка, который категорически нельзя запускать при проверке прав."""
+        nonlocal trap_executions
+        trap_executions += 1
+        raise RuntimeError("ОШИБКА: обработчик RPC был запущен во время проверки доступа!")
+
+    @rpc_method("orders.approve")
+    async def orders_approve():
+        """Одобрение заказа менеджером."""
+        nonlocal trap_executions
+        trap_executions += 1
+        return {"approved": True}
+
+    @rpc_method("reports.audit_log")
+    async def reports_audit_log():
+        """Выгрузка журнала аудита."""
+        nonlocal trap_executions
+        trap_executions += 1
+        return {"logs": []}
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    await sync_rpc_permissions()
+
+    admin_session = MagicMock()
+    admin_session.user_role = "admin"
+    admin_session.user_roles = ["admin"]
+    admin_session.is_admin = True
+    admin_session.is_superadmin = True
+    admin_session.cookies = {}
+
+    async with system_db_session() as db:
+        # 1. Создаем кастомные роли manager и auditor
+        role_mgr = (await db.execute(select(Role).where(Role.name == "manager_audit"))).scalar_one_or_none()
+        if not role_mgr:
+            role_mgr = Role(name="manager_audit", description="Менеджер заказов")
+            db.add(role_mgr)
+
+        role_aud = (await db.execute(select(Role).where(Role.name == "auditor_audit"))).scalar_one_or_none()
+        if not role_aud:
+            role_aud = Role(name="auditor_audit", description="Аудитор отчетов")
+            db.add(role_aud)
+
+        await db.commit()
+        await db.refresh(role_mgr)
+        await db.refresh(role_aud)
+
+        # 2. Создаем разных реальных пользователей БЕЗ известных паролей (хеш неизвестен / не используется)
+        stmt_mgr = select(User).options(selectinload(User.roles)).where(User.login == "real_manager_1")
+        u_mgr = (await db.execute(stmt_mgr)).scalar_one_or_none()
+        if not u_mgr:
+            u_mgr = User(
+                name="Реальный Менеджер",
+                login="real_manager_1",
+                password_hash=User._hash_password(secrets.token_urlsafe(24)),
+                roles=[role_mgr],
+            )
+            db.add(u_mgr)
+        else:
+            u_mgr.roles = [role_mgr]
+
+        stmt_combo = select(User).options(selectinload(User.roles)).where(User.login == "real_combo_user")
+        u_combo = (await db.execute(stmt_combo)).scalar_one_or_none()
+        if not u_combo:
+            u_combo = User(
+                name="Комбинированный Специалист",
+                login="real_combo_user",
+                password_hash=None,  # Вход только по OAuth/токену, пароля вообще нет!
+                roles=[role_mgr, role_aud],
+            )
+            db.add(u_combo)
+        else:
+            u_combo.roles = [role_mgr, role_aud]
+        await db.refresh(u_mgr)
+        await db.refresh(u_combo)
+
+        # Добавляем активное замещение (UserDelegation), чтобы проверить загрузку delegations_received при логине
+        delegation = UserDelegation(
+            from_user_id=u_mgr.id,
+            to_user_id=u_combo.id,
+            valid_from=datetime.now(timezone.utc) - timedelta(hours=1),
+            valid_to=datetime.now(timezone.utc) + timedelta(hours=1),
+            is_active=True,
+        )
+        db.add(delegation)
+        await db.commit()
+
+        mgr_role_id = role_mgr.id
+        aud_role_id = role_aud.id
+        u_mgr_id = u_mgr.id
+        u_combo_id = u_combo.id
+
+    # 3. Настраиваем права ролей и персональные права через CRUD API (permissions.save)
+    await handle_permissions_save(
+        admin_session,
+        target_type="role",
+        target_id=mgr_role_id,
+        crud_permissions={"Role": {"can_read": True, "read_global": True}},
+        rpc_permissions=["orders.approve"],
+    )
+    await handle_permissions_save(
+        admin_session,
+        target_type="role",
+        target_id=aud_role_id,
+        crud_permissions={},
+        rpc_permissions=["reports.audit_log"],
+    )
+    # Персональное право для u_combo на метод-ловушку audit_trap.explode
+    await handle_permissions_save(
+        admin_session,
+        target_type="user",
+        target_id=u_combo_id,
+        crud_permissions={"User": {"can_read": True, "read_global": False}},
+        rpc_permissions=["audit_trap.explode"],
+    )
+
+    # 4. Проверяем полный аудит (WS + HTTP Cookie vs БД CRUD) для реального менеджера (не зная его пароля!)
+    report_mgr = await handle_permissions_audit_access(admin_session, target_type="user", target_id=u_mgr_id)
+    assert report_mgr["passed"] is True, f"Найдены расхождения для u_mgr: {report_mgr['mismatches']}"
+    assert report_mgr["rpc_results"]["orders.approve"]["expected"] is True
+    assert report_mgr["rpc_results"]["orders.approve"]["ws_actual"] is True
+    assert report_mgr["rpc_results"]["orders.approve"]["cookie_actual"] is True
+    assert report_mgr["rpc_results"]["reports.audit_log"]["expected"] is False
+    assert report_mgr["rpc_results"]["reports.audit_log"]["ws_actual"] is False
+    assert report_mgr["rpc_results"]["audit_trap.explode"]["expected"] is False
+    assert report_mgr["rpc_results"]["audit_trap.explode"]["ws_actual"] is False
+
+    # 5. Проверяем полный аудит для комбинированного пользователя (2 роли + персональное право на ловушку + делегирование)
+    report_combo = await handle_permissions_audit_access(admin_session, target_type="user", target_id=u_combo_id)
+    assert report_combo["passed"] is True, f"Найдены расхождения для u_combo: {report_combo['mismatches']}"
+    assert report_combo["rpc_results"]["orders.approve"]["ws_actual"] is True
+    assert report_combo["rpc_results"]["reports.audit_log"]["ws_actual"] is True
+    assert report_combo["rpc_results"]["audit_trap.explode"]["ws_actual"] is True
+    assert report_combo["rpc_results"]["audit_trap.explode"]["cookie_actual"] is True
+
+    # 6. Проверяем аудит для кастомной роли и для гостей
+    report_role = await handle_permissions_audit_access(admin_session, target_type="role", target_id=mgr_role_id)
+    assert report_role["passed"] is True, f"Найдены расхождения для роли: {report_role['mismatches']}"
+
+    report_guest = await handle_permissions_audit_access(admin_session, target_type="guest", target_id=0)
+    assert report_guest["passed"] is True, f"Найдены расхождения для гостя: {report_guest['mismatches']}"
+    assert report_guest["rpc_results"]["audit_trap.explode"]["ws_actual"] is False
+
+    # 7. КРИТИЧЕСКАЯ ПРОВЕРКА: ни один из RPC-методов не был физически запущен!
+    assert trap_executions == 0, f"Обработчик RPC был вызван {trap_executions} раз(а), хотя должен быть 0!"
+
+    # 8. Проверка Hot-Reload прав на живом открытом WebSocket-соединении без переподключения
+    async with system_db_session() as db:
+        temp_rt = RefreshToken(
+            user_id=u_mgr_id,
+            token=f"live_test_{secrets.token_urlsafe(24)}",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        db.add(temp_rt)
+        await db.commit()
+        live_token = temp_rt.token
+
+    async with LiveWsAuditClient() as live_ws:
+        await live_ws.call("login.refresh", {"token": live_token})
+        # До выдачи права доступ к audit_trap.explode закрыт
+        res_before = await live_ws.check_access("audit_trap.explode")
+        assert res_before["allowed"] is False
+        assert res_before["code"] == -32003
+
+        # Админ в CRUD выдает роли manager_audit право на audit_trap.explode
+        await handle_permissions_save(
+            admin_session,
+            target_type="role",
+            target_id=mgr_role_id,
+            crud_permissions={"Role": {"can_read": True, "read_global": True}},
+            rpc_permissions=["orders.approve", "audit_trap.explode"],
+        )
+
+        # На ТОМ ЖЕ открытом сокете без реконнекта право мгновенно появилось!
+        res_after_grant = await live_ws.check_access("audit_trap.explode")
+        assert res_after_grant["allowed"] is True
+        assert trap_executions == 0  # И ловушка снова НЕ взорвалась!
+
+        # Админ отзывает право в CRUD
+        await handle_permissions_save(
+            admin_session,
+            target_type="role",
+            target_id=mgr_role_id,
+            crud_permissions={"Role": {"can_read": True, "read_global": True}},
+            rpc_permissions=["orders.approve"],
+        )
+
+        # На ТОМ ЖЕ открытом сокете право мгновенно отозвано!
+        res_after_revoke = await live_ws.check_access("audit_trap.explode")
+        assert res_after_revoke["allowed"] is False

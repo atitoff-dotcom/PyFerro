@@ -124,6 +124,7 @@ class ModelMeta:
             "is_row_secure": self.is_row_secure,
             "is_archivable": self.is_archivable,
             "is_internal": self.is_internal,
+            "is_framework": bool(self.table_name.startswith("pf_") or self.table_name.startswith("auth_")),
             "permissions": permissions,
             "fields": public_fields,
         }

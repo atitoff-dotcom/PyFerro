@@ -406,7 +406,7 @@ class User(RowSecureModel):
 
     @property
     def is_superadmin(self) -> bool:
-        return any(role.id == 1 or role.name == "admin" for role in self.roles)
+        return any(role.name == "admin" for role in getattr(self, "roles", []))
 
     def get_allowed_rpc_methods(self) -> set[str]:
         """Возвращает набор разрешенных RPC-методов для пользователя (ролевые + персональные)."""

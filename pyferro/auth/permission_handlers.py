@@ -24,9 +24,43 @@ from pyferro.core.constants import ADMIN_ROLE
 from pyferro.db import system_db_session
 from .models import Role, User, RolePermission, UserPermission, RpcPermission
 
+def _inspect_handler_params(handler) -> Dict[str, Any]:
+    """Извлекает описание параметров RPC-хэндлера для схемы интроспекции."""
+    params_info = {}
+    if not handler or not callable(handler):
+        return params_info
+    try:
+        sig = inspect.signature(handler)
+        for param_name, param in sig.parameters.items():
+            if param_name in ("session", "ws", "context", "self", "cls"):
+                continue
+            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                continue
+            ann = param.annotation
+            type_name = "any"
+            if ann != inspect.Parameter.empty:
+                if hasattr(ann, "__name__"):
+                    type_name = ann.__name__
+                else:
+                    type_name = str(ann).replace("typing.", "")
+            has_default = param.default != inspect.Parameter.empty
+            default_val = None if not has_default else (
+                param.default if isinstance(param.default, (int, float, str, bool, list, dict, type(None)))
+                else str(param.default)
+            )
+            params_info[param_name] = {
+                "type": type_name,
+                "required": not has_default,
+                "default": default_val,
+            }
+    except Exception:
+        pass
+    return params_info
+
 @rpc_method("permissions.get_schema")
-async def handle_permissions_get_schema(session: JsonRpcSession) -> Dict[str, Any]:
-    """Возвращает список зарегистрированных моделей и RPC-методов для конфигурации прав."""
+@rpc_method("permissions.schema")
+async def handle_permissions_get_schema(session: JsonRpcSession, all: bool = False) -> Dict[str, Any]:
+    """Возвращает список зарегистрированных моделей и RPC-методов для конфигурации прав и интроспекции."""
     require_admin(session)
 
     from pyferro.plugins.crud.registry import ModelRegistry
@@ -43,7 +77,7 @@ async def handle_permissions_get_schema(session: JsonRpcSession) -> Dict[str, An
     }
 
     for meta in sorted(ModelRegistry.all().values(), key=lambda m: m.verbose_name or m.key):
-        if meta.key in blacklist:
+        if not all and meta.key in blacklist:
             continue
         models_info.append({
             "key": meta.key,
@@ -60,27 +94,34 @@ async def handle_permissions_get_schema(session: JsonRpcSession) -> Dict[str, An
     for name in sorted(RPC_REGISTRY.keys()):
         if name in seen:
             continue
-        if name.startswith("crud.") or name.startswith("permissions.") or name in ("system.ping", "system.status", "system.ws_status"):
+        if not all and (name.startswith("crud.") or name.startswith("permissions.") or name in ("system.ping", "system.status", "system.ws_status")):
             continue
         seen.add(name)
         group = name.split(".")[0] if "." in name else "other"
         handler = RPC_REGISTRY.get(name)
         full_doc = ""
         first_line = ""
+        params_info = {}
         if handler:
             full_doc = inspect.getdoc(handler) or getattr(handler, "__doc__", "") or ""
             if full_doc:
                 lines = [l.strip() for l in full_doc.strip().split("\n") if l.strip()]
                 if lines:
                     first_line = lines[0]
+            if all:
+                params_info = _inspect_handler_params(handler)
 
-        rpc_list.append({
+        is_fw_rpc = name.startswith(("crud.", "system.", "auth.", "login.", "permissions.", "raw_ws.")) or group in ("crud", "system", "auth", "login", "permissions", "raw_ws")
+        item = {
             "name": name,
             "group": group,
             "is_public": is_guest_rpc_allowed(name),
+            "is_framework": is_fw_rpc,
             "description": first_line or f"RPC method {name}",
-            "help": full_doc.strip()
-        })
+            "help": full_doc.strip(),
+            "params": params_info or (_inspect_handler_params(handler) if handler else {})
+        }
+        rpc_list.append(item)
 
     # 2. Дополняем описаниями из БД
     async with system_db_session() as db:
@@ -97,23 +138,28 @@ async def handle_permissions_get_schema(session: JsonRpcSession) -> Dict[str, An
             # Также добавляем методы из БД, которых еще не было в rpc_list
             for db_item in db_rpcs:
                 if db_item.name not in seen:
-                    if db_item.name.startswith("crud.") or db_item.name.startswith("permissions."):
+                    if not all and (db_item.name.startswith("crud.") or db_item.name.startswith("permissions.")):
                         continue
                     seen.add(db_item.name)
                     group = db_item.name.split(".")[0] if "." in db_item.name else "other"
                     handler = RPC_REGISTRY.get(db_item.name)
                     full_doc = ""
+                    params_info = {}
                     if handler:
                         full_doc = inspect.getdoc(handler) or getattr(handler, "__doc__", "") or ""
+                        if all:
+                            params_info = _inspect_handler_params(handler)
 
-                    rpc_list.append({
+                    item = {
                         "name": db_item.name,
                         "group": group,
                         "is_public": is_guest_rpc_allowed(db_item.name),
                         "description": db_item.description or f"RPC method {db_item.name}",
                         "help": full_doc.strip()
-                    })
-
+                    }
+                    if all:
+                        item["params"] = params_info
+                    rpc_list.append(item)
 
     # Сортируем RPC методы по группе и имени
     rpc_list.sort(key=lambda x: (x["group"], x["name"]))
@@ -439,6 +485,13 @@ async def handle_permissions_save(
 
             await db.commit()
 
+            # Горячая перезагрузка прав для всех открытых WebSocket-сессий
+            try:
+                from pyferro.auth.auditor import reload_active_sessions_permissions
+                await reload_active_sessions_permissions()
+            except Exception:
+                pass
+
             # Оповещаем подписчиков через broadcast
             try:
                 from pyferro.broadcast import broadcast_notification
@@ -451,3 +504,29 @@ async def handle_permissions_save(
 
             return {"success": True, "target_type": target_type, "target_id": target_id}
 
+
+@rpc_method("permissions.audit_access")
+async def handle_permissions_audit_access(
+    session: JsonRpcSession,
+    target_type: str,
+    target_id: int = 0,
+) -> Dict[str, Any]:
+    """
+    Аудит реального доступа к RPC и CRUD через живое WS/HTTP-соединение.
+
+    Подключается под целевым пользователем (без знания его пароля через сервисный токен и HTTP Cookie),
+    ролью или гостем, проверяет все методы в режиме check_access=True (без запуска обработчиков)
+    и сверяет фактический ответ сокета с базой данных CRUD.
+    """
+    require_admin(session)
+
+    if target_type not in ("role", "user", "guest"):
+        raise RPCError(-32602, "Параметр target_type должен быть 'role', 'user' или 'guest'")
+
+    try:
+        from pyferro.auth.auditor import audit_target_permissions
+        return await audit_target_permissions(target_type=target_type, target_id=int(target_id or 0))
+    except ValueError as ve:
+        raise RPCError(-32004, str(ve))
+    except Exception as e:
+        raise RPCError(-32000, f"Ошибка аудита прав доступа: {e}")

@@ -11,7 +11,7 @@ from typing import Set
 from sqlalchemy import select
 
 from pyferro.core.logger import logger
-from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, GUEST_ROLE, SYSTEM_ROLES
+from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE, SYSTEM_ROLES
 from pyferro.core.session import (
     RPC_REGISTRY,
     GUEST_ALLOWED_RPC_METHODS,
@@ -77,10 +77,31 @@ async def reload_guest_permissions_cache() -> None:
         GUEST_ALLOWED_RPC_METHODS.update(DEFAULT_LOGIN_METHODS)
 
 
+async def ensure_system_roles(db) -> tuple[Role, Role]:
+    """Гарантирует наличие обязательных системных ролей admin и guest в БД."""
+    stmt_roles = select(Role).options(selectinload(Role.rpc_permissions))
+    existing = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
+
+    if ADMIN_ROLE not in existing:
+        admin_role = Role(name=ADMIN_ROLE, description="Системный администратор (Superadmin)")
+        db.add(admin_role)
+        existing[ADMIN_ROLE] = admin_role
+
+    if GUEST_ROLE not in existing:
+        guest_role = Role(name=GUEST_ROLE, description="Гость / Неавторизованный посетитель")
+        db.add(guest_role)
+        existing[GUEST_ROLE] = guest_role
+
+    await db.commit()
+    await db.refresh(existing[ADMIN_ROLE])
+    await db.refresh(existing[GUEST_ROLE])
+    return existing[ADMIN_ROLE], existing[GUEST_ROLE]
+
+
 async def sync_rpc_permissions() -> None:
     """
     Синхронизирует зарегистрированные в коде RPC-методы с базой данных.
-    1. Создает системные роли (admin, user, guest), если их еще нет.
+    1. Проверяет наличие обязательных системных ролей (admin, guest); если отсутствуют - падает.
     2. Сканирует RPC_REGISTRY и добавляет новые методы в auth_rpc_permission.
     3. Привязывает к роли guest только методы логина (Default Deny).
     4. Загружает права гостя в O(1) in-memory кэш (GUEST_ALLOWED_RPC_METHODS / GUEST_ALLOWED_CRUD_MODELS).
@@ -91,33 +112,21 @@ async def sync_rpc_permissions() -> None:
             await conn.run_sync(Base.metadata.create_all)
 
         async with system_db_session() as db:
-            # 1. Проверяем и создаем системные роли
+            # 1. Проверяем обязательные системные роли (admin, guest)
             stmt_roles = select(Role).options(selectinload(Role.rpc_permissions))
             existing_roles = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
 
-            if ADMIN_ROLE not in existing_roles:
-                admin_role = Role(name=ADMIN_ROLE, description="Системный администратор (Superadmin)")
-                db.add(admin_role)
-                existing_roles[ADMIN_ROLE] = admin_role
-                logger.info(f"[Discovery] Создана системная роль '{ADMIN_ROLE}'")
-
-            if DEFAULT_USER_ROLE not in existing_roles:
-                user_role = Role(name=DEFAULT_USER_ROLE, description="Базовый зарегистрированный пользователь")
-                db.add(user_role)
-                existing_roles[DEFAULT_USER_ROLE] = user_role
-                logger.info(f"[Discovery] Создана системная роль '{DEFAULT_USER_ROLE}'")
-
-            if GUEST_ROLE not in existing_roles:
-                guest_role = Role(name=GUEST_ROLE, description="Гость / Неавторизованный посетитель")
-                db.add(guest_role)
-                existing_roles[GUEST_ROLE] = guest_role
-                logger.info(f"[Discovery] Создана системная роль '{GUEST_ROLE}'")
-
-            await db.commit()
+            missing_roles = [r for r in (ADMIN_ROLE, GUEST_ROLE) if r not in existing_roles]
+            if missing_roles:
+                error_msg = (
+                    f"CRITICAL: В базе данных отсутствуют обязательные системные роли {missing_roles}! "
+                    f"Запуск сервера невозможен. Инициализируйте базу через CLI ('createsuperuser')."
+                )
+                logger.critical(f"[Discovery] {error_msg}")
+                raise RuntimeError(error_msg)
 
             guest_role = existing_roles[GUEST_ROLE]
             guest_rpc_ids = {rp.id for rp in guest_role.rpc_permissions}
-
             # 2. Сканируем зарегистрированные методы
             stmt_perms = select(RpcPermission)
             existing_perms = {p.name: p for p in (await db.execute(stmt_perms)).scalars().all()}
@@ -174,6 +183,8 @@ async def sync_rpc_permissions() -> None:
             # 4. Актуализируем in-memory кэш гостя
             await reload_guest_permissions_cache()
 
+    except RuntimeError:
+        raise
     except Exception as e:
         logger.warning(f"[Discovery] Пропущен авто-синк RPC методов (БД не инициализирована или офлайн): {e}")
         GUEST_ALLOWED_RPC_METHODS.update(DEFAULT_LOGIN_METHODS)

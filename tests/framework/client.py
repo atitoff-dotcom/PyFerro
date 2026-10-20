@@ -28,8 +28,9 @@ class RPCClientError(Exception):
 class TestClient:
     __test__ = False
 
-    def __init__(self, target: Optional[TargetConfig] = None):
+    def __init__(self, target: Optional[TargetConfig] = None, cookies: Optional[Dict[str, str]] = None):
         self.target = target or get_target()
+        self.cookies = cookies or {}
         self._http_session: Optional[aiohttp.ClientSession] = None
         self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
         self._next_id = 1
@@ -43,10 +44,13 @@ class TestClient:
     async def connect(self):
         """Устанавливает HTTP-сессию и WebSocket-соединение с сервером."""
         if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession()
-        
+            self._http_session = aiohttp.ClientSession(cookies=self.cookies)
+
         if self._ws is None or self._ws.closed:
-            self._ws = await self._http_session.ws_connect(self.target.ws_url)
+            headers = {}
+            if self.cookies:
+                headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items() if v)
+            self._ws = await self._http_session.ws_connect(self.target.ws_url, headers=headers)
             self._listen_task = asyncio.create_task(self._listen_loop())
 
     async def close(self):
@@ -145,10 +149,48 @@ class TestClient:
             if raw:
                 return res
             try:
-                from core.tabular import unpack_tabular
+                from pyferro.core.tabular import unpack_tabular
                 return unpack_tabular(res)
             except ImportError:
                 return res
+        finally:
+            self._pending_requests.pop(req_id, None)
+
+    async def check_access(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Dict[str, Any]:
+        """
+        Проверяет доступ к RPC-методу через префлайт-флаг check_access=True по WebSocket
+        гарантированно БЕЗ запуска самого обработчика RPC-метода.
+        """
+        await self.connect()
+        req_id = self._next_id
+        self._next_id += 1
+
+        payload = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params or {},
+            "check_access": True,
+            "id": req_id,
+        }
+
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        self._pending_requests[req_id] = fut
+
+        try:
+            await self._ws.send_bytes(orjson.dumps(payload))
+            res = await asyncio.wait_for(fut, timeout=timeout)
+            return {
+                "allowed": bool(isinstance(res, dict) and res.get("allowed", False)),
+                "code": 0,
+                "message": "OK",
+            }
+        except RPCClientError as err:
+            return {
+                "allowed": False,
+                "code": err.code,
+                "message": err.message,
+            }
         finally:
             self._pending_requests.pop(req_id, None)
 

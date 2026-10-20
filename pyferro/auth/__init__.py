@@ -31,6 +31,7 @@ from .models import (
 from .discovery import (
     sync_rpc_permissions,
     reload_guest_permissions_cache,
+    ensure_system_roles,
 )
 from .permissions import (
     check_permissions,
@@ -47,6 +48,11 @@ from .handlers import (
     handle_ws_disconnect,
 )
 from . import permission_handlers
+from .auditor import (
+    LiveWsAuditClient,
+    audit_target_permissions,
+    reload_active_sessions_permissions,
+)
 
 __all__ = [
     # Контексты и базовые классы RLS
@@ -74,6 +80,10 @@ __all__ = [
     # Service Discovery
     "sync_rpc_permissions",
     "reload_guest_permissions_cache",
+    "reload_active_sessions_permissions",
+    "ensure_system_roles",
+    "LiveWsAuditClient",
+    "audit_target_permissions",
     # Проверки прав
     "check_permissions",
     "prefill_ownership",

@@ -12,10 +12,31 @@ import sys
 import getpass
 from sqlalchemy import select
 
-from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE
+from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE
 from pyferro.db import system_db_session, Base, engine
 from pyferro.auth.models import User, Role
 from pyferro.auth.discovery import sync_rpc_permissions
+
+
+async def ensure_system_roles_exist(db) -> tuple[Role, Role]:
+    """Гарантирует наличие обязательных системных ролей admin и guest."""
+    stmt_roles = select(Role).where(Role.name.in_([ADMIN_ROLE, GUEST_ROLE]))
+    existing = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
+
+    if ADMIN_ROLE not in existing:
+        admin_role = Role(name=ADMIN_ROLE, description="Системный администратор (Superadmin)")
+        db.add(admin_role)
+        existing[ADMIN_ROLE] = admin_role
+
+    if GUEST_ROLE not in existing:
+        guest_role = Role(name=GUEST_ROLE, description="Гость / Неавторизованный посетитель")
+        db.add(guest_role)
+        existing[GUEST_ROLE] = guest_role
+
+    await db.commit()
+    await db.refresh(existing[ADMIN_ROLE])
+    await db.refresh(existing[GUEST_ROLE])
+    return existing[ADMIN_ROLE], existing[GUEST_ROLE]
 
 
 async def async_create_superuser(username: str, password: str, email: str = None) -> None:
@@ -24,64 +45,69 @@ async def async_create_superuser(username: str, password: str, email: str = None
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Синхронизируем базовые роли
-    await sync_rpc_permissions()
-
     async with system_db_session() as db:
-            # Ищем роль admin
-            stmt_role = select(Role).where(Role.name == ADMIN_ROLE)
-            admin_role = (await db.execute(stmt_role)).scalar_one_or_none()
-            if not admin_role:
-                admin_role = Role(name=ADMIN_ROLE, description="Системный администратор")
-                db.add(admin_role)
-                await db.commit()
-                await db.refresh(admin_role)
+        admin_role, guest_role = await ensure_system_roles_exist(db)
 
-            # Ищем или создаем пользователя
-            stmt_user = select(User).where(User.login == username)
-            user = (await db.execute(stmt_user)).scalar_one_or_none()
+        # Ищем или создаем пользователя
+        from sqlalchemy.orm import selectinload
+        stmt_user = select(User).options(selectinload(User.roles)).where(User.login == username)
+        user = (await db.execute(stmt_user)).scalar_one_or_none()
 
-            pwd_hash = User._hash_password(password)
-            if user:
-                user.password_hash = pwd_hash
-                if email:
-                    user.email = email
-                if admin_role not in user.roles:
-                    user.roles.append(admin_role)
-                print(f"[OK] Пользователь '{username}' обновлен и наделен правами администратора ({ADMIN_ROLE}).")
-            else:
-                user = User(
-                    login=username,
-                    name=username,
-                    email=email,
-                    password_hash=pwd_hash,
-                )
+        pwd_hash = User._hash_password(password)
+        if user:
+            user.password_hash = pwd_hash
+            if email:
+                user.email = email
+            if admin_role not in user.roles:
                 user.roles.append(admin_role)
-                db.add(user)
-                print(f"[OK] Администратор '{username}' успешно создан с ролью '{ADMIN_ROLE}'.")
+            print(f"[OK] Пользователь '{username}' обновлен и наделен правами администратора ({ADMIN_ROLE}).")
+        else:
+            user = User(
+                login=username,
+                name=username,
+                email=email,
+                password_hash=pwd_hash,
+            )
+            user.roles.append(admin_role)
+            db.add(user)
+            print(f"[OK] Администратор '{username}' успешно создан с ролью '{ADMIN_ROLE}'.")
 
-            await db.commit()
+        await db.commit()
+
+    # Синхронизируем базовые роли и RPC
+    await sync_rpc_permissions()
 
 
 async def async_set_password(login: str = "admin", password: str = None) -> str:
-    """Обновляет пароль пользователя в существующей БД строго DML (без DDL во избежание версионных проблем)."""
+    """Обновляет пароль пользователя в существующей БД и гарантирует включение в роль admin."""
     import secrets
     import string
     if not password:
         chars = string.ascii_letters + string.digits + "!@#$%^&*"
         password = "".join(secrets.choice(chars) for _ in range(16))
     async with system_db_session() as db:
-            stmt = select(User).where(User.login == login)
-            user = (await db.execute(stmt)).scalar_one_or_none()
-            if not user:
-                raise ValueError(
-                    f"Пользователь с логином '{login}' не найден в базе данных. "
-                    "Схема данных и пользователи должны быть предварительно инициализированы приложением."
-                )
-            user.password_hash = User._hash_password(password)
-            await db.commit()
-            return password
+        from sqlalchemy.orm import selectinload
+        stmt = select(User).options(selectinload(User.roles)).where(User.login == login)
+        user = (await db.execute(stmt)).scalar_one_or_none()
+        if not user:
+            raise ValueError(
+                f"Пользователь с логином '{login}' не найден в базе данных. "
+                "Схема данных и пользователи должны быть предварительно инициализированы приложением."
+            )
 
+        stmt_role = select(Role).where(Role.name == ADMIN_ROLE)
+        admin_role = (await db.execute(stmt_role)).scalar_one_or_none()
+        if not admin_role:
+            admin_role = Role(name=ADMIN_ROLE, description="Системный администратор (Superadmin)")
+            db.add(admin_role)
+            await db.flush()
+
+        if admin_role not in user.roles:
+            user.roles.append(admin_role)
+
+        user.password_hash = User._hash_password(password)
+        await db.commit()
+        return password
 
 def main():
     parser = argparse.ArgumentParser(description="pyferro CLI management tool")

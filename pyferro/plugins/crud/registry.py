@@ -8,13 +8,8 @@ from typing import Dict, Optional, Type, Set, Any
 from .meta import ModelMeta, build_model_meta
 
 
-# Служебные таблицы, исключаемые из админки по умолчанию
-DEFAULT_SYSTEM_BLACKLIST: Set[str] = {
-    "CacheTagVersion",
-    "RefreshToken",
-    "ActiveSession",
-    "OAuthAccount",
-}
+# Служебные таблицы, исключаемые из админки по умолчанию (пусто: все таблицы доступны по вкладкам)
+DEFAULT_SYSTEM_BLACKLIST: Set[str] = set()
 
 
 class ModelRegistry:

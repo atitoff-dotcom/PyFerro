@@ -90,6 +90,57 @@ class PersonaManager:
         return client
 
     @classmethod
+    async def as_existing_user(
+        cls,
+        user_id_or_login: int | str,
+        target: Optional[TargetConfig] = None,
+        via_cookie: bool = False,
+    ) -> TestClient:
+        """
+        Создает клиента и авторизует его под существующим реальным пользователем из БД
+        БЕЗ знания его пароля (через короткоживущий сервисный RefreshToken и login.refresh либо HTTP Cookie).
+        """
+        import secrets
+        from datetime import datetime, timedelta, timezone
+        from sqlalchemy import select
+        from pyferro.db import system_db_session
+        from pyferro.auth.models import User, RefreshToken
+
+        tgt = target or get_target()
+        async with system_db_session() as db:
+            if isinstance(user_id_or_login, int):
+                stmt = select(User).where(User.id == user_id_or_login)
+            else:
+                stmt = select(User).where(User.login == str(user_id_or_login))
+            user = (await db.execute(stmt)).scalar_one_or_none()
+            if not user:
+                raise ValueError(f"Пользователь '{user_id_or_login}' не найден в БД")
+
+            temp_token = f"persona_{secrets.token_urlsafe(32)}"
+            rt = RefreshToken(
+                user_id=user.id,
+                token=temp_token,
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            )
+            db.add(rt)
+            await db.commit()
+
+        if via_cookie:
+            client = TestClient(tgt, cookies={"ferro_session": temp_token})
+            await client.connect()
+            client.token = temp_token
+            return client
+
+        client = TestClient(tgt)
+        await client.connect()
+        res = await client.call("login.refresh", {
+            "token": temp_token,
+            "user_agent": "AgritaTestRunner/1.0",
+        })
+        client.token = res.get("token")
+        client.user_info = res
+        return client
+    @classmethod
     async def _ensure_local_user(cls, login: str, password: str, role: str = "user"):
         """Вспомогательный метод для гарантии наличия пользователя в локальной БД."""
         try:

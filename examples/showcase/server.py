@@ -100,14 +100,16 @@ async def init_database():
                 count_users = (await db.execute(select(func.count(User.id)))).scalar_one()
                 if count_users == 0:
                     # 1. Seed or retrieve demo roles
-                    stmt_roles = select(Role).where(Role.name.in_(["admin", "user", "editor"]))
+                    # 1. Seed or retrieve demo roles
+                    stmt_roles = select(Role).where(Role.name.in_(["admin", "guest", "editor", "reader"]))
                     existing_roles = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
 
                     role_admin = existing_roles.get("admin") or Role(name="admin", description="Full administrator access")
-                    role_user = existing_roles.get("user") or Role(name="user", description="Regular user with granular RLS access")
-                    role_editor = existing_roles.get("editor") or Role(name="editor", description="Content editor")
+                    role_guest = existing_roles.get("guest") or Role(name="guest", description="Guest public access")
+                    role_editor = existing_roles.get("editor") or Role(name="editor", description="Content editor with task access")
+                    role_reader = existing_roles.get("reader") or Role(name="reader", description="Content reader")
 
-                    for r in (role_admin, role_user, role_editor):
+                    for r in (role_admin, role_guest, role_editor, role_reader):
                         if r.name not in existing_roles:
                             db.add(r)
                     await db.flush()
@@ -129,7 +131,7 @@ async def init_database():
                         last_name="Wonderland",
                         email="alice@example.com",
                         password_hash=User._hash_password("user123"),
-                        roles=[role_user],
+                        roles=[role_editor],
                     )
                     u_bob = User(
                         login="bob",
@@ -138,14 +140,14 @@ async def init_database():
                         last_name="Builder",
                         email="bob@example.com",
                         password_hash=User._hash_password("bob123"),
-                        roles=[role_user],
+                        roles=[role_editor, role_reader],
                     )
                     db.add_all([u_admin, u_alice, u_bob])
                     await db.flush()
 
-                    # 3. Seed Granular Permissions for role 'user' on 'Task'
+                    # 3. Seed Granular Permissions for role 'editor' on 'Task'
                     perm_task = RolePermission(
-                        role_id=role_user.id,
+                        role_id=role_editor.id,
                         model_name="Task",
                         can_create=True,
                         can_read=True,

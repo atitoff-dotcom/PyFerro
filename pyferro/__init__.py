@@ -21,7 +21,7 @@ from pyferro.core.session import (
     ACTIVE_SESSIONS_SET
 )
 from pyferro.core.tabular import pack_tabular, unpack_tabular, tabular_response, is_tabular
-from pyferro.core.constants import ADMIN_ROLE, DEFAULT_USER_ROLE, SYSTEM_ROLES
+from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE, SYSTEM_ROLES
 from pyferro.core.router import http_route, HTTP_ROUTES
 from pyferro.core.http import (
     extract_header, extract_query_params,
@@ -89,7 +89,7 @@ __all__ = [
 
     # Константы ролей
     "ADMIN_ROLE",
-    "DEFAULT_USER_ROLE",
+    "GUEST_ROLE",
     "SYSTEM_ROLES",
 
     # HTTP & Cookies

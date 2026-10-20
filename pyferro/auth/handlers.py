@@ -126,6 +126,30 @@ async def _create_authenticated_session(
     Единая точка выпуска сессии, токенов и привязки к WebSocket-соединению.
     Дедуплицирует логику создания ActiveSession, JWT и AuthSession для всех провайдеров.
     """
+    # Гарантируем полную загрузку ролей и прав пользователя
+    stmt_user = select(User).options(
+        selectinload(User.roles).selectinload(Role.permissions),
+        selectinload(User.roles).selectinload(Role.rpc_permissions),
+        selectinload(User.teams),
+        selectinload(User.permissions),
+        selectinload(User.rpc_permissions),
+        selectinload(User.delegations_received),
+    ).where(User.id == user.id)
+    user = (await db_session.execute(stmt_user)).scalar_one()
+
+    user_roles = user.roles
+    if not user_roles:
+        logger.warning(f"[AUTH] Отказ во входе: у пользователя '{user.login}' отсутствуют назначенные роли.")
+        raise RPCError("Вход запрещен: учетная запись не имеет назначенных ролей")
+
+    raw_role_names = [r.name for r in user_roles]
+    if "admin" in raw_role_names:
+        role_name = "admin"
+        role_names = ["admin"]
+    else:
+        role_names = raw_role_names
+        role_name = role_names[0]
+
     if rt_obj is None:
         rt_obj = await issue_refresh_token(db_session, user.id)
 
@@ -140,20 +164,7 @@ async def _create_authenticated_session(
     await db_session.commit()
     await db_session.refresh(ws_session)
 
-    # Гарантируем загрузку ролей и прав
-    stmt_user = select(User).options(
-        selectinload(User.roles).selectinload(Role.permissions),
-        selectinload(User.roles).selectinload(Role.rpc_permissions),
-        selectinload(User.teams),
-        selectinload(User.permissions),
-        selectinload(User.rpc_permissions)
-    ).where(User.id == user.id)
-    user = (await db_session.execute(stmt_user)).scalar_one()
-
     user_context = user.get_permissions()
-    user_roles = user.roles
-    role_name = user_roles[0].name if user_roles else "user"
-    role_names = [r.name for r in user_roles] if user_roles else ["user"]
 
     jwt_token, _, _ = create_access_token(
         user_id=user.id,
@@ -409,8 +420,13 @@ async def handle_whoami(session: JsonRpcSession, args: Dict[str, Any]) -> Dict[s
         if not user:
             return {"authenticated": False, "role": "guest", "roles": ["guest"], "permissions": {}}
 
-        role_names = [r.name for r in user.roles] if user.roles else ["guest"]
-        role_name = role_names[0] if role_names else "guest"
+        raw_roles = [r.name for r in user.roles]
+        if "admin" in raw_roles:
+            role_names = ["admin"]
+            role_name = "admin"
+        else:
+            role_names = raw_roles if raw_roles else ["guest"]
+            role_name = role_names[0]
 
         return {
             "authenticated": True,
@@ -506,9 +522,6 @@ async def handle_register(session: JsonRpcSession, args: Dict[str, Any]) -> Dict
             if existing_email:
                 raise RPCError("Пользователь с таким email уже существует")
 
-        role_stmt = select(Role).where(Role.name == "user")
-        user_role = (await db_session.execute(role_stmt)).scalar_one_or_none()
-
         pwd_hash = await asyncio.to_thread(User._hash_password, password)
         new_user = User(
             name=name,
@@ -516,9 +529,6 @@ async def handle_register(session: JsonRpcSession, args: Dict[str, Any]) -> Dict
             email=email,
             password_hash=pwd_hash
         )
-        if user_role:
-            new_user.roles.append(user_role)
-
         db_session.add(new_user)
         await db_session.commit()
         await db_session.refresh(new_user)
@@ -697,9 +707,6 @@ async def handle_oauth_vk(session: JsonRpcSession, args: Dict[str, Any]) -> Dict
                     if (await db_session.execute(check_stmt)).scalar_one_or_none():
                         clean_login = f"vk_{vk_user_id}"
 
-                    role_stmt = select(Role).where(Role.name == "user")
-                    user_role = (await db_session.execute(role_stmt)).scalar_one_or_none()
-
                     user = User(
                         name=full_name or clean_login,
                         first_name=first_name or None,
@@ -708,9 +715,6 @@ async def handle_oauth_vk(session: JsonRpcSession, args: Dict[str, Any]) -> Dict
                         email=vk_email,
                         password_hash=None
                     )
-                    if user_role:
-                        user.roles.append(user_role)
-
                     db_session.add(user)
                     await db_session.flush()
                     logger.info(f"[AUTH VK] Зарегистрирован новый пользователь '{user.login}' (id={user.id}) через VK.")
@@ -858,9 +862,6 @@ async def handle_oauth_yandex(session: JsonRpcSession, args: Dict[str, Any]) -> 
                     if (await db_session.execute(check_stmt)).scalar_one_or_none():
                         clean_login = f"ya_{ya_user_id}"
 
-                    role_stmt = select(Role).where(Role.name == "user")
-                    user_role = (await db_session.execute(role_stmt)).scalar_one_or_none()
-
                     user = User(
                         name=full_name or clean_login,
                         first_name=first_name or None,
@@ -869,9 +870,6 @@ async def handle_oauth_yandex(session: JsonRpcSession, args: Dict[str, Any]) -> 
                         email=ya_email,
                         password_hash=None
                     )
-                    if user_role:
-                        user.roles.append(user_role)
-
                     db_session.add(user)
                     await db_session.flush()
                     logger.info(f"[AUTH YANDEX] Зарегистрирован новый пользователь '{user.login}' (id={user.id}) через Яндекс ID.")

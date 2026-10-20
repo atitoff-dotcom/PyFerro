@@ -258,19 +258,26 @@ class FerroApp:
         cookies = session.cookies
         if not cookies:
             return
-        from pyferro.core.http import extract_session_token
-        token = extract_session_token(cookies, session_prefix=self.session_prefix)
-        if not token:
+        from pyferro.core.http import get_session_cookie_names
+
+        candidate_tokens = []
+        for name in get_session_cookie_names(self.session_prefix):
+            val = cookies.get(name)
+            if val and val not in candidate_tokens:
+                candidate_tokens.append(val)
+        if not candidate_tokens:
             return
 
         user_info = None
-        try:
-            from pyferro.plugins.crud.auth import get_crud_session
-            user_info = get_crud_session(token)
-        except Exception:
-            pass
+        for token in candidate_tokens:
+            try:
+                from pyferro.plugins.crud.auth import get_crud_session
+                user_info = get_crud_session(token)
+                if user_info:
+                    break
+            except Exception:
+                pass
 
-        if not user_info:
             try:
                 from pyferro.core.security import decode_access_token
                 payload = decode_access_token(token)
@@ -290,6 +297,7 @@ class FerroApp:
                         "perms_dict": payload.get("permissions") or payload.get("perms_dict") or {},
                         "allowed_rpc_methods": {"*"} if is_admin else set(payload.get("allowed_rpc_methods", [])),
                     }
+                    break
             except Exception:
                 pass
 
@@ -308,6 +316,7 @@ class FerroApp:
                 "is_superadmin": is_superadmin,
                 "user_id": uid,
                 "team_ids": user_info.get("team_ids", []),
+                "delegated_user_ids": user_info.get("delegated_user_ids", []),
                 "perms_dict": user_info.get("perms_dict", {}),
                 "allowed_rpc_methods": {"*"} if is_superadmin else set(user_info.get("allowed_rpc_methods", [])),
             })()
@@ -328,6 +337,78 @@ class FerroApp:
             )
             logger.info(f"[AutoAuth] WebSocket #{session.session_id} автоматически авторизован по Cookie как {user_info.get('username')} ({role})")
 
+    async def _hydrate_ws_auth_from_db(self, session: JsonRpcSession) -> None:
+        """
+        Дозагружает актуальные права пользователя (роли, RPC, CRUD, замещения) из БД при авто-авторизации по Cookie,
+        а также разрешает сессию по RefreshToken (ferro_session), если JWT не был передан.
+        """
+        cookies = session.cookies
+        if not cookies and session.data is None:
+            return
+        if session.data is not None and session.is_superadmin:
+            return
+        try:
+            from datetime import datetime, timezone
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
+            from pyferro.db import system_db_session
+            from pyferro.auth.models import User, Role, RefreshToken
+            from pyferro.auth import AuthSession
+            from pyferro.core.http import get_session_cookie_names
+
+            async with system_db_session() as db:
+                target_uid = None
+                if session.data is not None:
+                    target_uid = session.user_id
+                else:
+                    # Попытка найти активный RefreshToken из cookie (например, ferro_session)
+                    for name in get_session_cookie_names(self.session_prefix):
+                        token_val = cookies.get(name)
+                        if not token_val:
+                            continue
+                        stmt_rt = select(RefreshToken).where(
+                            RefreshToken.token == token_val,
+                            RefreshToken.expires_at > datetime.now(timezone.utc)
+                        )
+                        rt_obj = (await db.execute(stmt_rt)).scalar_one_or_none()
+                        if rt_obj:
+                            target_uid = rt_obj.user_id
+                            break
+
+                if not target_uid:
+                    return
+
+                stmt_user = select(User).options(
+                    selectinload(User.roles).selectinload(Role.permissions),
+                    selectinload(User.roles).selectinload(Role.rpc_permissions),
+                    selectinload(User.teams),
+                    selectinload(User.permissions),
+                    selectinload(User.rpc_permissions),
+                    selectinload(User.delegations_received),
+                ).where(User.id == target_uid)
+                user = (await db.execute(stmt_user)).scalar_one_or_none()
+                if not user:
+                    return
+
+                user_ctx = user.get_permissions()
+                role_names = [r.name for r in user.roles] if user.roles else ["user"]
+                role_name = role_names[0] if role_names else "user"
+
+                session.data = AuthSession(
+                    uid=user.id,
+                    user=user,
+                    user_name=user.login or user.name,
+                    user_role=role_name,
+                    user_roles=role_names,
+                    session_db_id=getattr(session.data, "session_db_id", 0) if session.data else 0,
+                    user_ctx=user_ctx,
+                    allowed_rpc_methods=getattr(user_ctx, "allowed_rpc_methods", set()),
+                    send_request_cb=getattr(session, "send_request", None),
+                    send_stream_cb=getattr(session, "send_stream_chunk", None),
+                    close_cb=getattr(session, "close", None),
+                )
+        except Exception as e:
+            logger.debug(f"[AutoAuth] Не удалось дозагрузить права из БД для сессии #{session.session_id}: {e}")
     # --- ДЕКОРАТОРЫ ---
 
     def rpc(self, name: str, description: Optional[str] = None, http: bool = False):
@@ -521,6 +602,7 @@ class FerroApp:
             session = JsonRpcSession(ws, session_id, ip=client_ip, scope=scope)
             if self.auto_auth_ws:
                 self._auto_authenticate_ws(session)
+                await self._hydrate_ws_auth_from_db(session)
             for cb in self._on_connect_callbacks:
                 try:
                     if inspect.iscoroutinefunction(cb):

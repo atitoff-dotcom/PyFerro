@@ -404,59 +404,23 @@ class JsonRpcSession:
                     await self._send_error(rpc_id, -32601, f"Method '{method_name}' not found")
                     continue
 
-                # 1. Проверка для методов CRUD
-                if method_name.startswith("crud."):
-                    if not self.authenticated:
-                        # Для неавторизованной сессии (роль guest) разрешены ТОЛЬКО чтение и схема:
-                        if method_name not in ("crud.list", "crud.get", "crud.schema"):
-                            await self._send_error(
-                                rpc_id,
-                                -32003,
-                                "Мутации в CRUD запрещены для роли Гость. Используйте специализированные RPC-методы."
-                            )
-                            continue
-                else:
-                    # 2. Проверка обычных RPC-методов для роли guest
-                    if not self.authenticated:
-                        login_rpc = settings.security.get("login_rpc")
-                        is_allowed_guest = (
-                            is_guest_rpc_allowed(method_name)
-                            or (login_rpc is not None and (login_rpc == "" or method_name.startswith(login_rpc)))
-                            or method_name.startswith("login.")
-                            or method_name in ("auth.login", "auth.me", "auth.whoami", "auth.submit")
-                        )
-                        if not is_allowed_guest:
-                            await self._send_error(rpc_id, -32001, "Unauthorized: доступ запрещен для роли Гость.")
-                            continue
+                is_preflight = bool(data.get("check_access") is True)
+                if is_preflight and self.rate_limit_enabled and self.tokens > 0:
+                    self.tokens -= 1
 
-                # 3. Проверка прав авторизованного пользователя (O(1) in-memory)
-                if self.authenticated and not method_name.startswith("crud."):
-                    has_perm = False
-                    session_data = self.data
-                    if session_data:
-                        if hasattr(session_data, "has_rpc_permission"):
-                            has_perm = session_data.has_rpc_permission(method_name)
-                        else:
-                            role = getattr(session_data, "user_role", None) or getattr(self, "user_role", None)
-                            roles = getattr(session_data, "user_roles", None) or getattr(self, "user_roles", [])
-                            if role in ("admin", "ADMIN") or "admin" in roles or "ADMIN" in roles:
-                                has_perm = True
-                            elif hasattr(session_data, "allowed_rpc_methods"):
-                                allowed = session_data.allowed_rpc_methods
-                                has_perm = "*" in allowed or method_name in allowed
-                                if not has_perm:
-                                    for m in allowed:
-                                        if m.endswith(".*") and method_name.startswith(m[:-1]):
-                                            has_perm = True
-                                            break
+                allowed, err_code, err_msg = self.check_rpc_access(method_name, params, is_preflight=is_preflight)
+                if not allowed:
+                    await self._send_error(rpc_id, err_code, err_msg)
+                    continue
 
-                    # Если метод открыт роли guest, авторизованный пользователь тоже имеет к нему доступ
-                    if not has_perm and is_guest_rpc_allowed(method_name):
-                        has_perm = True
-
-                    if not has_perm:
-                        await self._send_error(rpc_id, -32003, f"Доступ к методу '{method_name}' запрещен.")
-                        continue
+                if is_preflight:
+                    payload_str = orjson.dumps({
+                        "jsonrpc": "2.0",
+                        "result": {"allowed": True, "method": method_name},
+                        "id": rpc_id,
+                    }).decode("utf-8")
+                    await self.send_str(payload_str)
+                    continue
 
                 task = asyncio.create_task(
                     self._run_rpc_handler(handler, method_name, rpc_id, params)
@@ -468,13 +432,109 @@ class JsonRpcSession:
             # Гарантированная очистка ресурсов в одной точке
             await self.close()
 
+    def check_rpc_access(self, method_name: str, params: Any = None, is_preflight: bool = False) -> tuple[bool, int, str]:
+        """
+        Проверяет права доступа текущей сессии к указанному RPC-методу без запуска его обработчика.
+        Возвращает кортеж (allowed, error_code, error_message).
+        """
+        if method_name not in RPC_REGISTRY:
+            return False, -32601, f"Method '{method_name}' not found"
+
+        # 1. Проверка для методов CRUD
+        if method_name.startswith("crud."):
+            if not self.authenticated:
+                if method_name not in ("crud.list", "crud.get", "crud.schema"):
+                    return (
+                        False,
+                        -32003,
+                        "Мутации в CRUD запрещены для роли Гость. Используйте специализированные RPC-методы.",
+                    )
+                if is_preflight and method_name in ("crud.list", "crud.get") and isinstance(params, dict) and params.get("model"):
+                    model_name = str(params["model"])
+                    if model_name not in GUEST_ALLOWED_CRUD_MODELS:
+                        return False, -32003, f"Чтение модели '{model_name}' запрещено для роли Гость."
+            elif is_preflight and isinstance(params, dict) and params.get("model"):
+                if not (self.is_admin or self.is_superadmin):
+                    model_name = str(params["model"])
+                    action_map = {
+                        "crud.list": "can_read",
+                        "crud.get": "can_read",
+                        "crud.lookup": "can_read",
+                        "crud.create": "can_create",
+                        "crud.update_cell": "can_update",
+                        "crud.bulk_update": "can_update",
+                        "crud.delete": "can_delete",
+                    }
+                    perm_key = action_map.get(method_name)
+                    if perm_key:
+                        user_ctx = getattr(self.data, "user_ctx", None) if self.data else None
+                        perms_dict = getattr(user_ctx, "perms_dict", {}) if user_ctx else {}
+                        if not perms_dict and isinstance(self.data, dict):
+                            perms_dict = self.data.get("perms_dict") or self.data.get("permissions") or {}
+                        model_perms = perms_dict.get(model_name, {}) if isinstance(perms_dict, dict) else {}
+                        if not model_perms.get(perm_key, False):
+                            return False, -32003, f"Доступ к операции '{method_name}' для модели '{model_name}' запрещен."
+            return True, 0, ""
+
+        # 2. Системные методы управления правами требуют прав администратора
+        if method_name.startswith("permissions."):
+            if not (self.is_admin or self.is_superadmin):
+                return False, -32003, "Доступ запрещен: требуются права администратора"
+            return True, 0, ""
+
+        # 3. Проверка обычных RPC-методов для роли guest
+        if not self.authenticated:
+            login_rpc = settings.security.get("login_rpc")
+            is_allowed_guest = (
+                is_guest_rpc_allowed(method_name)
+                or (login_rpc is not None and (login_rpc == "" or method_name.startswith(login_rpc)))
+                or method_name.startswith("login.")
+                or method_name in ("auth.login", "auth.me", "auth.whoami", "auth.submit")
+            )
+            if not is_allowed_guest:
+                return False, -32001, "Unauthorized: доступ запрещен для роли Гость."
+            return True, 0, ""
+
+        # 4. Проверка прав авторизованного пользователя (O(1) in-memory)
+        has_perm = False
+        session_data = self.data
+        if session_data:
+            if hasattr(session_data, "has_rpc_permission"):
+                has_perm = session_data.has_rpc_permission(method_name)
+            else:
+                role = getattr(session_data, "user_role", None) or getattr(self, "user_role", None)
+                roles = getattr(session_data, "user_roles", None) or getattr(self, "user_roles", [])
+                if role in ("admin", "ADMIN") or "admin" in roles or "ADMIN" in roles or self.is_superadmin:
+                    has_perm = True
+                elif hasattr(session_data, "allowed_rpc_methods"):
+                    allowed = session_data.allowed_rpc_methods
+                    has_perm = "*" in allowed or method_name in allowed
+                    if not has_perm:
+                        for m in allowed:
+                            if m.endswith(".*") and method_name.startswith(m[:-1]):
+                                has_perm = True
+                                break
+
+        # Если метод открыт роли guest или это системный выход из сессии, авторизованный пользователь тоже имеет к нему доступ
+        if not has_perm and (
+            is_guest_rpc_allowed(method_name)
+            or method_name.startswith("login.")
+            or method_name in ("auth.login", "auth.me", "auth.whoami", "auth.submit", "auth.logout")
+        ):
+            has_perm = True
+
+        if not has_perm:
+            return False, -32003, f"Доступ к методу '{method_name}' запрещен."
+
+        return True, 0, ""
     async def _run_rpc_handler(self, handler, method_name: str, rpc_id, params):
         transport_token = current_transport_ctx.set(self)
         session_token = current_session_ctx.set(self.data)
         rpc_token = current_rpc_id_ctx.set(rpc_id)
         user_token = None
-        if self.data and hasattr(self.data, "user_ctx"):
-            user_token = current_user_ctx.set(self.data.user_ctx)
+        if self.data:
+            u_ctx = getattr(self.data, "user_ctx", None) or self.data
+            user_token = current_user_ctx.set(u_ctx)
         try:
             session_arg = self.data if self.data else self
             result = await handler(session_arg, params)

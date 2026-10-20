@@ -33,9 +33,10 @@
   let activeTab = $state<"crud" | "rpc">("crud");
   let isLoading = $state(true);
   let isSaving = $state(false);
+  let isAuditing = $state(false);
+  let auditReport = $state<any>(null);
   let errorMessage = $state("");
   let successMessage = $state("");
-
   // Поисковые строки
   let modelSearch = $state("");
   let rpcSearch = $state("");
@@ -114,7 +115,15 @@
       noRpcs: "Действия не найдены",
       selectAllGroup: "Выбрать всю группу",
       savedOk: "Права успешно сохранены",
-      superadminNotice: "Пользователь является администратором — полный доступ ко всем ресурсам системы."
+      superadminNotice: "Пользователь является администратором — полный доступ ко всем ресурсам системы.",
+      auditBtn: "🛡️ Проверить доступ (WS Audit)",
+      auditing: "Проверка сокета...",
+      auditPassed: "Реальный WS + Cookie аудит пройден (без запуска RPC): 100% совпадение с БД CRUD",
+      auditFailed: "Обнаружены расхождения между БД CRUD и живым сокетом",
+      wsAllowed: "✓ WS: Открыто",
+      wsDenied: "✓ WS: Закрыто",
+      wsMismatch: "✖ Рассинхрон",
+      wsCrudOk: "✓ WS/Cookie OK"
     },
     en: {
       modalTitle: targetType === "role"
@@ -148,7 +157,15 @@
       noRpcs: "No actions found",
       selectAllGroup: "Select group",
       savedOk: "Permissions saved successfully",
-      superadminNotice: "User is an administrator with full access to all resources."
+      superadminNotice: "User is an administrator with full access to all resources.",
+      auditBtn: "🛡️ Verify Access (WS Audit)",
+      auditing: "Auditing WS...",
+      auditPassed: "Live WS + Cookie audit passed (no RPC executed): 100% match with CRUD DB",
+      auditFailed: "Mismatches detected between CRUD DB and live socket",
+      wsAllowed: "✓ WS: Allowed",
+      wsDenied: "✓ WS: Denied",
+      wsMismatch: "✖ Mismatch",
+      wsCrudOk: "✓ WS/Cookie OK"
     }
   }[lang]);
 
@@ -156,6 +173,7 @@
     isLoading = true;
     errorMessage = "";
     successMessage = "";
+    auditReport = null;
     try {
       // 1. Получаем общую схему моделей и процедур
       const schema = await rpcClient.call("permissions.get_schema");
@@ -384,6 +402,21 @@
       isSaving = false;
     }
   }
+
+  async function handleAudit() {
+    isAuditing = true;
+    errorMessage = "";
+    try {
+      auditReport = await rpcClient.call("permissions.audit_access", {
+        target_type: targetType,
+        target_id: targetId
+      });
+    } catch (err: any) {
+      errorMessage = err?.message || String(err);
+    } finally {
+      isAuditing = false;
+    }
+  }
 </script>
 
 <Modal {open} title={t.modalTitle} size="3xl" {onclose}>
@@ -429,11 +462,21 @@
       <div class="mb-4 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded text-red-700 dark:text-red-300 text-sm">
         {errorMessage}
       </div>
-    {/if}
     {#if successMessage}
       <div class="mb-4 p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded text-emerald-700 dark:text-emerald-300 text-sm">
         {successMessage}
       </div>
+    {/if}
+    {#if auditReport}
+      <div class="mb-4 p-3 rounded border text-sm {auditReport.passed ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200' : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'}">
+        <div class="font-medium">
+          {auditReport.passed ? `✅ ${t.auditPassed}` : `⚠️ ${t.auditFailed}`}
+        </div>
+        <div class="text-xs mt-1 font-mono">
+          RPC: {auditReport.matched_rpc}/{auditReport.total_rpc} | CRUD: {auditReport.matched_crud}/{auditReport.total_crud}
+        </div>
+      </div>
+    {/if}
     {/if}
 
     <!-- ВКЛАДКА 1: CRUD -->
@@ -497,6 +540,14 @@
                         {#if inh && targetType === "user" && (inh.can_read || inh.can_create || inh.can_update || inh.can_delete)}
                           <div class="mt-0.5">
                             <Badge variant="purple" size="xs">🔒 {t.inheritedFromRole}</Badge>
+                          </div>
+                        {/if}
+                        {#if auditReport?.crud_results?.[model.key]}
+                          {@const ca = auditReport.crud_results[model.key]}
+                          <div class="mt-0.5">
+                            <Badge variant={ca.match ? "success" : "danger"} size="xs">
+                              {ca.match ? t.wsCrudOk : t.wsMismatch}
+                            </Badge>
                           </div>
                         {/if}
                       </td>
@@ -642,6 +693,12 @@
                             {#if isInherited && targetType === "user"}
                               <Badge variant="purple" size="xs">🔒 {t.inheritedFromRole}</Badge>
                             {/if}
+                            {#if auditReport?.rpc_results?.[method.name]}
+                              {@const ra = auditReport.rpc_results[method.name]}
+                              <Badge variant={ra.match ? (ra.ws_actual ? "success" : "neutral") : "danger"} size="xs">
+                                {ra.match ? (ra.ws_actual ? t.wsAllowed : t.wsDenied) : t.wsMismatch}
+                              </Badge>
+                            {/if}
                           </div>
                           <button
                             type="button"
@@ -674,6 +731,9 @@
   {/if}
 
   {#snippet footer()}
+    <Button variant="secondary" size="md" onclick={handleAudit} disabled={isAuditing || isSaving || isLoading}>
+      {isAuditing ? t.auditing : t.auditBtn}
+    </Button>
     <Button variant="outline" size="md" onclick={onclose} disabled={isSaving}>
       {t.cancel}
     </Button>

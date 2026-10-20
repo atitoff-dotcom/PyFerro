@@ -2,21 +2,19 @@
   import { onMount } from "svelte";
   import { rpc, wsStatus as canonicalWsStatus } from "@wsrpc/wsrpc";
   import PermissionsModal from "./components/PermissionsModal.svelte";
-  import GuestPermissionsView from "./components/GuestPermissionsView.svelte";
-  import SystemCockpit from "./components/SystemCockpit.svelte";
+  import RpcCatalogView from "./components/RpcCatalogView.svelte";
+  import SettingsView from "./components/SettingsView.svelte";
   import PyFerroLogo from "./components/PyFerroLogo.svelte";
 
   let wsStatus = $state<"CONNECTING" | "CONNECTED" | "DISCONNECTED">("DISCONNECTED");
 
-  // Секции Mission Control (/admin/crud vs /admin/system)
-  type AdminSection = "crud" | "system";
-  let currentSection = $state<AdminSection>("crud");
+  // 5 главных разделов Mission Control
+  type MainNav = "database" | "rpc" | "users" | "roles" | "settings";
+  let currentNav = $state<MainNav>("database");
+  let dbTab = $state<"app" | "framework">("app");
 
-  function setSection(sec: AdminSection) {
-    currentSection = sec;
-    try {
-      window.location.hash = sec === "system" ? "system" : "crud";
-    } catch {}
+  function setSection(nav: MainNav) {
+    selectNav(nav);
   }
 
   // Тема (светлая / темно-серая)
@@ -87,9 +85,19 @@
       themeDark: "Включить темно-серую тему",
       switchLang: "Switch to English",
       accessSection: "Безопасность и доступ",
-      navGuests: "Гости",
+      navDatabase: "База данных",
+      navRpc: "RPC методы",
       navUsers: "Пользователи",
       navRoles: "Роли",
+      navSettings: "Настройки",
+      tabAppTables: "Таблицы приложения",
+      tabFrameworkTables: "Таблицы фреймворка",
+      noAppTables: "Нет доступных таблиц приложения",
+      noFrameworkTables: "Нет доступных таблиц фреймворка",
+      adminPermissionsDisabled: "Администратор обладает полным доступом ко всей системе",
+      roleAdminPermissionsDisabled: "Роль admin обладает полным доступом ко всей системе",
+      permissions: "Разрешения",
+      navGuests: "Гости",
       dataSection: "Таблицы данных",
       models: {
         showcase_tasks: "Задачи",
@@ -168,9 +176,19 @@
       themeDark: "Switch to dark theme",
       switchLang: "Переключить на русский",
       accessSection: "Access & Security",
-      navGuests: "Guests",
+      navDatabase: "Database",
+      navRpc: "RPC Methods",
       navUsers: "Users",
       navRoles: "Roles",
+      navSettings: "Settings",
+      tabAppTables: "Application Tables",
+      tabFrameworkTables: "Framework Tables",
+      noAppTables: "No application tables available",
+      noFrameworkTables: "No framework tables available",
+      adminPermissionsDisabled: "Administrator has unrestricted full access to all resources",
+      roleAdminPermissionsDisabled: "Admin role has unrestricted full access to all resources",
+      permissions: "Permissions",
+      navGuests: "Guests",
       dataSection: "Data Tables",
       models: {
         showcase_tasks: "Tasks",
@@ -225,26 +243,42 @@
   // Модели и схема
   let models = $state<any[]>([]);
   let allowGuests = $state(true);
-  let selectedNav = $state<"guest" | "user" | "role" | "model">("user");
   let selectedModelName = $state<string>("");
   let currentSchema = $derived(models.find((m) => m.key === selectedModelName) || null);
   let isLoadingSchema = $state(true);
 
   let userModel = $derived(models.find((m) => m.key === "User" || m.table_name === "pf_auth_user" || m.table_name === "auth_user" || m.key === "auth_user" || m.key === "pf_auth_user"));
   let roleModel = $derived(models.find((m) => m.key === "Role" || m.table_name === "pf_auth_role" || m.table_name === "auth_role" || m.key === "auth_role" || m.key === "pf_auth_role"));
-  let otherModels = $derived(models.filter((m) => m !== userModel && m !== roleModel));
 
-  function selectNav(nav: "guest" | "user" | "role") {
-    selectedNav = nav;
-    if (nav === "user" && userModel) {
-      selectedModelName = userModel.key;
-    } else if (nav === "role" && roleModel) {
-      selectedModelName = roleModel.key;
+  let appModels = $derived(models.filter((m) => m !== userModel && m !== roleModel && !m.is_framework && !m.table_name?.startsWith("pf_") && !m.table_name?.startsWith("auth_")));
+  let frameworkModels = $derived(models.filter((m) => m !== userModel && m !== roleModel && (m.is_framework || m.table_name?.startsWith("pf_") || m.table_name?.startsWith("auth_"))));
+
+  function selectNav(nav: MainNav) {
+    currentNav = nav;
+    try {
+      window.location.hash = nav;
+    } catch {}
+    if (nav === "users") {
+      if (userModel) selectedModelName = userModel.key;
+    } else if (nav === "roles") {
+      if (roleModel) selectedModelName = roleModel.key;
+    } else if (nav === "database") {
+      const list = dbTab === "app" ? appModels : frameworkModels;
+      if (list.length > 0 && !list.some(m => m.key === selectedModelName)) {
+        selectedModelName = list[0].key;
+      }
     }
   }
 
-  function selectOtherModel(modelKey: string) {
-    selectedNav = "model";
+  function selectDbTab(tab: "app" | "framework") {
+    dbTab = tab;
+    const list = tab === "app" ? appModels : frameworkModels;
+    if (list.length > 0) {
+      selectedModelName = list[0].key;
+    }
+  }
+
+  function selectModel(modelKey: string) {
     selectedModelName = modelKey;
   }
 
@@ -276,7 +310,7 @@
 
   // Модалка разрешений (CRUD + RPC)
   let permissionsModalOpen = $state(false);
-  let permissionsTargetType = $state<"role" | "user">("role");
+  let permissionsTargetType = $state<"role" | "user" | "guest">("role");
   let permissionsTargetId = $state<number>(0);
   let permissionsTargetName = $state<string>("");
 
@@ -284,22 +318,47 @@
   let isUserModel = $derived(selectedModelName === "pf_auth_user" || selectedModelName === "auth_user" || selectedModelName === "User");
   let isRoleOrUserModel = $derived(isRoleModel || isUserModel);
 
-  function openPermissions(row: any[], recId: any) {
-    const nameIdx = fields.indexOf("name");
-    const loginIdx = fields.indexOf("login");
-    let name = "";
-    if (nameIdx !== -1 && row[nameIdx]) name = String(row[nameIdx]);
-    else if (loginIdx !== -1 && row[loginIdx]) name = String(row[loginIdx]);
-    else name = `#${recId}`;
-
-    if (isRoleModel && name === "admin") {
-      return;
+  function isUserAdmin(row: any[]): boolean {
+    if (!fields.includes("roles")) return false;
+    const val = row[fields.indexOf("roles")];
+    if (Array.isArray(val)) {
+      return val.some((r: any) => (typeof r === "string" ? r === "admin" : r?.name === "admin"));
     }
+    return false;
+  }
 
-    permissionsTargetId = Number(recId);
-    permissionsTargetType = isRoleModel ? "role" : "user";
-    permissionsTargetName = name;
-    permissionsModalOpen = true;
+  function isRoleAdmin(row: any[]): boolean {
+    if (!fields.includes("name")) return false;
+    return String(row[fields.indexOf("name")]).toLowerCase() === "admin";
+  }
+
+  function isRoleGuest(row: any[]): boolean {
+    if (!fields.includes("name")) return false;
+    return String(row[fields.indexOf("name")]).toLowerCase() === "guest";
+  }
+
+  function openPermissions(row: any[], recId: any) {
+    if (currentNav === "roles" || isRoleModel) {
+      const nameIdx = fields.indexOf("name");
+      const roleName = nameIdx !== -1 && row[nameIdx] ? String(row[nameIdx]) : "role";
+      if (roleName === "admin") return;
+      permissionsTargetId = Number(recId);
+      permissionsTargetType = roleName === "guest" ? "guest" : "role";
+      permissionsTargetName = roleName;
+      permissionsModalOpen = true;
+    } else if (currentNav === "users" || isUserModel) {
+      if (isUserAdmin(row)) return;
+      const nameIdx = fields.indexOf("name");
+      const loginIdx = fields.indexOf("login");
+      let userName = "";
+      if (loginIdx !== -1 && row[loginIdx]) userName = String(row[loginIdx]);
+      else if (nameIdx !== -1 && row[nameIdx]) userName = String(row[nameIdx]);
+      else userName = `user_${recId}`;
+      permissionsTargetId = Number(recId);
+      permissionsTargetType = "user";
+      permissionsTargetName = userName;
+      permissionsModalOpen = true;
+    }
   }
 
   // Определение справочных колонок (даты, технический аудит)
@@ -456,11 +515,15 @@
         if (res.models) {
           models = res.models;
           if (!selectedModelName) {
-            if (userModel) {
-              selectedNav = "user";
+            if (currentNav === users && userModel) {
               selectedModelName = userModel.key;
+            } else if (currentNav === roles && roleModel) {
+              selectedModelName = roleModel.key;
+            } else if (appModels.length > 0) {
+              selectedModelName = appModels[0].key;
+            } else if (frameworkModels.length > 0) {
+              selectedModelName = frameworkModels[0].key;
             } else if (models.length > 0) {
-              selectedNav = "model";
               selectedModelName = models[0].key;
             }
           }
@@ -660,12 +723,14 @@
       lang = savedLang;
     }
 
-    if (window.location.hash === "#system" || window.location.pathname.endsWith("/system")) {
-      currentSection = "system";
+    const validNavs: MainNav[] = ["database", "rpc", "users", "roles", "settings"];
+    const hash = window.location.hash.replace("#", "") as MainNav;
+    if (validNavs.includes(hash)) {
+      selectNav(hash);
     }
     const onHashChange = () => {
-      if (window.location.hash === "#system") currentSection = "system";
-      else if (window.location.hash === "#crud") currentSection = "crud";
+      const h = window.location.hash.replace("#", "") as MainNav;
+      if (validNavs.includes(h)) selectNav(h);
     };
     window.addEventListener("hashchange", onHashChange);
 
@@ -722,28 +787,20 @@
         </div>
       </div>
 
-      <!-- Главный переключатель Mission Control: CRUD vs SYSTEM -->
-      <nav class="flex items-center p-1 rounded-xl bg-card border border-border shadow-2xs">
-        <button
-          type="button"
-          onclick={() => setSection("crud")}
-          class="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer {currentSection === 'crud' ? 'bg-primary text-primary-foreground font-bold shadow-sm' : 'font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60'}"
-        >
-          <span>📊</span>
-          <span>{lang === 'ru' ? 'Данные (CRUD)' : 'Data (CRUD)'}</span>
-        </button>
-
-        <button
-          type="button"
-          onclick={() => setSection("system")}
-          class="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer {currentSection === 'system' ? 'bg-primary text-primary-foreground font-bold shadow-sm' : 'font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60'}"
-        >
-          <span>⚙️</span>
-          <span>{lang === 'ru' ? 'Система (System)' : 'System Cockpit'}</span>
-        </button>
-      </nav>
+      <!-- Заголовок активного раздела -->
+      <div class="hidden sm:flex items-center gap-2 px-3 py-1 rounded-lg bg-muted/40 border border-border/60 text-xs text-muted-foreground font-medium">
+        <span>PyFerro</span>
+        <span class="text-muted-foreground/40">/</span>
+        <span class="text-foreground font-semibold">
+          {#if currentNav === 'database'}{t.navDatabase}
+          {:else if currentNav === 'rpc'}{t.navRpc}
+          {:else if currentNav === 'users'}{t.navUsers}
+          {:else if currentNav === 'roles'}{t.navRoles}
+          {:else if currentNav === 'settings'}{t.navSettings}
+          {/if}
+        </span>
+      </div>
     </div>
-
     <!-- Правая часть: статус подключения, переключатель языка и темы -->
     <div class="flex items-center gap-2.5">
       <!-- Статус сокета -->
@@ -778,82 +835,163 @@
     </div>
   </header>
 
-  {#if currentSection === "system"}
-    <SystemCockpit {lang} />
-  {:else}
   <div class="flex-1 flex overflow-hidden">
     <!-- Боковая панель навигации слева (Sidebar) -->
-    <aside class="w-60 border-r border-border bg-card/40 flex flex-col p-4 gap-6 shrink-0 overflow-y-auto">
-      <div class="flex flex-col gap-1.5">
-        <span class="text-2xs font-bold uppercase tracking-wider text-muted-foreground px-2">
-          {t.accessSection}
-        </span>
-
-        {#if allowGuests}
-          <button
-            type="button"
-            onclick={() => selectNav("guest")}
-            class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-colors text-left cursor-pointer {selectedNav === 'guest' ? 'bg-primary text-primary-foreground font-bold shadow-sm' : 'font-medium text-foreground hover:bg-muted/80'}"
-          >
-            <span class="text-sm">🌐</span>
-            <span>{t.navGuests}</span>
-          </button>
-        {/if}
-
-        <button
-          type="button"
-          onclick={() => selectNav("user")}
-          class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-colors text-left cursor-pointer {selectedNav === 'user' ? 'bg-primary text-primary-foreground font-bold shadow-sm' : 'font-medium text-foreground hover:bg-muted/80'}"
-        >
-          <span class="text-sm">👥</span>
-          <span>{t.navUsers}</span>
-        </button>
-
-        <button
-          type="button"
-          onclick={() => selectNav("role")}
-          class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-colors text-left cursor-pointer {selectedNav === 'role' ? 'bg-primary text-primary-foreground font-bold shadow-sm' : 'font-medium text-foreground hover:bg-muted/80'}"
-        >
-          <span class="text-sm">🛡️</span>
-          <span>{t.navRoles}</span>
-        </button>
+    <aside class="w-60 border-r border-border bg-card/50 flex flex-col p-3 gap-1 shrink-0 overflow-y-auto">
+      <div class="px-3 py-2 text-2xs font-bold uppercase tracking-wider text-muted-foreground/70">
+        PyFerro Admin
       </div>
 
-      {#if otherModels.length > 0}
-        <div class="flex flex-col gap-1.5 border-t border-border pt-4">
-          <span class="text-2xs font-bold uppercase tracking-wider text-muted-foreground px-2">
-            {t.dataSection}
-          </span>
-          {#each otherModels as m}
-            <button
-              type="button"
-              onclick={() => selectOtherModel(m.key)}
-              class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-colors text-left cursor-pointer {selectedModelName === m.key && selectedNav === 'model' ? 'bg-primary text-primary-foreground font-bold shadow-sm' : 'font-medium text-foreground hover:bg-muted/80'}"
-            >
-              <span class="text-sm">📦</span>
-              <span>{getModelDisplayName(m)}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
+      <!-- 1. База данных -->
+      <button
+        type="button"
+        onclick={() => selectNav("database")}
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'database' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+      >
+        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <ellipse cx="12" cy="5" rx="9" ry="3"/>
+          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+        </svg>
+        <span class="flex-1 truncate">{t.navDatabase}</span>
+        <span class="text-2xs px-1.5 py-0.5 rounded-full {currentNav === 'database' ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'}">{appModels.length + frameworkModels.length}</span>
+      </button>
+
+      <!-- 2. RPC методы -->
+      <button
+        type="button"
+        onclick={() => selectNav("rpc")}
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'rpc' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+      >
+        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <polyline points="16 18 22 12 16 6"/>
+          <polyline points="8 6 2 12 8 18"/>
+        </svg>
+        <span class="flex-1 truncate">{t.navRpc}</span>
+        <span class="text-2xs px-1.5 py-0.5 rounded-full {currentNav === 'rpc' ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'}">API</span>
+      </button>
+
+      <!-- 3. Пользователи -->
+      <button
+        type="button"
+        onclick={() => selectNav("users")}
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'users' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+      >
+        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        <span class="flex-1 truncate">{t.navUsers}</span>
+      </button>
+
+      <!-- 4. Роли -->
+      <button
+        type="button"
+        onclick={() => selectNav("roles")}
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'roles' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+      >
+        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        <span class="flex-1 truncate">{t.navRoles}</span>
+      </button>
+
+      <!-- 5. Настройки -->
+      <button
+        type="button"
+        onclick={() => selectNav("settings")}
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'settings' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+      >
+        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span class="flex-1 truncate">{t.navSettings}</span>
+      </button>
     </aside>
 
     <!-- Основное содержимое -->
     <main class="flex-1 p-6 overflow-y-auto w-full flex flex-col gap-5">
-      {#if selectedNav === "guest"}
-        <GuestPermissionsView
-          {lang}
-          rpcClient={rpc}
-          onnotify={(msg, type) => showToast(msg, type)}
-        />
+      {#if currentNav === "rpc"}
+        <RpcCatalogView {lang} rpcClient={rpc} />
+      {:else if currentNav === "settings"}
+        <SettingsView {lang} rpcClient={rpc} onnotify={(msg, type) => showToast(msg, type)} />
       {:else if isLoadingSchema}
         <div class="flex h-64 items-center justify-center text-sm text-muted-foreground">
           {t.schemaLoading}
         </div>
-      {:else if currentSchema}
-        <!-- Панель управления таблицей: поиск, фильтры, создать -->
-        <div class="flex flex-wrap items-center justify-between gap-4 bg-card p-4 rounded-xl border border-border shadow-xs">
-          <div class="flex items-center gap-3 flex-1 max-w-md">
+      {:else}
+        {#if currentNav === "database"}
+          <!-- Вкладки: Таблицы приложения | Таблицы фреймворка -->
+          <div class="flex flex-col gap-3">
+            <div class="flex items-center gap-2 border-b border-border pb-2">
+              <button
+                type="button"
+                onclick={() => selectDbTab("app")}
+                class="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer {dbTab === 'app' ? 'bg-primary text-primary-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'}"
+              >
+                <span>📦</span>
+                <span>{t.tabAppTables}</span>
+                <span class="text-2xs px-1.5 py-0.5 rounded-full {dbTab === 'app' ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'}">{appModels.length}</span>
+              </button>
+
+              <button
+                type="button"
+                onclick={() => selectDbTab("framework")}
+                class="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer {dbTab === 'framework' ? 'bg-primary text-primary-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'}"
+              >
+                <span>⚙️</span>
+                <span>{t.tabFrameworkTables}</span>
+                <span class="text-2xs px-1.5 py-0.5 rounded-full {dbTab === 'framework' ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'}">{frameworkModels.length}</span>
+              </button>
+            </div>
+
+            <!-- Горизонтальные пилюли выбора таблицы -->
+            {#if (dbTab === 'app' ? appModels : frameworkModels).length > 0}
+              <div class="flex flex-wrap items-center gap-1.5">
+                {#each (dbTab === 'app' ? appModels : frameworkModels) as m}
+                  <button
+                    type="button"
+                    onclick={() => selectModel(m.key)}
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer {selectedModelName === m.key ? 'bg-card text-foreground border-2 border-primary shadow-xs font-bold' : 'bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted border border-border'}"
+                  >
+                    <span>{getModelDisplayName(m)}</span>
+                    {#if m.table_name}
+                      <span class="text-2xs opacity-60 font-mono ml-1">({m.table_name})</span>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            {:else}
+              <div class="p-6 text-center text-xs text-muted-foreground italic border border-dashed border-border rounded-xl">
+                {dbTab === 'app' ? t.noAppTables : t.noFrameworkTables}
+              </div>
+            {/if}
+          </div>
+        {:else if currentNav === "users"}
+          <div class="flex items-center justify-between pb-1">
+            <div class="flex items-center gap-2.5">
+              <span class="text-lg">👥</span>
+              <h2 class="text-base font-bold text-foreground">{t.navUsers}</h2>
+              <span class="text-xs text-muted-foreground">({userModel ? getModelDisplayName(userModel) : 'pf_auth_user'})</span>
+            </div>
+          </div>
+        {:else if currentNav === "roles"}
+          <div class="flex items-center justify-between pb-1">
+            <div class="flex items-center gap-2.5">
+              <span class="text-lg">🛡️</span>
+              <h2 class="text-base font-bold text-foreground">{t.navRoles}</h2>
+              <span class="text-xs text-muted-foreground">({roleModel ? getModelDisplayName(roleModel) : 'pf_auth_role'})</span>
+            </div>
+          </div>
+        {/if}
+
+        {#if currentSchema}
+          <!-- Панель управления таблицей: поиск, фильтры, создать -->
+          <div class=flex flex-wrap items-center justify-between gap-4 bg-card p-4 rounded-xl border border-border shadow-xs>
+            <div class=flex items-center gap-3 flex-1 max-w-md>
             <input
               type="text"
               bind:value={searchQuery}
@@ -1060,39 +1198,52 @@
                     {/each}
 
                     {#if currentSchema.permissions?.can_delete || isRoleOrUserModel}
-                      {@const isAdminRole = isRoleModel && row[fields.indexOf("name")] === "admin"}
+                      {@const isRowAdminRole = isRoleModel && isRoleAdmin(row)}
+                      {@const isRowAdminUser = isUserModel && isUserAdmin(row)}
+                      {@const isRowGuestRole = isRoleModel && isRoleGuest(row)}
+                      {@const isRowAdmin = isRowAdminRole || isRowAdminUser}
                       <td class="px-4 py-2.5 text-right whitespace-nowrap">
                         <div class="inline-flex items-center justify-end gap-1.5">
                           {#if isRoleOrUserModel}
-                            {#if isAdminRole}
-                              <span
-                                class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-medium cursor-default select-none"
-                                title={lang === "ru" ? "Системная роль администратора: обладает безусловным полным доступом ко всем ресурсам" : "System Administrator role: has unrestricted full access to all resources"}
+                            {#if isRowAdmin}
+                              <button
+                                type="button"
+                                disabled
+                                class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-muted/60 text-muted-foreground/50 border border-border/50 cursor-not-allowed select-none opacity-60"
+                                title={isRowAdminRole ? t.roleAdminPermissionsDisabled : t.adminPermissionsDisabled}
                               >
-                                <span>🛡️</span>
-                                <span>{lang === "ru" ? "Полный доступ" : "Full Access"}</span>
-                              </span>
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                </svg>
+                                <span>{t.permissions}</span>
+                              </button>
                             {:else}
                               <button
                                 type="button"
                                 onclick={() => openPermissions(row, recId)}
-                                class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer font-medium"
-                                title={lang === "ru" ? "Настроить разрешения (CRUD + RPC)" : "Configure permissions (CRUD + RPC)"}
+                                class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors cursor-pointer font-medium"
+                                title={isRowGuestRole ? (lang === 'ru' ? 'Настроить публичные разрешения гостя' : 'Configure guest public permissions') : (lang === 'ru' ? 'Настроить разрешения (CRUD + RPC)' : 'Configure permissions (CRUD + RPC)')}
                               >
-                                <span>🛡️</span>
-                                <span>{lang === "ru" ? "Права" : "Permissions"}</span>
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                                </svg>
+                                <span>{t.permissions}</span>
                               </button>
                             {/if}
                           {/if}
                           {#if currentSchema.permissions?.can_delete}
-                            {#if !isAdminRole}
+                            {#if !isRowAdminRole}
                               <button
                                 type="button"
                                 onclick={() => (recordToDelete = recId)}
-                                class="text-rose-500 hover:text-rose-600 dark:text-rose-400 p-1 rounded hover:bg-rose-500/10 transition-colors cursor-pointer"
+                                class="text-rose-500 hover:text-rose-600 dark:text-rose-400 p-1.5 rounded hover:bg-rose-500/10 transition-colors cursor-pointer"
                                 title={t.deleteRecord}
                               >
-                                🗑
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                  <polyline points="3 6 5 6 21 6"/>
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                </svg>
                               </button>
                             {/if}
                           {/if}
@@ -1133,13 +1284,13 @@
         </div>
       </div>
     {:else}
-      <div class="flex h-64 items-center justify-center text-sm text-muted-foreground">
+      <div class=flex h-64 items-center justify-center text-sm text-muted-foreground>
         {t.noModels}
       </div>
     {/if}
+    {/if}
   </main>
 </div>
-{/if}
 
   <!-- Модальное окно создания -->
   {#if isCreateModalOpen && currentSchema}
