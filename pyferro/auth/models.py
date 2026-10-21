@@ -103,7 +103,7 @@ class RpcPermission(RowSecureModel):
 
     name: Mapped[str] = mapped_column(String(150), unique=True, index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
+    is_framework: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="0")
     roles: Mapped[List["Role"]] = relationship(
         "Role", secondary=role_rpc_permission_association, back_populates="rpc_permissions"
     )

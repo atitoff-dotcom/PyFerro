@@ -416,5 +416,36 @@ async def test_crud_m2m_update_cell():
         async_session.configure(bind=orig_engine)
 
 
+@pytest.mark.asyncio
+async def test_crud_app_tables_readonly_in_admin():
+    """Тестирует, что таблицы приложения отображаются в crud.schema как read-only и запрещены для CRUD-мутаций."""
+    class SampleAppOrder(Base):
+        __tablename__ = "sample_app_orders"
+        id: Mapped[int] = mapped_column(primary_key=True)
+        title: Mapped[str] = mapped_column(String(50), default="Test")
 
+    ModelRegistry.register(SampleAppOrder)
+    admin_ws = MockSession(user_id=1, is_admin=True)
 
+    # 1. Проверяем crud.schema: can_read=True, can_create=False, can_update=False, can_delete=False
+    schema_res = await handle_crud_schema(admin_ws, {"model": "SampleAppOrder"})
+    perms = schema_res["model"]["permissions"]
+    assert perms["can_read"] is True
+    assert perms["can_create"] is False
+    assert perms["can_update"] is False
+    assert perms["can_delete"] is False
+
+    # 2. Попытка crud.create на таблице приложения должна отклоняться
+    with pytest.raises(RPCError) as exc_create:
+        await handle_crud_create(admin_ws, {"model": "SampleAppOrder", "data": {"title": "Order 1"}})
+    assert "является таблицей приложения и доступна только для чтения" in str(exc_create.value)
+
+    # 3. Попытка crud.update_cell на таблице приложения должна отклоняться
+    with pytest.raises(RPCError) as exc_update:
+        await handle_crud_update_cell(admin_ws, {"model": "SampleAppOrder", "id": 1, "field": "title", "value": "New"})
+    assert "является таблицей приложения и доступна только для чтения" in str(exc_update.value)
+
+    # 4. Попытка crud.delete на таблице приложения должна отклоняться
+    with pytest.raises(RPCError) as exc_del:
+        await handle_crud_delete(admin_ws, {"model": "SampleAppOrder", "id": 1})
+    assert "является таблицей приложения и доступна только для чтения" in str(exc_del.value)

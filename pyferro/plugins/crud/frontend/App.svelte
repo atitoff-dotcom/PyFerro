@@ -4,12 +4,13 @@
   import PermissionsModal from "./components/PermissionsModal.svelte";
   import RpcCatalogView from "./components/RpcCatalogView.svelte";
   import SettingsView from "./components/SettingsView.svelte";
+  import DelegationsView from "./components/DelegationsView.svelte";
   import PyFerroLogo from "./components/PyFerroLogo.svelte";
 
   let wsStatus = $state<"CONNECTING" | "CONNECTED" | "DISCONNECTED">("DISCONNECTED");
 
-  // 5 главных разделов Mission Control
-  type MainNav = "database" | "rpc" | "users" | "roles" | "settings";
+  // 6 главных разделов Mission Control
+  type MainNav = "database" | "rpc" | "users" | "roles" | "delegations" | "settings";
   let currentNav = $state<MainNav>("database");
   let dbTab = $state<"app" | "framework">("app");
 
@@ -89,6 +90,7 @@
       navRpc: "RPC методы",
       navUsers: "Пользователи",
       navRoles: "Роли",
+      navDelegations: "Делегирование",
       navSettings: "Настройки",
       tabAppTables: "Таблицы приложения",
       tabFrameworkTables: "Таблицы фреймворка",
@@ -180,6 +182,7 @@
       navRpc: "RPC Methods",
       navUsers: "Users",
       navRoles: "Roles",
+      navDelegations: "Delegations",
       navSettings: "Settings",
       tabAppTables: "Application Tables",
       tabFrameworkTables: "Framework Tables",
@@ -515,9 +518,9 @@
         if (res.models) {
           models = res.models;
           if (!selectedModelName) {
-            if (currentNav === users && userModel) {
+            if (currentNav === "users" && userModel) {
               selectedModelName = userModel.key;
-            } else if (currentNav === roles && roleModel) {
+            } else if (currentNav === "roles" && roleModel) {
               selectedModelName = roleModel.key;
             } else if (appModels.length > 0) {
               selectedModelName = appModels[0].key;
@@ -796,6 +799,7 @@
           {:else if currentNav === 'rpc'}{t.navRpc}
           {:else if currentNav === 'users'}{t.navUsers}
           {:else if currentNav === 'roles'}{t.navRoles}
+          {:else if currentNav === 'delegations'}{t.navDelegations}
           {:else if currentNav === 'settings'}{t.navSettings}
           {/if}
         </span>
@@ -896,9 +900,22 @@
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
         <span class="flex-1 truncate">{t.navRoles}</span>
+        <span class="flex-1 truncate">{t.navRoles}</span>
       </button>
 
-      <!-- 5. Настройки -->
+      <!-- 5. Делегирование -->
+      <button
+        type="button"
+        onclick={() => selectNav("delegations")}
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'delegations' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+      >
+        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+        </svg>
+        <span class="flex-1 truncate">{t.navDelegations}</span>
+      </button>
+
+      <!-- 6. Настройки -->
       <button
         type="button"
         onclick={() => selectNav("settings")}
@@ -916,6 +933,8 @@
     <main class="flex-1 p-6 overflow-y-auto w-full flex flex-col gap-5">
       {#if currentNav === "rpc"}
         <RpcCatalogView {lang} rpcClient={rpc} />
+      {:else if currentNav === "delegations"}
+        <DelegationsView {lang} rpcClient={rpc} onnotify={(msg, type) => showToast(msg, type)} />
       {:else if currentNav === "settings"}
         <SettingsView {lang} rpcClient={rpc} onnotify={(msg, type) => showToast(msg, type)} />
       {:else if isLoadingSchema}
@@ -988,8 +1007,17 @@
           </div>
         {/if}
 
+        {#if currentNav === "database" && dbTab === "app"}
+          <div class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-400">
+            <span class="text-base">👁️</span>
+            <div>
+              <span class="font-semibold">{lang === 'ru' ? 'Режим инспекции (только чтение):' : 'Inspection Mode (Read-Only):'}</span>
+              <span class="text-muted-foreground ml-1.5">{lang === 'ru' ? 'Таблицы приложения доступны для чтения и анализа. Изменение данных производится через специализированные пользовательские интерфейсы.' : 'Application tables are view-only. Data modifications are handled through dedicated application interfaces.'}</span>
+            </div>
+          </div>
+        {/if}
+
         {#if currentSchema}
-          <!-- Панель управления таблицей: поиск, фильтры, создать -->
           <div class=flex flex-wrap items-center justify-between gap-4 bg-card p-4 rounded-xl border border-border shadow-xs>
             <div class=flex items-center gap-3 flex-1 max-w-md>
             <input
@@ -1153,13 +1181,22 @@
                         {:else}
                           <div class="flex items-center justify-between gap-2 group">
                             {#if typeof val === "boolean"}
-                              <button
-                                type="button"
-                                onclick={() => toggleBool(recId, col.name, val)}
-                                class="cursor-pointer font-semibold px-2 py-0.5 rounded text-2xs {val ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'}"
-                              >
-                                {val ? t.yes : t.no}
-                              </button>
+                              {@const canEditBool = col.editable && currentSchema?.permissions?.can_update}
+                              {#if canEditBool}
+                                <button
+                                  type="button"
+                                  onclick={() => toggleBool(recId, col.name, val)}
+                                  class="cursor-pointer font-semibold px-2 py-0.5 rounded text-2xs {val ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'}"
+                                >
+                                  {val ? t.yes : t.no}
+                                </button>
+                              {:else}
+                                <span
+                                  class="inline-block font-semibold px-2 py-0.5 rounded text-2xs {val ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'}"
+                                >
+                                  {val ? t.yes : t.no}
+                                </span>
+                              {/if}
                             {:else if Array.isArray(val)}
                               <div class="flex flex-wrap gap-1 items-center">
                                 {#each val as item}
@@ -1179,7 +1216,7 @@
                               </span>
                             {/if}
 
-                            {#if col.editable && typeof val !== "boolean"}
+                            {#if col.editable && currentSchema?.permissions?.can_update && typeof val !== "boolean"}
                               <button
                                 type="button"
                                 onclick={() => {

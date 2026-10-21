@@ -31,6 +31,36 @@ def is_guest_rpc_allowed(method_name: str) -> bool:
     return False
 
 
+def is_framework_handler(handler: Any) -> bool:
+    """
+    Определяет, относится ли RPC-обработчик к ядру или встроенным плагинам pyferro.
+    """
+    if handler is None:
+        return False
+    explicit = getattr(handler, "is_framework", None)
+    if explicit is not None:
+        return bool(explicit)
+
+    try:
+        unwrapped = inspect.unwrap(handler)
+    except Exception:
+        unwrapped = handler
+
+    mod = getattr(unwrapped, "__module__", "") or ""
+    if mod == "pyferro" or mod.startswith("pyferro."):
+        return True
+
+    try:
+        from pathlib import Path
+        import pyferro
+        fn_file = Path(inspect.getfile(unwrapped)).resolve()
+        pyferro_dir = Path(pyferro.__file__).resolve().parent
+        if pyferro_dir in fn_file.parents or fn_file == pyferro_dir:
+            return True
+    except (TypeError, OSError):
+        pass
+
+    return False
 def _is_session_admin(session: Any) -> bool:
     """Производит проверку прав администратора для сессии, включая токены или Cookie."""
     if not session:
@@ -107,6 +137,7 @@ def rpc_method(
     name: str,
     description: Optional[str] = None,
     http: bool = False,
+    is_framework: Optional[bool] = None,
 ):
     """
     Декоратор для регистрации JSON-RPC 2.0 методов.
@@ -115,6 +146,7 @@ def rpc_method(
     :param name: Обязательное сетевое имя метода (например, "orders.create", "system.ping").
     :param description: Описание метода для документации и матрицы прав (по умолчанию извлекается из docstring).
     :param http: Разрешить прямой вызов метода через HTTP POST /rpc.
+    :param is_framework: Явный признак системного метода фреймворка (по умолчанию определяется автоматически).
     """
     if not isinstance(name, str) or not name.strip():
         raise TypeError("Декоратор @rpc_method требует явное строковое имя метода: @rpc_method(\"namespace.method\")")
@@ -126,6 +158,7 @@ def rpc_method(
             unwrapped = func
 
         method_name = name.strip()
+        fw_flag = is_framework if is_framework is not None else is_framework_handler(unwrapped)
 
         sig = inspect.signature(unwrapped)
         param_names = list(sig.parameters.keys())
@@ -165,10 +198,34 @@ def rpc_method(
         RPC_REGISTRY[method_name] = wrapper
         wrapper.http = http
         wrapper.description = description
+        wrapper.is_framework = fw_flag
         return func
     return decorator
 
 
+@rpc_method("system.ping", description="Штатный сетевой пинг для измерения Round Trip Time (RTT).", is_framework=True)
+async def _builtin_system_ping(session=None, params=None):
+    return {
+        "status": "pong",
+        "server_time": time.time(),
+        "granian": "rsgi",
+    }
+
+
+@rpc_method("system.info", description="Системная информация, активные сессии и метрики окружения.", is_framework=True)
+async def _builtin_system_info(session=None, params=None):
+    import sys
+    import platform
+    transport = current_transport_ctx.get() or session
+    sid = getattr(transport, "session_id", getattr(session, "session_id", 1))
+    return {
+        "framework": "PyFerro",
+        "rsgi_server": "Granian (Rust)",
+        "python_version": sys.version.split()[0],
+        "os_platform": platform.platform(),
+        "active_sessions_count": len(ACTIVE_SESSIONS_SET),
+        "your_session_id": sid,
+    }
 # --- СЕССИЯ RSGI ---
 
 class JsonRpcSession:

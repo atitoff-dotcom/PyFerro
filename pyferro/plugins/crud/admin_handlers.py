@@ -27,11 +27,15 @@ from pyferro.core.logger import (
 )
 from pyferro.core.lib.config import settings
 from pyferro.core.backplane import get_backplane
+from datetime import datetime, timezone
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from pyferro.db import system_db_session
+from pyferro.auth.models import User, UserDelegation
 from pyferro.broadcast import broadcast_notification
 from pyferro.smart_cache.engine import version_registry, invalidate_tags
 from pyferro.db.session import get_db_echo, set_db_echo
 from pyferro.plugins.crud.registry import ModelRegistry
-
 @rpc_method("admin.sessions_list")
 async def list_active_sessions(session) -> List[Dict[str, Any]]:
     """Мониторинг активных WebSocket-подключений и сессий пользователей.
@@ -184,7 +188,7 @@ async def stream_recent_logs(session, limit: int = 100) -> List[Dict[str, Any]]:
     return get_recent_logs(safe_limit)
 
 
-@rpc_method("system.get_config")
+@rpc_method("system.config")
 async def get_system_config(session) -> Dict[str, Any]:
     """Просмотр системной конфигурации и параметров ядра платформы.
 
@@ -403,4 +407,181 @@ async def update_hot_config(
             "guest_idle_timeout": int(sec.get("guest_idle_timeout", 900)),
             "user_idle_timeout": int(sec.get("user_idle_timeout", 1800)),
         },
+    }
+
+
+# --- УПРАВЛЕНИЕ ЗАМЕЩЕНИЯМИ И ДЕЛЕГИРОВАНИЕМ (USER DELEGATIONS) ---
+
+@rpc_method("admin.delegations_list")
+async def list_delegations_admin(session) -> List[Dict[str, Any]]:
+    """Возвращает сквозной реестр всех замещений полномочий (UserDelegation) в системе."""
+    require_admin(session)
+    now = datetime.now(timezone.utc)
+    async with system_db_session() as db:
+        stmt = (
+            select(UserDelegation)
+            .options(
+                selectinload(UserDelegation.from_user),
+                selectinload(UserDelegation.to_user)
+            )
+            .order_by(UserDelegation.id.desc())
+        )
+        delegations = (await db.execute(stmt)).scalars().all()
+        result = []
+        for d in delegations:
+            v_from = d.valid_from.replace(tzinfo=timezone.utc) if (d.valid_from and d.valid_from.tzinfo is None) else d.valid_from
+            v_to = d.valid_to.replace(tzinfo=timezone.utc) if (d.valid_to and d.valid_to.tzinfo is None) else d.valid_to
+            status = "active"
+            if not d.is_active:
+                status = "disabled"
+            elif v_from and v_from > now:
+                status = "scheduled"
+            elif v_to and v_to < now:
+                status = "expired"
+
+            from_u = d.from_user
+            to_u = d.to_user
+            result.append({
+                "id": d.id,
+                "from_user_id": d.from_user_id,
+                "from_user_name": (from_u.name if from_u else None) or (from_u.login if from_u else None) or f"User #{d.from_user_id}",
+                "from_user_login": from_u.login if from_u else "",
+                "to_user_id": d.to_user_id,
+                "to_user_name": (to_u.name if to_u else None) or (to_u.login if to_u else None) or f"User #{d.to_user_id}",
+                "to_user_login": to_u.login if to_u else "",
+                "model_name": d.model_name or None,
+                "valid_from": d.valid_from.isoformat() if d.valid_from else None,
+                "valid_to": d.valid_to.isoformat() if d.valid_to else None,
+                "is_active": d.is_active,
+                "status": status,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            })
+        return result
+
+
+@rpc_method("admin.delegation_toggle")
+async def toggle_delegation_admin(session, id: int = None, **kwargs) -> Dict[str, Any]:
+    """Переключает статус активности замещения (вкл/выкл)."""
+    require_admin(session)
+    target_id = id or kwargs.get("id")
+    if not target_id:
+        raise RPCError(-32602, "ID замещения обязателен")
+    async with system_db_session() as db:
+        stmt = select(UserDelegation).where(UserDelegation.id == int(target_id))
+        delegation = (await db.execute(stmt)).scalar_one_or_none()
+        if not delegation:
+            raise RPCError(404, f"Замещение #{target_id} не найдено")
+        delegation.is_active = not delegation.is_active
+        await db.commit()
+        await db.refresh(delegation)
+        res = {
+            "id": delegation.id,
+            "is_active": delegation.is_active,
+        }
+    await broadcast_notification("delegations.changed", res)
+    return res
+
+
+@rpc_method("admin.delegation_create")
+async def create_delegation_admin(
+    session,
+    from_user_id: int,
+    to_user_id: int,
+    model_name: Optional[str] = None,
+    valid_from: Optional[str] = None,
+    valid_to: Optional[str] = None,
+    is_active: bool = True,
+    **kwargs
+) -> Dict[str, Any]:
+    """Создает новое замещение полномочий между сотрудниками."""
+    require_admin(session)
+    if not from_user_id or not to_user_id:
+        raise RPCError(-32602, "Параметры from_user_id и to_user_id обязательны")
+    if int(from_user_id) == int(to_user_id):
+        raise RPCError(-32602, "Сотрудник не может назначить заместителем самого себя")
+
+    parsed_from = None
+    parsed_to = None
+    if valid_from:
+        try:
+            parsed_from = datetime.fromisoformat(str(valid_from).replace("Z", "+00:00"))
+        except Exception:
+            pass
+    if valid_to:
+        try:
+            parsed_to = datetime.fromisoformat(str(valid_to).replace("Z", "+00:00"))
+        except Exception:
+            pass
+
+    clean_model = (model_name or "").strip() or None
+
+    async with system_db_session() as db:
+        u_from = (await db.execute(select(User).where(User.id == int(from_user_id)))).scalar_one_or_none()
+        u_to = (await db.execute(select(User).where(User.id == int(to_user_id)))).scalar_one_or_none()
+        if not u_from:
+            raise RPCError(404, f"Пользователь #{from_user_id} не найден")
+        if not u_to:
+            raise RPCError(404, f"Пользователь #{to_user_id} не найден")
+
+        delegation = UserDelegation(
+            from_user_id=int(from_user_id),
+            to_user_id=int(to_user_id),
+            model_name=clean_model,
+            valid_from=parsed_from,
+            valid_to=parsed_to,
+            is_active=bool(is_active),
+        )
+        db.add(delegation)
+        await db.commit()
+        await db.refresh(delegation)
+        res = {"id": delegation.id, "created": True}
+
+    await broadcast_notification("delegations.changed", res)
+    return res
+
+
+@rpc_method("admin.delegation_delete")
+async def delete_delegation_admin(session, id: int = None, **kwargs) -> Dict[str, Any]:
+    """Удаляет запись замещения полномочий."""
+    require_admin(session)
+    target_id = id or kwargs.get("id")
+    if not target_id:
+        raise RPCError(-32602, "ID обязателен")
+    async with system_db_session() as db:
+        stmt = select(UserDelegation).where(UserDelegation.id == int(target_id))
+        delegation = (await db.execute(stmt)).scalar_one_or_none()
+        if not delegation:
+            raise RPCError(404, f"Замещение #{target_id} не найдено")
+        await db.delete(delegation)
+        await db.commit()
+        res = {"id": int(target_id), "deleted": True}
+
+    await broadcast_notification("delegations.changed", res)
+    return res
+
+
+@rpc_method("admin.delegation_options")
+async def delegation_options_admin(session) -> Dict[str, Any]:
+    """Возвращает список пользователей и бизнес-моделей для модального окна создания замещения."""
+    require_admin(session)
+    async with system_db_session() as db:
+        stmt = select(User).order_by(User.id.asc())
+        users = (await db.execute(stmt)).scalars().all()
+        users_list = [
+            {
+                "id": u.id,
+                "login": u.login,
+                "name": u.name or u.login,
+            }
+            for u in users
+        ]
+
+    models_list = [
+        {"key": meta.key, "verbose_name": meta.verbose_name or meta.key}
+        for meta in ModelRegistry.all().values()
+        if not getattr(meta, "internal", False)
+    ]
+    return {
+        "users": users_list,
+        "models": models_list,
     }

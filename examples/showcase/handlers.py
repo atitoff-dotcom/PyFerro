@@ -111,36 +111,7 @@ def get_current_role(session) -> str:
     return str(role)
 
 
-# --- 1. SYSTEM METHODS (HEALTH & PING) ---
-
-@rpc_method("system.ping")
-async def ping(session, params: dict):
-    """Ultra-fast ping-pong to measure network Round Trip Time (RTT)."""
-    return {
-        "status": "pong",
-        "server_time": time.time(),
-        "granian": "rsgi"
-    }
-
-
-@rpc_method("system.info")
-async def system_info(session, params: dict):
-    """System information, active sessions, and environment metrics."""
-    transport = current_transport_ctx.get() or session
-    role_val = get_current_role(transport)
-    sid = getattr(transport, "session_id", getattr(session, "session_id", 1))
-
-    return {
-        "framework": "PyFerro",
-        "rsgi_server": "Granian (Rust)",
-        "python_version": sys.version.split()[0],
-        "os_platform": platform.platform(),
-        "active_sessions_count": len(ACTIVE_SESSIONS_SET),
-        "your_session_id": sid,
-        "your_current_role": role_val,
-        "database": "SQLite (aiosqlite + SQLAlchemy 2.0)",
-    }
-
+# (system.ping & system.info provided natively by PyFerro core)
 
 # --- 2. TABULAR COMPRESSION (RFC 0002) & TASKS ---
 
@@ -160,8 +131,6 @@ BENCHMARK_TASKS = [
 
 
 @rpc_method("tasks.benchmark_tabular")
-@rpc_method("tasks.tabular_demo")
-@rpc_method("tasks.benchmark")
 async def benchmark_tabular(session: JsonRpcSession, params: dict = None):
     """
     Честное сравнение сетевого объема одного и того же заранее сгенерированного массива:
@@ -248,7 +217,6 @@ async def list_tasks_raw_json(session: JsonRpcSession, params: dict = None):
 
 
 @rpc_method("tasks.add")
-@rpc_method("tasks.create")
 @invalidates(tags=["tasks", "tasks.list"])
 async def add_task(session: JsonRpcSession, params: dict):
     """
@@ -280,7 +248,6 @@ async def add_task(session: JsonRpcSession, params: dict):
 
 
 @rpc_method("tasks.complete")
-@rpc_method("tasks.toggle")
 @invalidates(tags=["tasks.list", "task.{id}"])
 async def complete_task(session: JsonRpcSession, params: dict):
     """Toggles / completes task status and invalidates tags."""
@@ -420,7 +387,6 @@ async def delete_task(session: JsonRpcSession, params: dict):
 
 # Uses pyferro.smart_cache.handlers.cache_get_versions
 @rpc_method("tasks.invalidate_cache")
-@rpc_method("cache.manual_invalidate")
 async def cache_manual_invalidate(session: JsonRpcSession, params: dict):
     """Manually invalidates specified tags for testing and UI demonstration."""
     tags = params.get("tags") or params.get("tag") or ["tasks.list"]
@@ -433,7 +399,6 @@ async def cache_manual_invalidate(session: JsonRpcSession, params: dict):
 # --- 4. MULTI-RETURN STREAMING ---
 
 @rpc_method("analytics.generate")
-@rpc_method("stream.heavy_job")
 async def generate_analytics(session, params: dict = None):
     """
     Demonstrates multi-return streaming (stream: true).
@@ -471,7 +436,6 @@ async def generate_analytics(session, params: dict = None):
 # --- 5. REVERSE RPC (SERVER CALLS CLIENT) ---
 
 @rpc_method("admin.inspect_client")
-@rpc_method("reverse_rpc.ask_client")
 async def inspect_client(session, params: dict = None):
     """
     Symmetric JSON-RPC 2.0: The server initiates a request to the browser
@@ -499,7 +463,6 @@ async def inspect_client(session, params: dict = None):
 # --- 6. REALTIME BROADCAST ---
 
 @rpc_method("alerts.publish")
-@rpc_method("broadcast.send_announcement")
 async def publish_alert(session, params: dict):
     """
     Broadcasts message to all active WebSocket sessions in O(1)
@@ -647,7 +610,6 @@ async def auth_logout(session, params: dict = None):
 
 
 @rpc_method("auth.me")
-@rpc_method("auth.whoami")
 async def auth_whoami(session, params: dict = None):
     """Возвращает информацию о текущей роли и сессии сокета."""
     transport = current_transport_ctx.get() or session
@@ -895,25 +857,7 @@ async def rbac_simulate(session: JsonRpcSession, params: dict):
                 }
 
 
-
-@rpc_method("admin.system_info")
-async def admin_system_info(session: JsonRpcSession, params: dict):
-    """
-    Protected method: accessible ONLY with admin role.
-    If unauthorized, framework automatically returns RPCError(-32003, Access denied).
-    """
-    import os
-    return {
-        "status": "authorized",
-        "secret_system_data": {
-            "pid": os.getpid(),
-            "active_sockets": len(ACTIVE_SESSIONS_SET),
-            "cpu_count": os.cpu_count(),
-            "python_implementation": platform.python_implementation(),
-            "security_guard": "RBAC Verified by pyferro decorator",
-        }
-    }
-
+# (admin.system_info removed)
 
 # --- 8. DOCUMENTS (SECOND MODEL FOR CRUD & TABULAR) ---
 
@@ -934,7 +878,6 @@ async def list_documents(session: JsonRpcSession, params: dict):
 
 # --- 9. SEO & BOT DETECTOR (PLUGINS.SEO) ---
 
-@rpc_method("seo.simulate_bot")
 @rpc_method("seo.simulate")
 async def simulate_bot_check(session: JsonRpcSession, params: dict):
     """

@@ -19,6 +19,7 @@ from pyferro.core.session import (
     require_admin,
     RPC_REGISTRY,
     is_guest_rpc_allowed,
+    is_framework_handler,
 )
 from pyferro.core.constants import ADMIN_ROLE
 from pyferro.db import system_db_session
@@ -111,7 +112,11 @@ async def handle_permissions_get_schema(session: JsonRpcSession, all: bool = Fal
             if all:
                 params_info = _inspect_handler_params(handler)
 
-        is_fw_rpc = name.startswith(("crud.", "system.", "auth.", "login.", "permissions.", "raw_ws.")) or group in ("crud", "system", "auth", "login", "permissions", "raw_ws")
+        is_fw_rpc = getattr(handler, "is_framework", None)
+        if is_fw_rpc is None:
+            is_fw_rpc = is_framework_handler(handler)
+        is_fw_rpc = bool(is_fw_rpc)
+
         item = {
             "name": name,
             "group": group,
@@ -140,6 +145,8 @@ async def handle_permissions_get_schema(session: JsonRpcSession, all: bool = Fal
                 if db_item.name not in seen:
                     if not all and (db_item.name.startswith("crud.") or db_item.name.startswith("permissions.")):
                         continue
+                    if db_item.name not in RPC_REGISTRY and not db_item.name.endswith("*"):
+                        continue
                     seen.add(db_item.name)
                     group = db_item.name.split(".")[0] if "." in db_item.name else "other"
                     handler = RPC_REGISTRY.get(db_item.name)
@@ -150,10 +157,15 @@ async def handle_permissions_get_schema(session: JsonRpcSession, all: bool = Fal
                         if all:
                             params_info = _inspect_handler_params(handler)
 
+                    is_fw_from_db = getattr(db_item, "is_framework", None)
+                    if is_fw_from_db is None:
+                        is_fw_from_db = is_framework_handler(handler)
+
                     item = {
                         "name": db_item.name,
                         "group": group,
                         "is_public": is_guest_rpc_allowed(db_item.name),
+                        "is_framework": bool(is_fw_from_db),
                         "description": db_item.description or f"RPC method {db_item.name}",
                         "help": full_doc.strip()
                     }

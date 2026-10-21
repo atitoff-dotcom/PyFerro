@@ -91,11 +91,14 @@ def _is_guest(session: Any) -> bool:
 
     return True
 
+def _is_framework_or_test_model(meta: ModelMeta) -> bool:
+    table = meta.table_name or ""
+    return bool(table.startswith(("pf_", "auth_", "test_")) or getattr(meta, "is_framework", False))
+
 
 # -----------------------------------------------------------------------------
 # Хендлеры логики CRUD
 # -----------------------------------------------------------------------------
-
 async def handle_crud_schema(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
     """Возвращает схему одной или всех доступных пользователю моделей."""
     provider = get_identity_provider()
@@ -127,6 +130,12 @@ async def handle_crud_schema(session: JsonRpcSession, params: Dict[str, Any]) ->
                 is_super = True
 
     target_model = params.get("model")
+    try:
+        from pyferro.db import Base
+        ModelRegistry.auto_discover(Base)
+    except Exception:
+        pass
+
     is_guest = not is_super and _is_guest(session)
     from pyferro.core.session import GUEST_ALLOWED_CRUD_MODELS
 
@@ -142,10 +151,6 @@ async def handle_crud_schema(session: JsonRpcSession, params: Dict[str, Any]) ->
                 "can_delete": False,
             }
             return {"model": meta.to_schema_dict(perms)}
-
-        if not ModelRegistry.all():
-            from pyferro.db import Base
-            ModelRegistry.auto_discover(Base)
 
         models_list = []
         for meta in ModelRegistry.all().values():
@@ -168,6 +173,14 @@ async def handle_crud_schema(session: JsonRpcSession, params: Dict[str, Any]) ->
     def make_perms(meta: ModelMeta) -> Dict[str, bool]:
         name = meta.key
         can_r = is_super or provider.has_permission(uid, f"{name}:read")
+        if not _is_framework_or_test_model(meta):
+            # Таблицы приложения в админ-панели CRUD строго только для чтения (режим инспекции)
+            return {
+                "can_read": can_r,
+                "can_create": False,
+                "can_update": False,
+                "can_delete": False,
+            }
         can_c = is_super or provider.has_permission(uid, f"{name}:create")
         can_u = is_super or provider.has_permission(uid, f"{name}:update")
         can_d = is_super or provider.has_permission(uid, f"{name}:delete")
@@ -182,10 +195,6 @@ async def handle_crud_schema(session: JsonRpcSession, params: Dict[str, Any]) ->
         meta = _get_model_meta(target_model)
         perms = make_perms(meta)
         return {"model": meta.to_schema_dict(perms)}
-
-    if not ModelRegistry.all():
-        from pyferro.db import Base
-        ModelRegistry.auto_discover(Base)
 
     models_list = []
     for meta in ModelRegistry.all().values():
@@ -415,6 +424,8 @@ async def handle_crud_update_cell(session: JsonRpcSession, params: Dict[str, Any
         raise RPCError(-32003, "Мутации в CRUD запрещены для роли Гость. Используйте специализированные RPC-методы.")
 
     meta = _get_model_meta(model_name)
+    if not _is_framework_or_test_model(meta):
+        raise RPCError(-32003, f"Таблица '{meta.key}' является таблицей приложения и доступна только для чтения в CRUD. Редактирование записей производится через специализированные методы приложения.")
     cls = meta.model_cls
     provider = get_identity_provider()
     policy = get_access_policy()
@@ -512,6 +523,9 @@ async def handle_crud_bulk_update(session: JsonRpcSession, params: Dict[str, Any
     if not model_name or not record_ids or not patch:
         raise RPCError(-32602, "Параметры 'model', 'ids' и 'patch' обязательны")
 
+    meta = _get_model_meta(model_name)
+    if not _is_framework_or_test_model(meta):
+        raise RPCError(-32003, f"Таблица '{meta.key}' является таблицей приложения и доступна только для чтения в CRUD. Редактирование записей производится через специализированные методы приложения.")
     provider = get_identity_provider()
     policy = get_access_policy()
     uid = provider.user_id(session)
@@ -579,6 +593,8 @@ async def handle_crud_delete(session: JsonRpcSession, params: Dict[str, Any]) ->
         raise RPCError(-32003, "Мутации в CRUD запрещены для роли Гость. Используйте специализированные RPC-методы.")
 
     meta = _get_model_meta(model_name)
+    if not _is_framework_or_test_model(meta):
+        raise RPCError(-32003, f"Таблица '{meta.key}' является таблицей приложения и доступна только для чтения в CRUD. Удаление записей производится через специализированные методы приложения.")
     cls = meta.model_cls
     provider = get_identity_provider()
     policy = get_access_policy()
@@ -640,6 +656,8 @@ async def handle_crud_create(session: JsonRpcSession, params: Dict[str, Any]) ->
         raise RPCError(-32003, "Мутации в CRUD запрещены для роли Гость. Используйте специализированные RPC-методы.")
 
     meta = _get_model_meta(model_name)
+    if not _is_framework_or_test_model(meta):
+        raise RPCError(-32003, f"Таблица '{meta.key}' является таблицей приложения и доступна только для чтения в CRUD. Создание записей производится через специализированные методы приложения.")
     cls = meta.model_cls
     provider = get_identity_provider()
     policy = get_access_policy()

@@ -444,7 +444,7 @@
   async function switchUserDirectly(target: "admin" | "alice" | "bob" | "guest") {
     try {
       await rpc.call("auth.set_role", { role: target });
-      const who: any = await rpc.call("auth.whoami", {});
+      const who: any = await rpc.call("auth.me", {});
       auth = {
         authenticated: who.authenticated,
         role: who.role,

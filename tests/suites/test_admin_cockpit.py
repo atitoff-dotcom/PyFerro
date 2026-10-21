@@ -31,8 +31,12 @@ from pyferro.plugins.crud.admin_handlers import (
     get_system_config,
     get_plugin_matrix,
     update_hot_config,
+    list_delegations_admin,
+    toggle_delegation_admin,
+    create_delegation_admin,
+    delete_delegation_admin,
+    delegation_options_admin,
 )
-
 
 class MockAdminSession:
     session_id = 999
@@ -245,3 +249,73 @@ async def test_system_update_hot_config():
 
     # Возвращаем дефолты
     await update_hot_config(admin, log_level="INFO", db_echo=False)
+
+
+@pytest.mark.asyncio
+async def test_admin_delegations_lifecycle():
+    """Проверяет управление замещениями полномочий в админке (UserDelegation CRUD & Toggle)."""
+    admin = MockAdminSession()
+    user = MockUserSession()
+
+    # 1. Защита доступа (только admin)
+    with pytest.raises(RPCError) as exc:
+        await list_delegations_admin(user)
+    assert exc.value.code == -32003
+
+    # 2. Получение опций для формы
+    options = await delegation_options_admin(admin)
+    assert "users" in options
+    assert "models" in options
+
+    # 3. Валидация: нельзя делегировать самому себе
+    with pytest.raises(RPCError) as exc:
+        await create_delegation_admin(admin, from_user_id=1, to_user_id=1)
+    assert exc.value.code == -32602
+
+    from pyferro.db import system_db_session, engine, Base
+    from pyferro.auth.models import User
+    from sqlalchemy import select
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with system_db_session() as db:
+        u1 = (await db.execute(select(User).where(User.id == 1001))).scalar_one_or_none()
+        if not u1:
+            u1 = User(id=1001, login="del_user1", name="Del User 1")
+            db.add(u1)
+        u2 = (await db.execute(select(User).where(User.id == 1002))).scalar_one_or_none()
+        if not u2:
+            u2 = User(id=1002, login="del_user2", name="Del User 2")
+            db.add(u2)
+        await db.commit()
+
+    # 4. Успешное создание замещения
+    created = await create_delegation_admin(
+        admin,
+        from_user_id=1001,
+        to_user_id=1002,
+        model_name="Task",
+        is_active=True,
+    )
+    del_id = created["id"]
+    assert del_id > 0
+
+    # 5. Проверка в общем списке
+    dels = await list_delegations_admin(admin)
+    found = next((d for d in dels if d["id"] == del_id), None)
+    assert found is not None
+    assert found["from_user_id"] == 1001
+    assert found["to_user_id"] == 1002
+    assert found["model_name"] == "Task"
+    assert found["is_active"] is True
+    assert found["status"] == "active"
+
+    # 6. Переключение активности (toggle)
+    toggled = await toggle_delegation_admin(admin, id=del_id)
+    assert toggled["is_active"] is False
+
+    # 7. Удаление
+    deleted = await delete_delegation_admin(admin, id=del_id)
+    assert deleted["deleted"] is True
+    assert deleted["id"] == del_id

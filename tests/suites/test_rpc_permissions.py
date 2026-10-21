@@ -550,3 +550,101 @@ async def test_live_ws_and_cookie_audit_real_users_without_passwords_and_no_hand
         # На ТОМ ЖЕ открытом сокете право мгновенно отозвано!
         res_after_revoke = await live_ws.check_access("audit_trap.explode")
         assert res_after_revoke["allowed"] is False
+
+
+@pytest.mark.asyncio
+async def test_rpc_is_framework_detection_and_schema():
+    """Проверяет точное определение флага is_framework по файловому пути/модулю."""
+    from pyferro.core.session import rpc_method, is_framework_handler, RPC_REGISTRY
+    from pyferro.auth.permission_handlers import handle_permissions_get_schema
+    from unittest.mock import MagicMock
+
+    # 1. Метод, объявленный в текущем тестовом файле (прикладной)
+    @rpc_method("custom_app.test_method")
+    async def custom_app_fn():
+        return True
+
+    # 2. Метод с префиксом system., но объявленный вне pyferro (прикладной)
+    @rpc_method("system.custom_ping")
+    async def custom_system_ping():
+        return True
+
+    assert is_framework_handler(custom_app_fn) is False
+    assert is_framework_handler(custom_system_ping) is False
+    assert RPC_REGISTRY["custom_app.test_method"].is_framework is False
+    assert RPC_REGISTRY["system.custom_ping"].is_framework is False
+
+    # 3. Системные методы плагинов pyferro
+    from pyferro.plugins.files.handlers import files_init_upload
+    assert is_framework_handler(files_init_upload) is True
+
+    # 4. Проверка схемы интроспекции permissions.get_schema
+    admin_session = MagicMock()
+    admin_session.user_role = "admin"
+    admin_session.user_roles = ["admin"]
+    admin_session.is_admin = True
+    admin_session.is_superadmin = True
+    admin_session.cookies = {}
+    admin_session.data = None
+
+    schema = await handle_permissions_get_schema(admin_session, all=True)
+    methods_by_name = {m["name"]: m for m in schema["rpc_methods"]}
+
+    assert methods_by_name["custom_app.test_method"]["is_framework"] is False
+    assert methods_by_name["system.custom_ping"]["is_framework"] is False
+    if "files.init_upload" in methods_by_name:
+        assert methods_by_name["files.init_upload"]["is_framework"] is True
+
+
+@pytest.mark.asyncio
+async def test_sync_rpc_permissions_purges_obsolete_methods_and_cascades():
+    """Проверяет автоматическую очистку несуществующих RPC методов из БД и каскадных связей."""
+    from pyferro.auth.discovery import sync_rpc_permissions, ensure_system_roles
+    from pyferro.auth.models import Role, RpcPermission, RoleRpcPermission
+    from pyferro.db import system_db_session, engine, Base
+    from sqlalchemy import select
+
+    from pyferro.db.session import configure_db
+    configure_db("sqlite+aiosqlite:///test_audit.db")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with system_db_session() as db:
+        admin_role, guest_role = await ensure_system_roles(db)
+
+        # 1. Добавляем устаревший метод, которого реально нет в RPC_REGISTRY
+        obsolete_perm = RpcPermission(name="obsolete.method_to_purge", description="Старый метод")
+        wildcard_perm = RpcPermission(name="custom_reports.*", description="Wildcard маска")
+        db.add_all([obsolete_perm, wildcard_perm])
+        await db.flush()
+
+        # 2. Привязываем оба права к роли
+        role_perm1 = RoleRpcPermission(role_id=guest_role.id, rpc_permission_id=obsolete_perm.id)
+        role_perm2 = RoleRpcPermission(role_id=guest_role.id, rpc_permission_id=wildcard_perm.id)
+        db.add_all([role_perm1, role_perm2])
+        await db.commit()
+
+    # 3. Запускаем актуализацию при старте
+    await sync_rpc_permissions()
+
+    # 4. Проверяем состояние в БД
+    async with system_db_session() as db:
+        # Устаревший метод должен быть полностью удален
+        stmt_obs = select(RpcPermission).where(RpcPermission.name == "obsolete.method_to_purge")
+        res_obs = (await db.execute(stmt_obs)).scalar_one_or_none()
+        assert res_obs is None, "Устаревший RPC метод не был удален из pf_auth_rpc_permission"
+
+        # Связь устаревшего метода с ролью каскадно удалена
+        stmt_link = select(RoleRpcPermission).where(RoleRpcPermission.rpc_permission_id == obsolete_perm.id)
+        res_link = (await db.execute(stmt_link)).scalars().all()
+        assert len(res_link) == 0, "Связка с ролью не была каскадно удалена"
+
+        # Wildcard-маска НЕ должна быть удалена
+        stmt_wild = select(RpcPermission).where(RpcPermission.name == "custom_reports.*")
+        res_wild = (await db.execute(stmt_wild)).scalar_one_or_none()
+        assert res_wild is not None, "Wildcard-маска ошибочно удалена"
+
+        # Связь wildcard-маски с ролью сохранилась
+        stmt_wild_link = select(RoleRpcPermission).where(RoleRpcPermission.rpc_permission_id == wildcard_perm.id)
+        res_wild_link = (await db.execute(stmt_wild_link)).scalars().all()
+        assert len(res_wild_link) == 1, "Связка wildcard-маски с ролью должна остаться"

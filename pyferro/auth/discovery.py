@@ -8,7 +8,7 @@
 from __future__ import annotations
 import inspect
 from typing import Set
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from pyferro.core.logger import logger
 from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE, SYSTEM_ROLES
@@ -16,6 +16,7 @@ from pyferro.core.session import (
     RPC_REGISTRY,
     GUEST_ALLOWED_RPC_METHODS,
     GUEST_ALLOWED_CRUD_MODELS,
+    is_framework_handler,
 )
 from pyferro.core.lifecycle import on_startup
 from pyferro.db import system_db_session
@@ -79,6 +80,21 @@ async def reload_guest_permissions_cache() -> None:
 
 async def ensure_system_roles(db) -> tuple[Role, Role]:
     """Гарантирует наличие обязательных системных ролей admin и guest в БД."""
+    try:
+        from pyferro.db import engine
+        async with engine.begin() as conn:
+            def _sync_col(connection):
+                try:
+                    res = connection.exec_driver_sql("PRAGMA table_info(pf_auth_rpc_permission)").fetchall()
+                    existing_cols = {row[1] for row in res}
+                    if existing_cols and "is_framework" not in existing_cols:
+                        connection.exec_driver_sql("ALTER TABLE pf_auth_rpc_permission ADD COLUMN is_framework BOOLEAN DEFAULT 0")
+                except Exception:
+                    pass
+            await conn.run_sync(_sync_col)
+    except Exception:
+        pass
+
     stmt_roles = select(Role).options(selectinload(Role.rpc_permissions))
     existing = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
 
@@ -110,6 +126,17 @@ async def sync_rpc_permissions() -> None:
         from ..db import engine, Base
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+            def _sync_rpc_perm_columns(connection):
+                try:
+                    res = connection.exec_driver_sql("PRAGMA table_info(pf_auth_rpc_permission)").fetchall()
+                    existing_cols = {row[1] for row in res}
+                    if existing_cols and "is_framework" not in existing_cols:
+                        connection.exec_driver_sql("ALTER TABLE pf_auth_rpc_permission ADD COLUMN is_framework BOOLEAN DEFAULT 0")
+                except Exception:
+                    pass
+
+            await conn.run_sync(_sync_rpc_perm_columns)
 
         async with system_db_session() as db:
             # 1. Проверяем обязательные системные роли (admin, guest)
@@ -146,28 +173,55 @@ async def sync_rpc_permissions() -> None:
 
                 # Дефолтная привязка к guest: строго только методы логина
                 is_login = method_name in DEFAULT_LOGIN_METHODS or method_name.startswith("login.")
+                is_fw = getattr(handler, "is_framework", None)
+                if is_fw is None:
+                    is_fw = is_framework_handler(handler)
+                is_fw = bool(is_fw)
 
                 if method_name not in existing_perms:
                     new_perm = RpcPermission(
                         name=method_name,
-                        description=first_line
+                        description=first_line,
+                        is_framework=is_fw,
                     )
                     db.add(new_perm)
                     existing_perms[method_name] = new_perm
                     added_count += 1
                 else:
                     perm = existing_perms[method_name]
-                    if not perm.description or perm.description.startswith("Обертка для") or perm.description.startswith("RPC method"):
-                        perm.description = first_line
+                    if getattr(perm, "is_framework", None) != is_fw:
+                        perm.is_framework = is_fw
                         updated_count += 1
+                    if not perm.description or perm.description.startswith("Обертка для") or perm.description.startswith("RPC method") or perm.description != first_line:
+                        if first_line and perm.description != first_line:
+                            perm.description = first_line
+                            updated_count += 1
 
-            if added_count > 0 or updated_count > 0:
+            # 3. Удаляем устаревшие методы, которых больше нет в RPC_REGISTRY
+            # (не затрагивая wildcard-маски прав вида '*' или 'orders.*')
+            stale_perms = [
+                perm for name, perm in existing_perms.items()
+                if name not in RPC_REGISTRY and not name.endswith("*")
+            ]
+            deleted_count = 0
+            if stale_perms:
+                stale_ids = [p.id for p in stale_perms]
+                from .models import RoleRpcPermission, UserRpcPermission
+                await db.execute(delete(RoleRpcPermission).where(RoleRpcPermission.rpc_permission_id.in_(stale_ids)))
+                await db.execute(delete(UserRpcPermission).where(UserRpcPermission.rpc_permission_id.in_(stale_ids)))
+                for p in stale_perms:
+                    await db.delete(p)
+                    existing_perms.pop(p.name, None)
+                deleted_count = len(stale_perms)
+
+            if added_count > 0 or updated_count > 0 or deleted_count > 0:
                 await db.commit()
                 if added_count > 0:
                     logger.info(f"[Discovery] Зарегистрировано {added_count} новых RPC-методов в базе данных")
                 if updated_count > 0:
                     logger.info(f"[Discovery] Обновлено {updated_count} описаний RPC-методов из docstrings")
-
+                if deleted_count > 0:
+                    logger.info(f"[Discovery] Удалено {deleted_count} устаревших RPC-методов из базы данных")
             # 3. Гарантируем привязку методов логина к роли guest
             guest_role_updated = False
             for method_name, perm in existing_perms.items():
