@@ -438,3 +438,150 @@ def test_indexnow_file_queue_and_flushing(tmp_path, monkeypatch):
 
     asyncio.run(_run())
 
+
+# -----------------------------------------------------------------------------
+# 8. Тесты No-Code динамических правил моделей (Форумы, Каталоги, Связи)
+# -----------------------------------------------------------------------------
+
+def test_dynamic_model_schema_and_preview():
+    """Проверяет извлечение схемы модели и подстановку связей (Foreign Keys) в превью."""
+    import pyferro.plugins.help  # Регистрация моделей форума
+    from pyferro.plugins.seo.dynamic_rules import get_model_schema_for_seo, preview_model_rule
+
+    # 1. Проверяем интроспекцию схемы
+    schema = get_model_schema_for_seo("ForumTopic")
+    assert schema["key"] == "ForumTopic"
+    assert any(f["name"] == "title" for f in schema["fields"])
+    assert any(r["relation_name"] == "category" for r in schema["relations"])
+    cat_rel = next(r for r in schema["relations"] if r["relation_name"] == "category")
+    assert any(f["chip"] == "category.name" for f in cat_rel["fields"])
+
+    # 2. Проверяем генерацию превью правила со связями
+    async def _run_preview():
+        rule = {
+            "model_key": "ForumTopic",
+            "url_pattern": "/forum/{category.slug}/{slug}",
+            "title_template": "{title} — раздел «{category.name}» | Форум",
+            "description_template": "{first_post_text}",
+            "schema_type": "DiscussionForumPosting",
+            "breadcrumbs": [
+                {"title": "Главная", "url": "/"},
+                {"title": "{category.name}", "url": "/forum/{category.slug}"},
+                {"title": "{title}", "url": ""},
+            ]
+        }
+        res = await preview_model_rule("ForumTopic", rule)
+        assert "/forum/" in res["url"]
+        assert "раздел" in res["title"]
+        assert res["schema_type"] == "DiscussionForumPosting"
+        assert res["schema_data"]["@type"] == "DiscussionForumPosting"
+        assert len(res["breadcrumbs"]) == 3
+        assert res["breadcrumbs"][0]["title"] == "Главная"
+
+    asyncio.run(_run_preview())
+
+
+def test_dynamic_model_bot_rendering():
+    """Проверяет перехват запроса бота динамическим правилом модели."""
+    import pyferro.plugins.help
+    from pyferro.plugins.seo import configure_seo, handle_bot_http
+
+    configure_seo(
+        model_rules=[
+            {
+                "model_key": "ForumTopic",
+                "url_pattern": "/forum/{category.slug}/{slug}",
+                "title_template": "{title} — раздел «{category.name}»",
+                "description_template": "{first_post_text}",
+                "schema_type": "DiscussionForumPosting",
+            }
+        ]
+    )
+    async def _run_http():
+        from pyferro.db import engine, Base, async_session
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        from pyferro.plugins.help.models import ForumCategory, ForumTopic
+        async with async_session() as db:
+            c = ForumCategory(name="Архитектура", slug="architecture")
+            db.add(c)
+            await db.flush()
+            t = ForumTopic(category_id=c.id, title="WSRPC vs REST", slug="wsrpc-vs-rest-comparison", first_post_text="WSRPC rules!")
+            db.add(t)
+            await db.commit()
+
+        # Бот запрашивает URL форума
+        proto = MockRSGIProto()
+        scope = {
+            "method": "GET",
+            "path": "/forum/architecture/wsrpc-vs-rest-comparison",
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"),
+                (b"host", b"localhost:8080"),
+            ],
+            "query_string": b"",
+        }
+
+        # handle_bot_http должен вернуть True и отдать семантический HTML
+        handled = await handle_bot_http(scope, proto)
+        assert handled is True
+        assert proto.status == 200
+        assert "DiscussionForumPosting" in proto.body or "og:title" in proto.body
+
+    asyncio.run(_run_http())
+
+
+def test_seo_role_rbac_and_admin_config():
+    """Проверяет интеграцию роли seo в RBAC и фильтрацию моделей в admin.seo_get_config."""
+    from pyferro.core.constants import SEO_ROLE, SYSTEM_ROLES
+    assert SEO_ROLE == "seo"
+    assert SEO_ROLE in SYSTEM_ROLES
+
+    import asyncio
+    from pyferro.db import engine, Base
+    from pyferro.auth.discovery import sync_rpc_permissions
+    from pyferro.plugins.crud.admin_handlers import seo_get_config_admin, seo_toggle_model_permission_admin
+
+    class MockAdminSession:
+        is_superadmin = True
+        user = type("MockUser", (), {"is_superadmin": True, "id": 1, "login": "admin", "roles": [type("R", (), {"name": "admin"})()]})()
+    async def _test():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await sync_rpc_permissions()
+
+        session = MockAdminSession()
+        cfg = await seo_get_config_admin(session)
+
+        # 1. Проверяем список моделей: auth/системные таблицы не должны просачиваться
+        model_keys = [m["key"] for m in cfg["available_models"]]
+        assert "ForumTopic" in model_keys
+        assert "ForumCategory" in model_keys
+        assert "User" not in model_keys
+        assert "Role" not in model_keys
+        assert "UserRole" not in model_keys
+        assert "RpcPermission" not in model_keys
+
+        # 2. Проверяем свойства showcase моделей
+        topic_meta = next(m for m in cfg["available_models"] if m["key"] == "ForumTopic")
+        assert topic_meta["is_showcase"] is True
+        assert topic_meta["seo_allowed"] is True
+        assert "/forum/" in topic_meta["suggested_url_pattern"]
+        assert topic_meta["suggested_title_field"] == "title"
+        assert topic_meta["suggested_desc_field"] == "first_post_text"
+
+        # 3. Проверяем переключение прав роли seo через RPC
+        res = await seo_toggle_model_permission_admin(session, model_key="ForumTopic", allowed=False)
+        assert res["status"] == "ok"
+        assert res["seo_allowed"] is False
+
+        # Повторно запрашиваем конфиг - seo_allowed для ForumTopic должен стать False
+        cfg_after = await seo_get_config_admin(session)
+        topic_after = next(m for m in cfg_after["available_models"] if m["key"] == "ForumTopic")
+        assert topic_after["seo_allowed"] is False
+
+        # Возвращаем обратно в True
+        await seo_toggle_model_permission_admin(session, model_key="ForumTopic", allowed=True)
+
+    asyncio.run(_test())

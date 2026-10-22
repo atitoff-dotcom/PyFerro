@@ -15,6 +15,7 @@ from pyferro.core.session import (
     rpc_method,
     RPCError,
     require_admin,
+    require_admin_section,
     ACTIVE_SESSIONS_SET,
     current_transport_ctx,
 )
@@ -584,4 +585,313 @@ async def delegation_options_admin(session) -> Dict[str, Any]:
     return {
         "users": users_list,
         "models": models_list,
+        "models": models_list,
     }
+
+
+@rpc_method("admin.seo_get_config")
+async def seo_get_config_admin(session) -> Dict[str, Any]:
+    """Возвращает текущие настройки поисковой оптимизации, превью ссылок и карты сайта с учетом прав роли seo."""
+    require_admin_section(session, "seo")
+    from pyferro.plugins.seo.config import get_seo_config
+    from pyferro.plugins.seo.router import BOT_ROUTES
+    from pyferro.core.constants import SEO_ROLE
+    from pyferro.db import system_db_session
+    from pyferro.auth.models import Role, RolePermission
+    from sqlalchemy import select
+
+    cfg = get_seo_config()
+
+    from pyferro.plugins.seo.dynamic_rules import get_model_schema_for_seo
+
+    # Загружаем разрешения для роли 'seo' из RBAC
+    seo_allowed_keys = set()
+    async with system_db_session() as db:
+        role = (await db.execute(select(Role).where(Role.name == SEO_ROLE))).scalar_one_or_none()
+        if role:
+            stmt_perms = select(RolePermission).where(
+                RolePermission.role_id == role.id,
+                RolePermission.can_read == True
+            )
+            perms = (await db.execute(stmt_perms)).scalars().all()
+            seo_allowed_keys = {p.model_name for p in perms}
+        else:
+            seo_allowed_keys = {"ForumCategory", "ForumTopic", "ForumPost"}
+
+    if not seo_allowed_keys:
+        seo_allowed_keys = {"ForumCategory", "ForumTopic", "ForumPost"}
+
+    models_list = []
+    system_blacklist = {
+        "User", "Role", "RpcPermission", "UserRole", "UserTeam",
+        "RoleRpcPermission", "RolePermission", "UserPermission",
+        "UserDelegation", "RefreshToken", "ActiveSession", "FileItem", "OAuthAccount"
+    }
+
+    for meta in ModelRegistry.all().values():
+        if meta.is_internal or getattr(getattr(meta, "crud_config", None), "internal", False):
+            continue
+        if meta.key in system_blacklist:
+            continue
+        if meta.table_name.startswith(("pf_auth_", "pf_system_", "pf_user_", "pf_file_")):
+            continue
+
+        schema_info = get_model_schema_for_seo(meta.key)
+        fields = schema_info.get("fields", [])
+        field_names = [f["name"] for f in fields]
+        relations = schema_info.get("relations", [])
+
+        is_showcase = bool(
+            meta.table_name.startswith("pf_showcase_")
+            or meta.table_name.startswith("pf_forum_")
+            or meta.key.startswith("Forum")
+        )
+
+        title_candidates = ["title", "name", "caption", "header", "subject"]
+        suggested_title = next((c for c in title_candidates if c in field_names), "")
+        if not suggested_title:
+            for f in fields:
+                if not f.get("primary_key") and f.get("type", "").lower() in ("string", "text", "varchar"):
+                    suggested_title = f["name"]
+                    break
+
+        desc_candidates = ["first_post_text", "description", "content", "summary", "text", "body", "bio"]
+        suggested_desc = next((c for c in desc_candidates if c in field_names), "")
+
+        img_candidates = ["og_image", "cover_image", "cover", "image", "avatar", "icon", "photo"]
+        suggested_img = next((c for c in img_candidates if c in field_names), "")
+
+        slug_candidates = ["slug", "code", "alias", "id"]
+        suggested_slug = next((c for c in slug_candidates if c in field_names), "id")
+
+        parent_rel = None
+        for rel in relations:
+            rel_name = rel.get("relation_name", "")
+            if rel_name in ("category", "parent", "topic", "section", "group") or "cat" in rel_name:
+                parent_rel = rel_name
+                break
+
+        if meta.key == "ForumTopic":
+            suggested_url = "/forum/{category.slug}/{slug}"
+            suggested_schema = "DiscussionForumPosting"
+        elif meta.key == "ForumCategory":
+            suggested_url = "/forum/{slug}"
+            suggested_schema = "WebPage"
+        elif meta.key == "ForumPost":
+            suggested_url = "/forum/post/{id}"
+            suggested_schema = "DiscussionForumPosting"
+        elif parent_rel and "slug" in field_names:
+            suggested_url = f"/{meta.key.lower()}s/{{{parent_rel}.slug}}/{{slug}}"
+            suggested_schema = "Article" if any(x in meta.key.lower() for x in ("post", "article", "news", "blog")) else "WebPage"
+        elif "slug" in field_names:
+            suggested_url = f"/{meta.key.lower()}s/{{slug}}"
+            suggested_schema = "Article" if any(x in meta.key.lower() for x in ("post", "article", "news", "blog")) else "WebPage"
+        else:
+            suggested_url = f"/{meta.key.lower()}s/{{id}}"
+            suggested_schema = "WebPage"
+
+        models_list.append({
+            "key": meta.key,
+            "verbose_name": meta.verbose_name or meta.key,
+            "table_name": meta.table_name,
+            "is_showcase": is_showcase,
+            "seo_allowed": (meta.key in seo_allowed_keys),
+            "suggested_url_pattern": suggested_url,
+            "suggested_title_field": suggested_title,
+            "suggested_desc_field": suggested_desc,
+            "suggested_image_field": suggested_img,
+            "suggested_slug_field": suggested_slug,
+            "suggested_schema_type": suggested_schema,
+            "parent_relation": parent_rel,
+            "enabled": meta.key in cfg.sitemap_models or not cfg.sitemap_models,
+            "fields": fields,
+            "relations": relations,
+        })
+
+    return {
+        "site_url": cfg.site_url,
+        "site_name": cfg.site_name,
+        "default_title": cfg.default_title,
+        "default_description": cfg.default_description,
+        "default_og_image": cfg.default_og_image,
+        "default_lang": cfg.default_lang,
+        "enable_sitemap": cfg.enable_sitemap,
+        "sitemap_ttl": cfg.sitemap_ttl,
+        "sitemap_models": cfg.sitemap_models,
+        "model_rules": cfg.model_rules,
+        "available_models": models_list,
+        "indexnow_key": cfg.indexnow_key,
+        "indexnow_enabled": bool(cfg.indexnow_key),
+        "bot_routes_count": len(BOT_ROUTES),
+    }
+
+@rpc_method("admin.seo_update_config")
+async def seo_update_config_admin(
+    session,
+    site_url: Optional[str] = None,
+    site_name: Optional[str] = None,
+    default_title: Optional[str] = None,
+    default_description: Optional[str] = None,
+    default_og_image: Optional[str] = None,
+    default_lang: Optional[str] = None,
+    enable_sitemap: Optional[bool] = None,
+    sitemap_models: Optional[List[str]] = None,
+    model_rules: Optional[List[Dict[str, Any]]] = None,
+    indexnow_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Сохраняет обновленную конфигурацию SEO и метатегов в рантайме."""
+    require_admin_section(session, "seo")
+    from pyferro.plugins.seo.config import configure_seo
+
+    updated = configure_seo(
+        site_url=site_url,
+        site_name=site_name,
+        default_title=default_title,
+        default_description=default_description,
+        default_og_image=default_og_image,
+        default_lang=default_lang,
+        enable_sitemap=enable_sitemap,
+        sitemap_models=sitemap_models,
+        model_rules=model_rules,
+        indexnow_key=indexnow_key,
+    )
+
+    try:
+        from pyferro.plugins.seo.sitemap import invalidate_sitemap_cache
+        invalidate_sitemap_cache()
+    except Exception:
+        pass
+
+    admin_name = _extract_username_safe(session)
+    logger.info(f"[SEO Admin] Администратор '{admin_name}' обновил настройки SEO: site_name='{updated.site_name}'")
+
+    return {
+        "status": "ok",
+        "message": "Настройки превью и поисковой оптимизации успешно сохранены",
+        "config": {
+            "site_url": updated.site_url,
+            "site_name": updated.site_name,
+            "default_title": updated.default_title,
+            "default_description": updated.default_description,
+            "default_og_image": updated.default_og_image,
+            "enable_sitemap": updated.enable_sitemap,
+            "sitemap_models": updated.sitemap_models,
+            "model_rules": updated.model_rules,
+            "indexnow_key": updated.indexnow_key,
+        }
+    }
+
+
+@rpc_method("admin.seo_ping_indexnow")
+async def seo_ping_indexnow_admin(session, urls: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Отправляет ручной push-запрос в поисковые системы (IndexNow)."""
+    require_admin_section(session, "seo")
+    from pyferro.plugins.seo.indexnow import notify_indexnow
+    from pyferro.plugins.seo.config import get_seo_config
+
+    cfg = get_seo_config()
+    if not cfg.indexnow_key:
+        raise RPCError(-32602, "Ключ IndexNow не задан. Сначала укажите ключ в настройках.")
+
+    target_urls = urls or [f"{cfg.site_url}/"]
+    await notify_indexnow(target_urls)
+
+    return {
+        "status": "ok",
+        "pushed_urls": target_urls,
+        "message": f"Запрос на индексацию {len(target_urls)} URL успешно передан в очередь IndexNow"
+    }
+
+
+@rpc_method("admin.seo_preview_model_rule")
+async def seo_preview_model_rule_admin(
+    session,
+    model_key: str,
+    rule: Dict[str, Any],
+    sample_id: Optional[Any] = None
+) -> Dict[str, Any]:
+    """Генерирует живое превью SEO-карточки для конкретной модели и правила."""
+    require_admin_section(session, "seo")
+    from pyferro.plugins.seo.dynamic_rules import preview_model_rule
+    return await preview_model_rule(model_key, rule, sample_id=sample_id)
+
+
+@rpc_method("admin.seo_get_model_records")
+async def seo_get_model_records_admin(
+    session,
+    model_key: str,
+    limit: int = 15
+) -> List[Dict[str, Any]]:
+    """Возвращает краткий список реальных записей из таблицы для выбора в симуляторе."""
+    require_admin_section(session, "seo")
+    meta = ModelRegistry.get(model_key)
+    if not meta:
+        return []
+
+    from pyferro.db import async_session
+    from sqlalchemy import select
+
+    records = []
+    async with async_session() as db:
+        try:
+            model_cls = meta.model_cls
+            stmt = select(model_cls).limit(limit)
+            rows = (await db.execute(stmt)).scalars().all()
+            for r in rows:
+                r_id = getattr(r, "id", None)
+                label = (
+                    getattr(r, "title", None)
+                    or getattr(r, "name", None)
+                    or getattr(r, "slug", None)
+                    or f"Запись #{r_id}"
+                )
+                records.append({"id": r_id, "label": str(label)})
+        except Exception as e:
+            logger.warning(f"[SEO Admin] Ошибка получения записей для {model_key}: {e}")
+
+    return records
+
+
+@rpc_method("admin.seo_toggle_model_permission")
+async def seo_toggle_model_permission_admin(
+    session,
+    model_key: str,
+    allowed: bool
+) -> Dict[str, Any]:
+    """Включает или выключает право чтения модели для роли 'seo' (RBAC управление)."""
+    require_admin_section(session, "seo")
+    from pyferro.core.constants import SEO_ROLE
+    from pyferro.db import system_db_session
+    from pyferro.auth.models import Role, RolePermission
+    from sqlalchemy import select
+
+    async with system_db_session() as db:
+        role = (await db.execute(select(Role).where(Role.name == SEO_ROLE))).scalar_one_or_none()
+        if not role:
+            role = Role(name=SEO_ROLE, description="Поисковая оптимизация и индексация (SEO Bot / Crawler)")
+            db.add(role)
+            await db.commit()
+            await db.refresh(role)
+
+        stmt = select(RolePermission).where(
+            RolePermission.role_id == role.id,
+            RolePermission.model_name == model_key
+        )
+        perm = (await db.execute(stmt)).scalar_one_or_none()
+        if not perm:
+            perm = RolePermission(
+                role_id=role.id,
+                model_name=model_key,
+                can_read=allowed,
+                can_create=False,
+                can_update=False,
+                can_delete=False,
+                read_global=allowed,
+            )
+            db.add(perm)
+        else:
+            perm.can_read = allowed
+            perm.read_global = allowed
+        await db.commit()
+
+    return {"status": "ok", "model_key": model_key, "seo_allowed": allowed}

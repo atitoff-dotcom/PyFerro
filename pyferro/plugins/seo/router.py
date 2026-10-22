@@ -177,6 +177,29 @@ async def handle_bot_http(scope: Any, proto: Any) -> bool:
         )
         return True
 
+    # 4. Проверяем динамические No-Code правила моделей из админки
+    try:
+        from .config import get_seo_config
+        from .dynamic_rules import match_and_render_model_rule
+        cfg = get_seo_config()
+        if cfg.model_rules:
+            page_data = await match_and_render_model_rule(path, cfg.model_rules)
+            if page_data:
+                host = extract_header(scope, "host")
+                html_content = render_seo_page(page_data, current_path=path, host=host)
+                proto.response_str(
+                    status=200,
+                    headers=[
+                        ("content-type", "text/html; charset=utf-8"),
+                        ("x-rendered-for", "bot"),
+                        ("x-seo-engine", "dynamic-model-rule"),
+                    ],
+                    body=html_content
+                )
+                return True
+    except Exception as e:
+        logger.error(f"[SEO] Ошибка обработки динамического правила для {path}: {e}", exc_info=True)
+
     # Ни один бот-маршрут не совпал — передаем дальше (например, в SPA fallback)
     return False
 

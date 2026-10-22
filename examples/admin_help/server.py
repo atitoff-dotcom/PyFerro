@@ -56,6 +56,7 @@ ModelRegistry.register(Document)
 import handlers  # noqa: F401
 import pyferro.plugins.files  # Registers HTTP /upload and RPC files.*
 import pyferro.plugins.crud as crud  # noqa: F401
+import pyferro.plugins.help as help_plugin  # noqa: F401
 
 # Initialize logging
 setup_logging()
@@ -100,16 +101,17 @@ async def init_database():
                 count_users = (await db.execute(select(func.count(User.id)))).scalar_one()
                 if count_users == 0:
                     # 1. Seed or retrieve demo roles
-                    # 1. Seed or retrieve demo roles
-                    stmt_roles = select(Role).where(Role.name.in_(["admin", "guest", "editor", "reader"]))
+                    stmt_roles = select(Role).where(Role.name.in_(["admin", "guest", "editor", "reader", "adm-seo", "adm-help"]))
                     existing_roles = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
 
                     role_admin = existing_roles.get("admin") or Role(name="admin", description="Full administrator access")
                     role_guest = existing_roles.get("guest") or Role(name="guest", description="Guest public access")
+                    role_adm_help = existing_roles.get("adm-help") or Role(name="adm-help", description="Admin Help & API Explorer")
                     role_editor = existing_roles.get("editor") or Role(name="editor", description="Content editor with task access")
                     role_reader = existing_roles.get("reader") or Role(name="reader", description="Content reader")
+                    role_adm_seo = existing_roles.get("adm-seo") or Role(name="adm-seo", description="SEO Section Administrator")
 
-                    for r in (role_admin, role_guest, role_editor, role_reader):
+                    for r in (role_admin, role_guest, role_adm_help, role_editor, role_reader, role_adm_seo):
                         if r.name not in existing_roles:
                             db.add(r)
                     await db.flush()
@@ -142,7 +144,16 @@ async def init_database():
                         password_hash=User._hash_password("bob123"),
                         roles=[role_editor, role_reader],
                     )
-                    db.add_all([u_admin, u_alice, u_bob])
+                    u_seo = User(
+                        login="seo",
+                        name="SEO Manager",
+                        first_name="Sergey",
+                        last_name="Optimizator",
+                        email="seo@example.com",
+                        password_hash=User._hash_password("seo123"),
+                        roles=[role_adm_seo],
+                    )
+                    db.add_all([u_admin, u_alice, u_bob, u_seo])
                     await db.flush()
 
                     # 3. Seed Granular Permissions for role 'editor' on 'Task'
@@ -186,11 +197,96 @@ async def init_database():
                     ]
                     db.add_all(demo_docs)
 
+                    # 7. Seed demo forum categories & topics (pf_showcase_...)
+                    from pyferro.plugins.help.models import ForumCategory, ForumTopic, ForumPost
+                    c_arch = ForumCategory(
+                        name="Архитектура и WebSockets",
+                        slug="architecture",
+                        description="Обсуждение RSGI, Granian, WebSocket и протокола WSRPC",
+                        icon="server",
+                        display_order=1
+                    )
+                    c_sec = ForumCategory(
+                        name="Безопасность и RBAC",
+                        slug="security",
+                        description="Авторизация, роли, делегирование и безопасность на уровне строк (RLS)",
+                        icon="shield",
+                        display_order=2
+                    )
+                    c_seo = ForumCategory(
+                        name="SEO и продвижение",
+                        slug="seo",
+                        description="Dynamic Rendering для роботов, Schema.org, OpenGraph и IndexNow",
+                        icon="search",
+                        display_order=3
+                    )
+                    db.add_all([c_arch, c_sec, c_seo])
+                    await db.flush()
+
+                    t1 = ForumTopic(
+                        category_id=c_arch.id,
+                        title="Как устроен WSRPC в PyFerro по сравнению со стандартным REST?",
+                        slug="wsrpc-vs-rest-comparison",
+                        author_name="Алексей Смирнов",
+                        views_count=328,
+                        replies_count=12,
+                        first_post_text="В отличие от классического REST, WSRPC исключает постоянный TCP/TLS handshake оверхед, работает по единому сокету и поддерживает стриминг данных.",
+                    )
+                    t2 = ForumTopic(
+                        category_id=c_sec.id,
+                        title="Row-Level Security (RLS) без сложной возни в SQL",
+                        slug="row-level-security-guide",
+                        author_name="Елена Васильева",
+                        views_count=195,
+                        replies_count=5,
+                        first_post_text="Модели, наследующие RowSecureModel, автоматически получают атрибуты creator_id, owner_id и team_id. Права на уровне строк фильтруются контекстом сессии.",
+                    )
+                    t3 = ForumTopic(
+                        category_id=c_seo.id,
+                        title="Почему мы отказались от тяжелого SSR в пользу Dynamic Rendering для ботов",
+                        slug="dynamic-rendering-vs-ssr",
+                        author_name="Дмитрий Ковалев",
+                        views_count=412,
+                        replies_count=19,
+                        first_post_text="Тяжелый Node.js SSR увеличивает потребление памяти в 5-10 раз. PyFerro обслуживает людей как быстрое SPA, а ботам на лету отдает семантический HTML с микроразметкой JSON-LD.",
+                    )
+                    db.add_all([t1, t2, t3])
+                    await db.flush()
+
+                    p1 = ForumPost(
+                        topic_id=t1.id,
+                        author_name="Максим Архитектор",
+                        content="Полностью поддерживаю, задержки упали с 45мс до 1.5мс в реальных сценариях!"
+                    )
+                    db.add(p1)
+
                     await db.commit()
+
+                    # Настройка стандартных правил SEO для форума
+                    from pyferro.plugins.seo.config import configure_seo
+                    configure_seo(
+                        model_rules=[
+                            {
+                                "model_key": "ForumTopic",
+                                "url_pattern": "/forum/{category.slug}/{slug}",
+                                "title_template": "{title} — раздел «{category.name}» | Форум",
+                                "description_template": "{first_post_text}",
+                                "schema_type": "DiscussionForumPosting",
+                                "sitemap_enabled": True,
+                                "sitemap_priority": 0.9,
+                                "sitemap_changefreq": "daily",
+                                "breadcrumbs": [
+                                    {"title": "Главная", "url": "/"},
+                                    {"title": "{category.name}", "url": "/forum/{category.slug}"},
+                                    {"title": "{title}", "url": ""}
+                                ]
+                            }
+                        ]
+                    )
+
                     logger.info("[Showcase] Fresh database initialized and seeded successfully.")
                 else:
                     logger.info("[Showcase] Database already populated, skipping initial seed.")
-
         except Exception as e:
             logger.error(f"[Showcase] Database initialization error: {e}", exc_info=True)
 
@@ -265,16 +361,16 @@ if __name__ == "__main__":
     lan_ip = get_local_ip()
 
     print("=" * 70)
-    print(" ⚡ PyFerro Showcase: Interactive Demo & Living Documentation")
+    print(" ⚡ PyFerro Admin Help & API Explorer (/admin/help)")
     if port != requested_port:
         print(f" [!] Notice: Port {requested_port} is busy or restricted by OS.")
         print(f" [!] Automatically selected available port: {port}")
     print(f" 🌐 Web UI (Local): http://127.0.0.1:{port}/")
     if host in ("0.0.0.0", "::"):
         print(f" 🌐 Web UI (LAN):   http://{lan_ip}:{port}/")
-        print(f" 🗄️  CRUD Admin:    http://{lan_ip}:{port}/crud")
+        print(f" 🗄️  Admin Panel:   http://{lan_ip}:{port}/admin/")
     else:
-        print(f" 🗄️  CRUD Admin:    http://{host}:{port}/crud")
+        print(f" 🗄️  Admin Panel:   http://{host}:{port}/admin/")
     print(f" 🔌 WSRPC Socket:   ws://{host}:{port}/")
     print(f" 💾 Database:       SQLite ({DB_PATH})")
     print(" 📖 Press Ctrl+C to stop the server")

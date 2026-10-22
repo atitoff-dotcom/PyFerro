@@ -18,6 +18,12 @@ from .indexnow import (
     start_indexnow_file_flusher,
     INDEXNOW_ENDPOINTS,
 )
+from .dynamic_rules import (
+    get_model_schema_for_seo,
+    preview_model_rule,
+    match_and_render_model_rule,
+    resolve_template,
+)
 from .renderer import render_seo_page, render_404_html, HtmlBuilder
 from .router import bot_page, handle_bot_http, BOT_ROUTES, BotRoute
 from .schemas import SeoPageData

@@ -289,57 +289,70 @@ async def test_crud_sso_and_zero_leakage_404():
             self.file_path = file
 
     class MockScope:
-        def __init__(self, path="/crud/", method="GET", cookie=""):
+        def __init__(self, path="/admin/", method="GET", cookie=""):
             self.path = path
             self.method = method
             self.headers = [("cookie", cookie)]
 
     # 1. Запрос гостя без сессии -> 404 Not Found (Zero-Leakage)
-    scope_guest = MockScope(path="/crud/")
+    scope_guest = MockScope(path="/admin/")
     proto_guest = MockRsgiProto()
     await serve_crud_static(scope_guest, proto_guest)
     assert proto_guest.status == 404
 
     # 2. Запрос обычного пользователя (не admin) -> 404 Not Found
-    user_token = create_crud_session({"username": "user", "role": "user"})
-    scope_user = MockScope(path="/crud/", cookie=f"ferro_crud_session={user_token}")
+    user_token = create_crud_session({"username": "user", "role": "user", "roles": ["user"]})
+    scope_user = MockScope(path="/admin/", cookie=f"ferro_crud_session={user_token}")
     proto_user = MockRsgiProto()
     await serve_crud_static(scope_user, proto_user)
     assert proto_user.status == 404
 
     # 3. Запрос админа -> 200 OK (отдает index.html)
-    admin_token = create_crud_session({"username": "admin", "role": "admin"})
-    scope_admin = MockScope(path="/crud/", cookie=f"ferro_crud_session={admin_token}")
+    admin_token = create_crud_session({"username": "admin", "role": "admin", "roles": ["admin"]})
+    scope_admin = MockScope(path="/admin/", cookie=f"ferro_crud_session={admin_token}")
     proto_admin = MockRsgiProto()
     await serve_crud_static(scope_admin, proto_admin)
     assert proto_admin.status == 200
     assert proto_admin.file_path is not None and "index.html" in proto_admin.file_path
 
-    # 4. Проверка внешнего SSO валидатора
-    set_crud_session_validator(lambda t: {"username": "sso_admin", "role": "admin"} if t == "valid_sso" else None)
-    scope_sso = MockScope(path="/crud/", cookie="ferro_crud_session=valid_sso")
+    # 4. Запрос пользователя с ролью adm-seo на канонический маршрут /admin/seo -> 200 OK
+    seo_token = create_crud_session({"username": "seo_alex", "role": "adm-seo", "roles": ["adm-seo"]})
+    scope_seo = MockScope(path="/admin/seo", cookie=f"ferro_crud_session={seo_token}")
+    proto_seo = MockRsgiProto()
+    await serve_crud_static(scope_seo, proto_seo)
+    assert proto_seo.status == 200
+    assert proto_seo.file_path is not None and "index.html" in proto_seo.file_path
+
+    # 5. Редирект /admin -> /admin/
+    scope_redirect = MockScope(path="/admin")
+    proto_redirect = MockRsgiProto()
+    await serve_crud_static(scope_redirect, proto_redirect)
+    assert proto_redirect.status == 307
+
+    # 6. Проверка внешнего SSO валидатора
+    set_crud_session_validator(lambda t: {"username": "sso_admin", "role": "admin", "roles": ["admin"]} if t == "valid_sso" else None)
+    scope_sso = MockScope(path="/admin/", cookie="ferro_crud_session=valid_sso")
     proto_sso = MockRsgiProto()
     await serve_crud_static(scope_sso, proto_sso)
     assert proto_sso.status == 200
 
-    # 5. Обратная совместимость с историческими куками (rsgi_crud_session, rsgi_session, rpc_jwt)
-    scope_rsgi_crud = MockScope(path="/crud/", cookie=f"rsgi_crud_session={admin_token}")
+    # 7. Обратная совместимость с историческими куками (rsgi_crud_session, rsgi_session, rpc_jwt)
+    scope_rsgi_crud = MockScope(path="/admin/", cookie=f"rsgi_crud_session={admin_token}")
     proto_rsgi_crud = MockRsgiProto()
     await serve_crud_static(scope_rsgi_crud, proto_rsgi_crud)
     assert proto_rsgi_crud.status == 200
 
-    scope_rsgi_sess = MockScope(path="/crud/", cookie=f"rsgi_session={admin_token}")
+    scope_rsgi_sess = MockScope(path="/admin/", cookie=f"rsgi_session={admin_token}")
     proto_rsgi_sess = MockRsgiProto()
     await serve_crud_static(scope_rsgi_sess, proto_rsgi_sess)
     assert proto_rsgi_sess.status == 200
 
     from pyferro.core.security import create_access_token
     admin_jwt, _, _ = create_access_token(user_id=1, username="admin", roles=["admin"])
-    scope_rpc_jwt = MockScope(path="/crud/", cookie=f"rpc_jwt={admin_jwt}")
+    scope_rpc_jwt = MockScope(path="/admin/", cookie=f"rpc_jwt={admin_jwt}")
     proto_rpc_jwt = MockRsgiProto()
     await serve_crud_static(scope_rpc_jwt, proto_rpc_jwt)
     assert proto_rpc_jwt.status == 200
-
 
 @pytest.mark.asyncio
 async def test_crud_m2m_update_cell():

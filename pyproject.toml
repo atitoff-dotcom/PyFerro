@@ -63,11 +63,15 @@ Homepage = "https://github.com/atitoff-dotcom/PyFerro"
 Documentation = "https://github.com/atitoff-dotcom/PyFerro/blob/main/docs/readme.md"
 Repository = "https://github.com/atitoff-dotcom/PyFerro.git"
 
+[project.scripts]
+pyferro = "pyferro.cli:main"
+
 [tool.setuptools.packages.find]
 include = ["pyferro*"]
 
 [tool.setuptools.package-data]
 "pyferro.plugins.crud" = ["static/*", "static/**/*"]
+"pyferro.plugins.showcase" = ["static/*", "static/**/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

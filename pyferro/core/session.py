@@ -114,6 +114,48 @@ def require_admin(session: Any) -> None:
     if not _is_session_admin(session):
         raise RPCError(-32003, "Доступ запрещен: требуются права администратора.")
 
+
+def has_admin_section_access(session: Any, section: str) -> bool:
+    """Проверяет, имеет ли сессия доступ к указанному подразделу панели (admin или adm-<section>)."""
+    if getattr(session, "is_superadmin", False) is True:
+        return True
+    if _is_session_admin(session):
+        return True
+
+    user = getattr(session, "user", None)
+    if user:
+        if getattr(user, "is_superadmin", False):
+            return True
+        user_roles = getattr(user, "roles", [])
+        for r in user_roles:
+            r_name = getattr(r, "name", str(r))
+            if r_name in ("admin", f"adm-{section}", "adm-all"):
+                return True
+
+    cookies = getattr(session, "cookies", None)
+    if cookies:
+        token = extract_session_token(cookies)
+        if token:
+            try:
+                from pyferro.plugins.crud.auth import get_crud_session
+                sdata = get_crud_session(token)
+                if sdata:
+                    if sdata.get("is_superadmin") or str(sdata.get("role") or "").lower() == "admin":
+                        return True
+                    roles = sdata.get("roles", [])
+                    if "admin" in roles or f"adm-{section}" in roles or "adm-all" in roles:
+                        return True
+            except Exception:
+                pass
+    return False
+
+
+def require_admin_section(session: Any, section: str) -> None:
+    """Требует наличия прав администратора всей системы или роли adm-<section>."""
+    if getattr(session, "is_superadmin", False) is True:
+        return
+    if not has_admin_section_access(session, section):
+        raise RPCError(-32003, f"Доступ к разделу '{section}' запрещен. Требуется роль 'admin' или 'adm-{section}'.")
 class RPCError(Exception):
     """
     Исключение для RPC-ошибок, сообщения которых возвращаются клиенту.
@@ -609,6 +651,12 @@ class JsonRpcSession:
             # Возвращаем ожидаемую ошибку RPC клиенту с указанным кодом
             err_code = getattr(e, "code", -32000)
             await self._send_error(rpc_id, err_code, e.message)
+        except KeyError as e:
+            # Автоматическая трансляция отсутствующего обязательного ключа в JSON-RPC 2.0 Invalid params (-32602)
+            await self._send_error(rpc_id, -32602, f"Missing required parameter: {e}")
+        except ValueError as e:
+            # Автоматическая трансляция ошибки значения/типа параметра в JSON-RPC 2.0 Invalid params (-32602)
+            await self._send_error(rpc_id, -32602, f"Invalid parameter value: {e}")
         except Exception as e:
             logger.error(f"[RPC Error] Ошибка в хендлере {method_name}: {e}")
             await self._send_error(rpc_id, -32603, "Internal server error")

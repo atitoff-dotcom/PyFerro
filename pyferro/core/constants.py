@@ -17,4 +17,36 @@ WS_CLOSE_CODES = {
 # Системные роли безопасности
 ADMIN_ROLE = "admin"
 GUEST_ROLE = "guest"
-SYSTEM_ROLES = frozenset({ADMIN_ROLE, GUEST_ROLE})
+SEO_ROLE = "seo"
+
+# Постоянные роли доступа к подразделам панели управления (adm-*)
+ADM_CRUD_ROLE = "adm-crud"
+ADM_SEO_ROLE = "adm-seo"
+ADM_USERS_ROLE = "adm-users"
+ADM_ROLES_ROLE = "adm-roles"
+ADM_RPC_ROLE = "adm-rpc"
+ADM_SETTINGS_ROLE = "adm-settings"
+ADM_HELP_ROLE = "adm-help"
+
+ADM_SECTION_ROLES = frozenset({
+    ADM_CRUD_ROLE,
+    ADM_SEO_ROLE,
+    ADM_USERS_ROLE,
+    ADM_ROLES_ROLE,
+    ADM_RPC_ROLE,
+    ADM_SETTINGS_ROLE,
+    ADM_HELP_ROLE,
+})
+
+SYSTEM_ROLES = frozenset({
+    ADMIN_ROLE,
+    GUEST_ROLE,
+    SEO_ROLE,
+    ADM_CRUD_ROLE,
+    ADM_SEO_ROLE,
+    ADM_USERS_ROLE,
+    ADM_ROLES_ROLE,
+    ADM_RPC_ROLE,
+    ADM_SETTINGS_ROLE,
+    ADM_HELP_ROLE,
+})

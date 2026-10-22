@@ -12,15 +12,15 @@ import sys
 import getpass
 from sqlalchemy import select
 
-from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE
+from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE, ADM_HELP_ROLE, SEO_ROLE
 from pyferro.db import system_db_session, Base, engine
 from pyferro.auth.models import User, Role
 from pyferro.auth.discovery import sync_rpc_permissions
 
 
-async def ensure_system_roles_exist(db) -> tuple[Role, Role]:
-    """Гарантирует наличие обязательных системных ролей admin и guest."""
-    stmt_roles = select(Role).where(Role.name.in_([ADMIN_ROLE, GUEST_ROLE]))
+async def ensure_system_roles_exist(db) -> tuple[Role, Role, Role, Role]:
+    """Гарантирует наличие обязательных системных ролей admin, guest, adm-help и seo."""
+    stmt_roles = select(Role).where(Role.name.in_([ADMIN_ROLE, GUEST_ROLE, ADM_HELP_ROLE, SEO_ROLE]))
     existing = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
 
     if ADMIN_ROLE not in existing:
@@ -33,10 +33,22 @@ async def ensure_system_roles_exist(db) -> tuple[Role, Role]:
         db.add(guest_role)
         existing[GUEST_ROLE] = guest_role
 
+    if ADM_HELP_ROLE not in existing:
+        help_role = Role(name=ADM_HELP_ROLE, description="Администратор раздела Справки и API (Help & API Explorer)")
+        db.add(help_role)
+        existing[ADM_HELP_ROLE] = help_role
+
+    if SEO_ROLE not in existing:
+        seo_role = Role(name=SEO_ROLE, description="Поисковая оптимизация и индексация (SEO Bot / Crawler)")
+        db.add(seo_role)
+        existing[SEO_ROLE] = seo_role
+
     await db.commit()
     await db.refresh(existing[ADMIN_ROLE])
     await db.refresh(existing[GUEST_ROLE])
-    return existing[ADMIN_ROLE], existing[GUEST_ROLE]
+    await db.refresh(existing[ADM_HELP_ROLE])
+    await db.refresh(existing[SEO_ROLE])
+    return existing[ADMIN_ROLE], existing[GUEST_ROLE], existing[ADM_HELP_ROLE], existing[SEO_ROLE]
 
 
 async def async_create_superuser(username: str, password: str, email: str = None) -> None:
@@ -46,7 +58,8 @@ async def async_create_superuser(username: str, password: str, email: str = None
         await conn.run_sync(Base.metadata.create_all)
 
     async with system_db_session() as db:
-        admin_role, guest_role = await ensure_system_roles_exist(db)
+        roles = await ensure_system_roles_exist(db)
+        admin_role = roles[0]
 
         # Ищем или создаем пользователя
         from sqlalchemy.orm import selectinload
@@ -124,6 +137,25 @@ def main():
 
     sync_parser = subparsers.add_parser("sync-rpc", help="Синхронизировать RPC методы с базой данных")
 
+    migrate_parser = subparsers.add_parser("migrate", help="Управление миграциями схемы базы данных")
+    migrate_sub = migrate_parser.add_subparsers(dest="migrate_action", help="Действие миграции")
+
+    migrate_sub.add_parser("status", help="Показать статус примененных и ожидающих миграций")
+
+    up_parser = migrate_sub.add_parser("up", help="Накатить ожидающие миграции схемы БД")
+    up_parser.add_argument("--target", "-t", type=str, help="Целевая версия для остановки")
+    up_parser.add_argument("--no-backup", action="store_true", help="Не создавать резервный снимок SQLite")
+
+    rollback_parser = migrate_sub.add_parser("rollback", help="Откатить последнюю примененную миграцию")
+    rollback_parser.add_argument("--steps", "-s", type=int, default=1, help="Количество шагов для отката (по умолчанию 1)")
+
+    stamp_parser = migrate_sub.add_parser("stamp", help="Пометить версию как примененную без выполнения upgrade()")
+    stamp_parser.add_argument("version", type=str, help="Версия для фиксации")
+
+    help_parser = subparsers.add_parser("help-ui", aliases=["showcase"], help="Запустить интерактивную справку и API эксплорер PyFerro (/admin/help)")
+    help_parser.add_argument("--port", "-p", type=int, default=8080, help="Порт сервера (по умолчанию 8080)")
+    help_parser.add_argument("--host", "-H", type=str, default="127.0.0.1", help="Хост сервера (по умолчанию 127.0.0.1)")
+
     args = parser.parse_args()
 
     if args.command == "set-admin-password":
@@ -173,6 +205,128 @@ def main():
     elif args.command == "sync-rpc":
         asyncio.run(sync_rpc_permissions())
         print("[OK] Синхронизация RPC-методов успешно завершена.")
+
+    elif args.command == "migrate":
+        from pyferro.migrations import (
+            get_migration_status,
+            run_migrations,
+            rollback_migration,
+            stamp_version,
+            LegacyDatabaseError,
+            MigrationError,
+        )
+
+        action = getattr(args, "migrate_action", None) or "status"
+
+        if action == "status":
+            try:
+                status = asyncio.run(get_migration_status())
+                print("=" * 64)
+                print(" 🧭 Статус миграций PyFerro:")
+                print("=" * 64)
+                fw_ver = status.get("framework_version", "0.7.0")
+                db_ver = status.get("db_app_version", fw_ver)
+                print(f" Пакет PyFerro:        v{fw_ver}")
+                print(f" Версия схемы в БД:    v{db_ver}")
+                if status.get("is_patch_compatible"):
+                    print(" Инвариант SemVer:     Патч-релиз (схема БД инвариантна, даунтайм = 0)")
+                print("-" * 64)
+                applied = status["applied"]
+                pending = status["pending"]
+                print(f" Применено миграций:   {len(applied)}")
+                for a in applied:
+                    print(f"  ✓ {a['version']:<35} [{a['applied_at']}] ({a['execution_time_ms']} ms)")
+                if pending:
+                    print(f"\n Ожидают наката ({len(pending)}):")
+                    for p in pending:
+                        print(f"  ⏳ {p['version']:<35} - {p['description']}")
+                    print("\n 👉 Выполните 'python -m pyferro migrate up' для применения.")
+                else:
+                    print("\n ✨ Схема базы данных полностью актуальна!")
+                print("=" * 64)
+            except LegacyDatabaseError as e:
+                print(f"\n{e}", file=sys.stderr)
+                sys.exit(1)
+            except Exception as e:
+                print(f"❌ Ошибка проверки статуса миграций: {e}", file=sys.stderr)
+                sys.exit(1)
+
+        elif action == "up":
+            try:
+                print("=" * 64)
+                print(" 🚀 Запуск наката миграций PyFerro...")
+                print("=" * 64)
+                applied = asyncio.run(
+                    run_migrations(
+                        target_version=getattr(args, "target", None),
+                        create_backup=not getattr(args, "no_backup", False),
+                    )
+                )
+                if applied:
+                    print("=" * 64)
+                    print(f" ✅ Успешно применены миграции ({len(applied)}):")
+                    for ver in applied:
+                        print(f"  ✓ {ver}")
+                    print("=" * 64)
+                else:
+                    print(" ✨ Все миграции уже применены, база актуальна.")
+            except LegacyDatabaseError as e:
+                print(f"\n{e}", file=sys.stderr)
+                sys.exit(1)
+            except Exception as e:
+                print(f"❌ Сбой выполнения миграций: {e}", file=sys.stderr)
+                sys.exit(1)
+
+        elif action == "rollback":
+            try:
+                print("=" * 64)
+                print(" ⏪ Откат миграций PyFerro...")
+                print("=" * 64)
+                rolled = asyncio.run(rollback_migration(steps=args.steps))
+                if rolled:
+                    print(f" ⏪ Успешно откатано шагов ({len(rolled)}):")
+                    for ver in rolled:
+                        print(f"  ↺ {ver}")
+                else:
+                    print(" ⚠️  Нет доступных миграций для отката.")
+                print("=" * 64)
+            except Exception as e:
+                print(f"❌ Ошибка отката миграций: {e}", file=sys.stderr)
+                sys.exit(1)
+
+        elif action == "stamp":
+            try:
+                asyncio.run(stamp_version(args.version))
+                print(f" [OK] Версия '{args.version}' зафиксирована в pf_schema_migrations.")
+            except Exception as e:
+                print(f"❌ Ошибка фиксации версии: {e}", file=sys.stderr)
+                sys.exit(1)
+
+    elif args.command in ("help-ui", "showcase"):
+        import os
+        help_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "examples", "admin_help"))
+        if not os.path.exists(help_dir):
+            help_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "examples", "showcase"))
+        print("=" * 64)
+        print(" 🚀 Запуск PyFerro Admin Help (Интерактивная справка и API)...")
+        print(f" 🌐 Адрес: http://{args.host}:{args.port}/admin/help")
+        print("=" * 64)
+        try:
+            from granian import Granian
+            from granian.constants import Interfaces
+            sys.path.insert(0, help_dir)
+            os.chdir(help_dir)
+            server = Granian(
+                "server:app",
+                address=args.host,
+                port=args.port,
+                interface=Interfaces.RSGI,
+                workers=1,
+            )
+            server.serve()
+        except ImportError:
+            print("❌ Granian не установлен в окружении.", file=sys.stderr)
+            sys.exit(1)
     else:
         parser.print_help()
 

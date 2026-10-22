@@ -64,7 +64,7 @@ def _format_lastmod(val: Any) -> Optional[str]:
 
 
 async def collect_all_sitemap_urls() -> List[Dict[str, Any]]:
-    """Собирает полный список ссылок со всех зарегистрированных провайдеров."""
+    """Собирает полный список ссылок со всех зарегистрированных провайдеров и динамических правил моделей."""
     urls: List[Dict[str, Any]] = []
 
     for provider in SITEMAP_PROVIDERS:
@@ -79,8 +79,43 @@ async def collect_all_sitemap_urls() -> List[Dict[str, Any]]:
         except Exception as e:
             logger.error(f"[SITEMAP] Ошибка при сборе URL из {provider.__name__}: {e}", exc_info=True)
 
-    return urls
+    # Добавляем ссылки из динамических правил моделей админки
+    try:
+        cfg = get_seo_config()
+        if cfg.model_rules:
+            from pyferro.db import async_session
+            from pyferro.plugins.crud import ModelRegistry
+            from pyferro.plugins.seo.dynamic_rules import resolve_template
+            from sqlalchemy import select
 
+            for rule in cfg.model_rules:
+                if not rule.get("sitemap_enabled", True):
+                    continue
+                pattern = rule.get("url_pattern")
+                if not pattern:
+                    continue
+                meta = ModelRegistry.get(rule.get("model_key"))
+                if not meta:
+                    continue
+
+                async with async_session() as db:
+                    model_cls = meta.model_cls
+                    stmt = select(model_cls).limit(5000)
+                    rows = (await db.execute(stmt)).scalars().all()
+                    for r in rows:
+                        rec = r.to_dict() if hasattr(r, "to_dict") else {c.name: getattr(r, c.name, None) for c in model_cls.__table__.columns}
+                        loc = resolve_template(pattern, rec, {})
+                        if loc and not loc.startswith("{"):
+                            urls.append({
+                                "loc": loc,
+                                "priority": float(rule.get("sitemap_priority", 0.8)),
+                                "changefreq": rule.get("sitemap_changefreq", "daily"),
+                                "lastmod": rec.get("updated_at") or rec.get("created_at"),
+                            })
+    except Exception as e:
+        logger.error(f"[SITEMAP] Ошибка сбора URL из правил моделей: {e}", exc_info=True)
+
+    return urls
 
 def _render_urlset_xml(base_url: str, urls: List[Dict[str, Any]]) -> str:
     """Генерирует стандартный <urlset> XML документ."""

@@ -28,34 +28,40 @@ def _extract_crud_token(scope) -> str:
     return extract_session_token(scope)
 
 
-@http_route("/crud", methods=["GET"])
-@http_route("/crud/*", methods=["GET"])
 @http_route("/admin", methods=["GET"])
 @http_route("/admin/*", methods=["GET"])
 async def serve_crud_static(scope, proto) -> None:
     """
     Раздает автономную сборку админки из папки static/.
     Для гостей и не-администраторов возвращает строгий 404 Not Found (Zero-Leakage).
+    Поддерживает канонические подмаршруты /admin/crud, /admin/seo, /admin/users и т.д.
     """
-    path = getattr(scope, "path", "/crud")
+    path = getattr(scope, "path", "/admin")
 
-    if path in ("/crud", "/admin"):
-        target_redirect = f"{path}/"
+    if path == "/admin":
         proto.response_str(
             status=307,
             headers=[
-                ("location", target_redirect),
+                ("location", "/admin/"),
                 ("content-length", "0"),
             ],
             body=""
         )
         return
 
-    prefix = "/crud/" if path.startswith("/crud/") else "/admin/"
+    prefix = "/admin/"
     subpath = path[len(prefix):] if path.startswith(prefix) else ""
     token = _extract_crud_token(scope)
     session_data = get_crud_session(token) if token else None
-    is_admin = bool(session_data and session_data.get("role") in ("admin", "ADMIN"))
+    roles = session_data.get("roles", []) if session_data else []
+    is_admin = bool(
+        session_data and (
+            session_data.get("is_superadmin")
+            or str(session_data.get("role") or "").lower() == "admin"
+            or "admin" in roles
+            or any(isinstance(r, str) and (r == "admin" or r.startswith("adm-")) for r in roles)
+        )
+    )
 
     # Безопасность (Zero-Leakage): скрываем существование панели от не-администраторов
     if not is_admin:
@@ -63,7 +69,7 @@ async def serve_crud_static(scope, proto) -> None:
         logger.debug(
             f"[CRUD 404] Zero-Leakage: доступ к '{path}' отклонён. "
             f"Токен: {'найден' if token else 'не найден'}. "
-            f"Сессия: {'роль=' + str(session_data.get('role')) if session_data else 'не найдена'}. "
+            f"Сессия: {'роли=' + str(roles) if session_data else 'не найдена'}. "
             f"Входящие cookie: {cookies_found}"
         )
         proto.response_str(
@@ -94,8 +100,19 @@ async def serve_crud_static(scope, proto) -> None:
         return
 
     # Раздача статических ресурсов панели
-    is_root_app = not subpath or subpath == "index.html"
-    target_file = STATIC_DIR / "index.html" if is_root_app else (STATIC_DIR / subpath).resolve()
+    known_spa_sections = {"crud", "seo", "users", "roles", "rpc", "delegations", "settings", "database"}
+    clean_subpath = subpath.strip("/")
+    is_spa_route = (
+        not subpath
+        or subpath == "index.html"
+        or clean_subpath in known_spa_sections
+        or ("." not in clean_subpath and not clean_subpath.startswith("assets/"))
+    )
+
+    if is_spa_route:
+        target_file = STATIC_DIR / "index.html"
+    else:
+        target_file = (STATIC_DIR / subpath).resolve()
 
     # Path traversal защита
     try:
@@ -117,12 +134,15 @@ async def serve_crud_static(scope, proto) -> None:
         return
 
     if not target_resolved.is_file():
-        proto.response_str(
-            status=404,
-            headers=[("content-type", "text/plain; charset=utf-8")],
-            body="404 Not Found"
-        )
-        return
+        if not subpath.startswith("assets/"):
+            target_resolved = (STATIC_DIR / "index.html").resolve()
+        else:
+            proto.response_str(
+                status=404,
+                headers=[("content-type", "text/plain; charset=utf-8")],
+                body="404 Not Found"
+            )
+            return
 
     content_type, _ = mimetypes.guess_type(str(target_resolved))
     if not content_type:

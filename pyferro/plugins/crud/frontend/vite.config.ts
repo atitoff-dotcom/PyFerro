@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/postcss';
 import path from 'node:path';
 
 export default defineConfig({
-  base: './',
+  base: '/admin/',
   plugins: [
     svelte()
   ],

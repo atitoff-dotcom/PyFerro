@@ -11,7 +11,17 @@ from typing import Set
 from sqlalchemy import select, delete
 
 from pyferro.core.logger import logger
-from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE, SYSTEM_ROLES
+from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE, SEO_ROLE, ADM_SECTION_ROLES, ADM_HELP_ROLE, SYSTEM_ROLES
+
+ADM_ROLE_DESCRIPTIONS = {
+    "adm-crud": "Администратор базы данных (CRUD)",
+    "adm-seo": "Администратор соцсетей и SEO (Search & Social Previews)",
+    "adm-users": "Администратор пользователей (User Management)",
+    "adm-roles": "Администратор прав и ролей (RBAC Management)",
+    "adm-rpc": "Администратор RPC API (API Explorer)",
+    "adm-settings": "Администратор настроек платформы (System Settings)",
+    "adm-help": "Администратор раздела Справки и API (Help & API Explorer)",
+}
 from pyferro.core.session import (
     RPC_REGISTRY,
     GUEST_ALLOWED_RPC_METHODS,
@@ -108,9 +118,26 @@ async def ensure_system_roles(db) -> tuple[Role, Role]:
         db.add(guest_role)
         existing[GUEST_ROLE] = guest_role
 
+    if SEO_ROLE not in existing:
+        seo_role = Role(name=SEO_ROLE, description="Поисковая оптимизация и индексация (SEO Bot / Crawler)")
+        db.add(seo_role)
+        existing[SEO_ROLE] = seo_role
+
+    for adm_r in ADM_SECTION_ROLES:
+        if adm_r not in existing:
+            desc = ADM_ROLE_DESCRIPTIONS.get(adm_r, f"Администратор подраздела {adm_r}")
+            r_obj = Role(name=adm_r, description=desc)
+            db.add(r_obj)
+            existing[adm_r] = r_obj
+
     await db.commit()
     await db.refresh(existing[ADMIN_ROLE])
     await db.refresh(existing[GUEST_ROLE])
+    if SEO_ROLE in existing:
+        await db.refresh(existing[SEO_ROLE])
+    for adm_r in ADM_SECTION_ROLES:
+        if adm_r in existing:
+            await db.refresh(existing[adm_r])
     return existing[ADMIN_ROLE], existing[GUEST_ROLE]
 
 
@@ -152,6 +179,25 @@ async def sync_rpc_permissions() -> None:
                 logger.critical(f"[Discovery] {error_msg}")
                 raise RuntimeError(error_msg)
 
+            # Гарантируем наличие системной роли seo в существующей БД
+            if SEO_ROLE not in existing_roles:
+                seo_role = Role(
+                    name=SEO_ROLE,
+                    description="Поисковая оптимизация и индексация (SEO Bot / Crawler)",
+                )
+                db.add(seo_role)
+                await db.commit()
+                await db.refresh(seo_role)
+                existing_roles[SEO_ROLE] = seo_role
+
+            for adm_r in ADM_SECTION_ROLES:
+                if adm_r not in existing_roles:
+                    desc = ADM_ROLE_DESCRIPTIONS.get(adm_r, f"Администратор подраздела {adm_r}")
+                    r_obj = Role(name=adm_r, description=desc)
+                    db.add(r_obj)
+                    await db.commit()
+                    await db.refresh(r_obj)
+                    existing_roles[adm_r] = r_obj
             guest_role = existing_roles[GUEST_ROLE]
             guest_rpc_ids = {rp.id for rp in guest_role.rpc_permissions}
             # 2. Сканируем зарегистрированные методы
@@ -234,7 +280,40 @@ async def sync_rpc_permissions() -> None:
             if guest_role_updated:
                 await db.commit()
 
-            # 4. Актуализируем in-memory кэш гостя
+            # 4. Привязываем help.* методы к роли adm-help
+            if ADM_HELP_ROLE in existing_roles:
+                help_role = existing_roles[ADM_HELP_ROLE]
+                help_rpc_ids = {rp.id for rp in help_role.rpc_permissions}
+                help_updated = False
+                for method_name, perm in existing_perms.items():
+                    if method_name.startswith("help.") and perm.id not in help_rpc_ids:
+                        help_role.rpc_permissions.append(perm)
+                        help_rpc_ids.add(perm.id)
+                        help_updated = True
+                if help_updated:
+                    await db.commit()
+            # 5. Инициализируем CRUD-разрешения по умолчанию для роли seo (тестовые модели форума)
+            if SEO_ROLE in existing_roles:
+                seo_role = existing_roles[SEO_ROLE]
+                stmt_seo_perms = select(RolePermission).where(RolePermission.role_id == seo_role.id)
+                existing_seo_models = {p.model_name for p in (await db.execute(stmt_seo_perms)).scalars().all()}
+                seo_updated = False
+                for m_key in ["ForumCategory", "ForumTopic", "ForumPost"]:
+                    if m_key not in existing_seo_models:
+                        db.add(RolePermission(
+                            role_id=seo_role.id,
+                            model_name=m_key,
+                            can_read=True,
+                            can_create=False,
+                            can_update=False,
+                            can_delete=False,
+                            read_global=True,
+                        ))
+                        seo_updated = True
+                if seo_updated:
+                    await db.commit()
+
+            # 6. Актуализируем in-memory кэш гостя
             await reload_guest_permissions_cache()
 
     except RuntimeError:

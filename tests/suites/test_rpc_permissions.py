@@ -604,6 +604,13 @@ async def test_sync_rpc_permissions_purges_obsolete_methods_and_cascades():
     from pyferro.db import system_db_session, engine, Base
     from sqlalchemy import select
 
+    import os
+    for f in ("test_audit.db", "test_audit.db-shm", "test_audit.db-wal"):
+        if os.path.exists(f):
+            try:
+                os.remove(f)
+            except Exception:
+                pass
     from pyferro.db.session import configure_db
     configure_db("sqlite+aiosqlite:///test_audit.db")
     async with engine.begin() as conn:

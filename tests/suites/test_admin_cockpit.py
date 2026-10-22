@@ -36,6 +36,9 @@ from pyferro.plugins.crud.admin_handlers import (
     create_delegation_admin,
     delete_delegation_admin,
     delegation_options_admin,
+    seo_get_config_admin,
+    seo_update_config_admin,
+    seo_ping_indexnow_admin,
 )
 
 class MockAdminSession:
@@ -319,3 +322,49 @@ async def test_admin_delegations_lifecycle():
     deleted = await delete_delegation_admin(admin, id=del_id)
     assert deleted["deleted"] is True
     assert deleted["id"] == del_id
+
+
+@pytest.mark.asyncio
+async def test_admin_seo_handlers():
+    admin = MockAdminSession()
+    user = MockUserSession()
+
+    # 1. Non-admin is blocked
+    with pytest.raises(RPCError):
+        await seo_get_config_admin(user)
+
+    with pytest.raises(RPCError):
+        await seo_update_config_admin(user, site_name="Hacked")
+
+    # 2. Get SEO config
+    cfg = await seo_get_config_admin(admin)
+    assert "site_url" in cfg
+    assert "default_title" in cfg
+    assert "default_description" in cfg
+    assert "available_models" in cfg
+
+    # 3. Update SEO config online
+    updated = await seo_update_config_admin(
+        admin,
+        site_name="PyFerro Super Store",
+        default_title="Купить всё онлайн",
+        default_description="Лучший магазин на PyFerro",
+        enable_sitemap=True,
+    )
+    assert updated["status"] == "ok"
+    assert updated["config"]["site_name"] == "PyFerro Super Store"
+    assert updated["config"]["default_title"] == "Купить всё онлайн"
+
+    # 4. Verify config reflects update
+    cfg_after = await seo_get_config_admin(admin)
+    assert cfg_after["site_name"] == "PyFerro Super Store"
+    assert cfg_after["default_title"] == "Купить всё онлайн"
+
+    # 5. User with adm-seo role is allowed access to SEO methods
+    class MockSeoSession:
+        is_superadmin = False
+        user = type("MockUser", (), {"is_superadmin": False, "roles": [type("R", (), {"name": "adm-seo"})()]})()
+
+    seo_user = MockSeoSession()
+    seo_cfg = await seo_get_config_admin(seo_user)
+    assert seo_cfg["site_name"] == "PyFerro Super Store"

@@ -261,3 +261,52 @@ async def test_first_level_subsystems():
     res = await app.broadcast("test.ping", {"msg": "hello"})
     assert res == 0  # нет открытых сокетов
 
+
+@pytest.mark.asyncio
+async def test_rpc_param_error_automatic_translation():
+    import orjson
+    from pyferro.core.session import JsonRpcSession, rpc_method, RPCError
+
+    @rpc_method("test.dx_validation")
+    async def sample_handler(session, params):
+        params = params or {}
+        order_id = params["order_id"]
+        amount = int(params.get("amount", 10))
+        if amount > 100:
+            raise RPCError(-32001, "Превышен лимит заказа")
+        return {"order_id": order_id, "amount": amount}
+
+    sent_frames = []
+
+    class DummyWS:
+        async def send_str(self, msg):
+            sent_frames.append(orjson.loads(msg))
+
+    sess = JsonRpcSession(DummyWS(), 1, "127.0.0.1")
+
+    # 1. KeyError (отсутствие обязательного ключа) -> автоматический -32602
+    await sess._run_rpc_handler(sample_handler, "test.dx_validation", 101, {})
+    assert len(sent_frames) == 1
+    err1 = sent_frames[-1]["error"]
+    assert err1["code"] == -32602
+    assert "Missing required parameter" in err1["message"]
+
+    # 2. ValueError (некорректный тип/значение) -> автоматический -32602
+    await sess._run_rpc_handler(sample_handler, "test.dx_validation", 102, {"order_id": "ord_1", "amount": "abc"})
+    assert len(sent_frames) == 2
+    err2 = sent_frames[-1]["error"]
+    assert err2["code"] == -32602
+    assert "Invalid parameter value" in err2["message"]
+
+    # 3. RPCError для прикладной бизнес-логики -> заданный код -32001
+    await sess._run_rpc_handler(sample_handler, "test.dx_validation", 103, {"order_id": "ord_1", "amount": 500})
+    assert len(sent_frames) == 3
+    err3 = sent_frames[-1]["error"]
+    assert err3["code"] == -32001
+    assert "Превышен лимит заказа" in err3["message"]
+
+    # 4. Успешный вызов без ошибок
+    await sess._run_rpc_handler(sample_handler, "test.dx_validation", 104, {"order_id": "ord_1", "amount": 50})
+    assert len(sent_frames) == 4
+    res = sent_frames[-1]["result"]
+    assert res == {"order_id": "ord_1", "amount": 50}

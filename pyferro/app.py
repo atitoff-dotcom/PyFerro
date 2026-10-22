@@ -87,6 +87,7 @@ class FerroApp:
         sitemap_host: Optional[str] = None,
         auto_auth_ws: bool = True,
         auto_auth_models: bool = True,
+        auto_migrate: bool = True,
         custom_settings: Optional[Dict[str, Any]] = None,
         **extra_settings: Any
     ):
@@ -173,6 +174,7 @@ class FerroApp:
         self._on_connect_callbacks: List[Callable] = []
 
         self.auto_auth_ws = auto_auth_ws
+        self.auto_migrate = auto_migrate
 
         # Автоматическая регистрация стандартных моделей в CRUD
         if auto_auth_models:
@@ -223,6 +225,19 @@ class FerroApp:
             return False
 
         for i, arg in enumerate(args):
+            if arg in ("--migrate", "migrate"):
+                try:
+                    from pyferro.migrations import run_migrations
+                    applied = asyncio.run(run_migrations())
+                    if applied:
+                        print(f"✅ PyFerro: Успешно применены миграции: {', '.join(applied)}")
+                    else:
+                        print("✨ PyFerro: Все миграции уже применены, схема базы актуальна.")
+                    return True
+                except Exception as e:
+                    print(f"❌ Ошибка миграции: {e}", file=sys.stderr)
+                    sys.exit(1)
+
             if arg in ("--set-admin-password", "--set-password"):
                 custom_password = None
                 if i + 1 < len(args) and not args[i + 1].startswith("-"):
@@ -437,6 +452,9 @@ class FerroApp:
     def _rsgi_init_handler(self, loop):
         """Инициализация при старте воркера Granian."""
         try:
+            if self.auto_migrate:
+                from pyferro.migrations import run_migrations
+                loop.run_until_complete(run_migrations())
             loop.run_until_complete(run_startup_callbacks())
         except Exception as e:
             logger.critical(f"[FerroApp] Сбой при startup: {e}", exc_info=True)
@@ -505,21 +523,25 @@ class FerroApp:
             except Exception as e:
                 logger.error(f"[FerroApp] Ошибка SEO перехвата: {e}", exc_info=True)
 
-        # 3. Маршрутизация по зарегистрированным HTTP_ROUTES
+        # 3. Маршрутизация по зарегистрированным HTTP_ROUTES (от более специфичных к общим)
+        # 3.1. Сначала точные совпадения
         for route_path, methods, handler in HTTP_ROUTES:
-            if method in methods:
-                if path == route_path:
-                    await handler(scope, proto)
-                    return
-                elif route_path.endswith("/*"):
-                    prefix = route_path[:-1]  # e.g. "/crud/"
-                    if path.startswith(prefix) or path == route_path[:-2]:  # "/crud/" or "/crud"
-                        await handler(scope, proto)
-                        return
-                elif path.rstrip("/") == route_path.rstrip("/"):
+            if method in methods and (path == route_path or path.rstrip("/") == route_path.rstrip("/")):
+                if not route_path.endswith("/*"):
                     await handler(scope, proto)
                     return
 
+        # 3.2. Затем префиксные wildcard-маршруты (/*) от более длинных к более коротким
+        wildcard_routes = [
+            (rp, m, h) for rp, m, h in HTTP_ROUTES
+            if rp.endswith("/*") and method in m
+        ]
+        wildcard_routes.sort(key=lambda r: len(r[0]), reverse=True)
+        for route_path, methods, handler in wildcard_routes:
+            prefix = route_path[:-1]  # e.g. "/admin/help/"
+            if path.startswith(prefix) or path == route_path[:-2]:
+                await handler(scope, proto)
+                return
         # 4. Отдача index.html на корневой GET /
         if method == "GET" and path == "/" and self.index_file and os.path.exists(self.index_file):
             self._serve_static_file(proto, self.index_file)

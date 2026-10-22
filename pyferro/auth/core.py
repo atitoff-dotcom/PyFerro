@@ -133,6 +133,29 @@ class AuthSession:
                 return True
         return False
 
+    @property
+    def session_id(self) -> int:
+        """Возвращает ID текущего транспортного сокета или идентификатор сессии из БД."""
+        try:
+            from pyferro.core.session import current_transport_ctx
+            transport = current_transport_ctx.get()
+            if transport and hasattr(transport, "session_id"):
+                return transport.session_id
+        except Exception:
+            pass
+        return getattr(self, "session_db_id", 0)
+
+    async def send_notification(self, method: str, params: Optional[dict] = None) -> None:
+        """Отправляет асинхронное push-уведомление клиенту через активный WebSocket."""
+        try:
+            from pyferro.core.session import current_transport_ctx
+            transport = current_transport_ctx.get()
+            if transport and hasattr(transport, "send_notification"):
+                return await transport.send_notification(method, params or {})
+        except Exception as e:
+            from pyferro.core.logger import logger
+            logger.warning(f"[AuthSession] Ошибка отправки уведомления {method}: {e}")
+
     async def send_request(self, method: str, params: dict = None, timeout: float = 5.0):
         if self._send_request_cb:
             return await self._send_request_cb(method, params, timeout=timeout)

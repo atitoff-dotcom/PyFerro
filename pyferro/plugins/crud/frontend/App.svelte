@@ -5,19 +5,48 @@
   import RpcCatalogView from "./components/RpcCatalogView.svelte";
   import SettingsView from "./components/SettingsView.svelte";
   import DelegationsView from "./components/DelegationsView.svelte";
+  import SeoAdminView from "./components/SeoAdminView.svelte";
   import PyFerroLogo from "./components/PyFerroLogo.svelte";
 
   let wsStatus = $state<"CONNECTING" | "CONNECTED" | "DISCONNECTED">("DISCONNECTED");
 
-  // 6 главных разделов Mission Control
-  type MainNav = "database" | "rpc" | "users" | "roles" | "delegations" | "settings";
+  // 7 главных разделов Mission Control (/admin/crud, /admin/seo, /admin/users, etc.)
+  type MainNav = "database" | "rpc" | "users" | "roles" | "delegations" | "seo" | "settings";
   let currentNav = $state<MainNav>("database");
   let dbTab = $state<"app" | "framework">("app");
+
+  let userRoles = $state<string[]>([]);
+  let isSuperadmin = $state(false);
+  let isRolesLoaded = $state(false);
+
+  function isNavAllowed(nav: string): boolean {
+    if (!isRolesLoaded) return true;
+    if (isSuperadmin || userRoles.includes("admin") || userRoles.includes("adm-all")) return true;
+    if (nav === "help") return true;
+    if (nav === "database" && (userRoles.includes("adm-crud") || userRoles.includes("adm-database"))) return true;
+    return userRoles.includes(`adm-${nav}`);
+  }
+
+  function getNavFromPathname(): MainNav | null {
+    try {
+      const pathname = window.location.pathname.replace(/\/+$/, "");
+      const parts = pathname.split("/");
+      const segment = parts[parts.length - 1];
+      if (segment === "crud" || segment === "database") return "database";
+      if (["rpc", "users", "roles", "delegations", "seo", "settings"].includes(segment)) {
+        return segment as MainNav;
+      }
+      const hash = window.location.hash.replace("#", "") as MainNav;
+      if (["database", "rpc", "users", "roles", "delegations", "seo", "settings"].includes(hash)) {
+        return hash;
+      }
+    } catch {}
+    return null;
+  }
 
   function setSection(nav: MainNav) {
     selectNav(nav);
   }
-
   // Тема (светлая / темно-серая)
   let isDarkMode = $state(false);
 
@@ -91,7 +120,9 @@
       navUsers: "Пользователи",
       navRoles: "Роли",
       navDelegations: "Делегирование",
+      navSeo: "Соцсети и SEO",
       navSettings: "Настройки",
+      navHelp: "Справка и API",
       tabAppTables: "Таблицы приложения",
       tabFrameworkTables: "Таблицы фреймворка",
       noAppTables: "Нет доступных таблиц приложения",
@@ -183,7 +214,9 @@
       navUsers: "Users",
       navRoles: "Roles",
       navDelegations: "Delegations",
+      navSeo: "Social & SEO",
       navSettings: "Settings",
+      navHelp: "Help & API",
       tabAppTables: "Application Tables",
       tabFrameworkTables: "Framework Tables",
       noAppTables: "No application tables available",
@@ -258,8 +291,14 @@
 
   function selectNav(nav: MainNav) {
     currentNav = nav;
+    const slug = nav === "database" ? "crud" : nav;
     try {
-      window.location.hash = nav;
+      if (typeof window !== "undefined") {
+        const targetPath = `/admin/${slug}`;
+        if (window.location.pathname !== targetPath) {
+          window.history.pushState({}, "", targetPath);
+        }
+      }
     } catch {}
     if (nav === "users") {
       if (userModel) selectedModelName = userModel.key;
@@ -509,6 +548,28 @@
     isLoadingSchema = true;
     console.info("[CRUD Admin] 📋 Загрузка схемы моделей (crud.schema)...");
     try {
+      try {
+        const whoami = await rpc.call("login.whoami", {});
+        if (whoami && whoami.authenticated) {
+          userRoles = whoami.roles || [];
+          isSuperadmin = Boolean(whoami.is_superadmin || whoami.role === "admin" || userRoles.includes("admin"));
+        } else {
+          isSuperadmin = true;
+        }
+      } catch {
+        isSuperadmin = true;
+      }
+      isRolesLoaded = true;
+
+      const targetNav = getNavFromPathname();
+      if (targetNav && isNavAllowed(targetNav)) {
+        selectNav(targetNav);
+      } else if (!isNavAllowed(currentNav)) {
+        const allNavs: MainNav[] = ["database", "rpc", "users", "roles", "delegations", "seo", "settings"];
+        const first = allNavs.find(n => isNavAllowed(n)) || "database";
+        selectNav(first);
+      }
+
       const res = await rpc.call("crud.schema", {});
       console.info("[CRUD Admin] ✅ Схема получена:", res);
       if (res) {
@@ -726,17 +787,25 @@
       lang = savedLang;
     }
 
-    const validNavs: MainNav[] = ["database", "rpc", "users", "roles", "settings"];
-    const hash = window.location.hash.replace("#", "") as MainNav;
-    if (validNavs.includes(hash)) {
-      selectNav(hash);
+    const initialNav = getNavFromPathname();
+    if (initialNav) {
+      currentNav = initialNav;
     }
+
+    const onPopState = () => {
+      const target = getNavFromPathname();
+      if (target && isNavAllowed(target)) {
+        currentNav = target;
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+
     const onHashChange = () => {
       const h = window.location.hash.replace("#", "") as MainNav;
+      const validNavs: MainNav[] = ["database", "rpc", "users", "roles", "delegations", "seo", "settings"];
       if (validNavs.includes(h)) selectNav(h);
     };
     window.addEventListener("hashchange", onHashChange);
-
     const unsubStatus = canonicalWsStatus.subscribe((s) => {
       console.info("[CRUD Admin] 📶 Смена статуса WebSocket:", s);
       wsStatus = s;
@@ -800,6 +869,7 @@
           {:else if currentNav === 'users'}{t.navUsers}
           {:else if currentNav === 'roles'}{t.navRoles}
           {:else if currentNav === 'delegations'}{t.navDelegations}
+          {:else if currentNav === 'seo'}{t.navSeo}
           {:else if currentNav === 'settings'}{t.navSettings}
           {/if}
         </span>
@@ -847,86 +917,129 @@
       </div>
 
       <!-- 1. База данных -->
-      <button
-        type="button"
-        onclick={() => selectNav("database")}
-        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'database' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
-      >
-        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <ellipse cx="12" cy="5" rx="9" ry="3"/>
-          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
-          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-        </svg>
-        <span class="flex-1 truncate">{t.navDatabase}</span>
-        <span class="text-2xs px-1.5 py-0.5 rounded-full {currentNav === 'database' ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'}">{appModels.length + frameworkModels.length}</span>
-      </button>
+      {#if isNavAllowed("database")}
+        <button
+          type="button"
+          onclick={() => selectNav("database")}
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'database' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+        >
+          <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/>
+            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+          </svg>
+          <span class="flex-1 truncate">{t.navDatabase}</span>
+          <span class="text-2xs px-1.5 py-0.5 rounded-full {currentNav === 'database' ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'}">{appModels.length + frameworkModels.length}</span>
+        </button>
+      {/if}
 
       <!-- 2. RPC методы -->
-      <button
-        type="button"
-        onclick={() => selectNav("rpc")}
-        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'rpc' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
-      >
-        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <polyline points="16 18 22 12 16 6"/>
-          <polyline points="8 6 2 12 8 18"/>
-        </svg>
-        <span class="flex-1 truncate">{t.navRpc}</span>
-        <span class="text-2xs px-1.5 py-0.5 rounded-full {currentNav === 'rpc' ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'}">API</span>
-      </button>
+      {#if isNavAllowed("rpc")}
+        <button
+          type="button"
+          onclick={() => selectNav("rpc")}
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'rpc' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+        >
+          <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polyline points="16 18 22 12 16 6"/>
+            <polyline points="8 6 2 12 8 18"/>
+          </svg>
+          <span class="flex-1 truncate">{t.navRpc}</span>
+          <span class="text-2xs px-1.5 py-0.5 rounded-full {currentNav === 'rpc' ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'}">API</span>
+        </button>
+      {/if}
 
       <!-- 3. Пользователи -->
-      <button
-        type="button"
-        onclick={() => selectNav("users")}
-        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'users' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
-      >
-        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-          <circle cx="9" cy="7" r="4"/>
-          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-        </svg>
-        <span class="flex-1 truncate">{t.navUsers}</span>
-      </button>
+      {#if isNavAllowed("users")}
+        <button
+          type="button"
+          onclick={() => selectNav("users")}
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'users' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+        >
+          <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          <span class="flex-1 truncate">{t.navUsers}</span>
+        </button>
+      {/if}
 
       <!-- 4. Роли -->
-      <button
-        type="button"
-        onclick={() => selectNav("roles")}
-        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'roles' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
-      >
-        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-        </svg>
-        <span class="flex-1 truncate">{t.navRoles}</span>
-        <span class="flex-1 truncate">{t.navRoles}</span>
-      </button>
+      {#if isNavAllowed("roles")}
+        <button
+          type="button"
+          onclick={() => selectNav("roles")}
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'roles' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+        >
+          <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          <span class="flex-1 truncate">{t.navRoles}</span>
+        </button>
+      {/if}
 
       <!-- 5. Делегирование -->
-      <button
-        type="button"
-        onclick={() => selectNav("delegations")}
-        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'delegations' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
-      >
-        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-        </svg>
-        <span class="flex-1 truncate">{t.navDelegations}</span>
-      </button>
+      {#if isNavAllowed("delegations")}
+        <button
+          type="button"
+          onclick={() => selectNav("delegations")}
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'delegations' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+        >
+          <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+          </svg>
+          <span class="flex-1 truncate">{t.navDelegations}</span>
+        </button>
+      {/if}
 
-      <!-- 6. Настройки -->
-      <button
-        type="button"
-        onclick={() => selectNav("settings")}
-        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'settings' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
-      >
-        <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-        <span class="flex-1 truncate">{t.navSettings}</span>
-      </button>
+      <!-- 6. Соцсети и SEO -->
+      {#if isNavAllowed("seo")}
+        <button
+          type="button"
+          onclick={() => selectNav("seo")}
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'seo' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+        >
+          <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <span class="flex-1 truncate">{t.navSeo}</span>
+        </button>
+      {/if}
+
+      <!-- 7. Настройки -->
+      {#if isNavAllowed("settings")}
+        <button
+          type="button"
+          onclick={() => selectNav("settings")}
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer {currentNav === 'settings' ? 'bg-primary text-primary-foreground font-semibold shadow-xs' : 'text-foreground hover:bg-muted/80'}"
+        >
+          <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span class="flex-1 truncate">{t.navSettings}</span>
+        </button>
+      {/if}
+
+      <!-- 8. Справка и API (/admin/help) -->
+      {#if isNavAllowed("help")}
+        <a
+          href="/admin/help/"
+          target="_blank"
+          rel="noreferrer"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer text-foreground hover:bg-muted/80 group mt-1 border-t border-border/40 pt-3"
+        >
+          <svg class="h-4 w-4 shrink-0 text-blue-600 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01"/>
+          </svg>
+          <span class="flex-1 truncate">{t.navHelp}</span>
+          <span class="text-[10px] text-muted-foreground group-hover:text-foreground">↗</span>
+        </a>
+      {/if}
     </aside>
 
     <!-- Основное содержимое -->
@@ -935,9 +1048,10 @@
         <RpcCatalogView {lang} rpcClient={rpc} />
       {:else if currentNav === "delegations"}
         <DelegationsView {lang} rpcClient={rpc} onnotify={(msg, type) => showToast(msg, type)} />
+      {:else if currentNav === "seo"}
+        <SeoAdminView {lang} rpcClient={rpc} onnotify={(msg, type) => showToast(msg, type)} />
       {:else if currentNav === "settings"}
         <SettingsView {lang} rpcClient={rpc} onnotify={(msg, type) => showToast(msg, type)} />
-      {:else if isLoadingSchema}
         <div class="flex h-64 items-center justify-center text-sm text-muted-foreground">
           {t.schemaLoading}
         </div>

@@ -15,10 +15,15 @@ class SeoConfig:
     """Конфигурация плагина SEO."""
     site_url: str = "http://localhost:8080"
     site_name: str = "RSGI WSRPC"
+    default_title: str = "PyFerro Application"
+    default_description: str = "Современное реактивное веб-приложение на базе PyFerro WSRPC"
     indexnow_key: Optional[str] = None
     default_lang: str = "ru"
     sitemap_ttl: int = 3600  # 1 час кэша по умолчанию
     default_og_image: Optional[str] = None
+    enable_sitemap: bool = True
+    sitemap_models: List[str] = field(default_factory=list)
+    model_rules: List[Dict[str, Any]] = field(default_factory=list)
     extra_bot_patterns: List[str] = field(default_factory=list)
     custom_detector: Optional[Callable[[Union[str, Any]], Optional[bool]]] = None
     indexnow_queue_file: Optional[str] = "data/indexnow_queue.txt"
@@ -79,6 +84,21 @@ def get_seo_config() -> SeoConfig:
         or None
     )
 
+    default_title = (
+        seo_raw.get("default_title")
+        or os.getenv("DEFAULT_TITLE")
+        or "PyFerro Application"
+    )
+
+    default_description = (
+        seo_raw.get("default_description")
+        or os.getenv("DEFAULT_DESCRIPTION")
+        or "Современное реактивное веб-приложение на базе PyFerro WSRPC"
+    )
+
+    enable_sitemap = bool(seo_raw.get("enable_sitemap", True))
+    sitemap_models = seo_raw.get("sitemap_models") or []
+    model_rules = seo_raw.get("model_rules") or []
     extra_bot_patterns = seo_raw.get("extra_bot_patterns") or []
     if isinstance(extra_bot_patterns, str):
         extra_bot_patterns = [p.strip() for p in extra_bot_patterns.split(",") if p.strip()]
@@ -113,10 +133,15 @@ def get_seo_config() -> SeoConfig:
     _CURRENT_SEO_CONFIG = SeoConfig(
         site_url=site_url,
         site_name=site_name,
+        default_title=default_title,
+        default_description=default_description,
         indexnow_key=indexnow_key,
         default_lang=default_lang,
         sitemap_ttl=sitemap_ttl,
         default_og_image=default_og_image,
+        enable_sitemap=enable_sitemap,
+        sitemap_models=list(sitemap_models),
+        model_rules=list(model_rules),
         extra_bot_patterns=list(extra_bot_patterns),
         custom_detector=seo_raw.get("custom_detector"),
         indexnow_queue_file=indexnow_queue_file,
@@ -130,10 +155,15 @@ def get_seo_config() -> SeoConfig:
 def configure_seo(
     site_url: Optional[str] = None,
     site_name: Optional[str] = None,
+    default_title: Optional[str] = None,
+    default_description: Optional[str] = None,
     indexnow_key: Optional[str] = None,
     default_lang: Optional[str] = None,
     sitemap_ttl: Optional[int] = None,
     default_og_image: Optional[str] = None,
+    enable_sitemap: Optional[bool] = None,
+    sitemap_models: Optional[List[str]] = None,
+    model_rules: Optional[List[Dict[str, Any]]] = None,
     extra_bot_patterns: Optional[List[str]] = None,
     custom_detector: Optional[Callable[[Union[str, Any]], Optional[bool]]] = None,
     indexnow_queue_file: Optional[str] = ...,  # type: ignore[assignment]
@@ -147,6 +177,10 @@ def configure_seo(
         current.site_url = site_url.rstrip("/")
     if site_name is not None:
         current.site_name = site_name
+    if default_title is not None:
+        current.default_title = default_title
+    if default_description is not None:
+        current.default_description = default_description
     if indexnow_key is not None:
         current.indexnow_key = indexnow_key
     if default_lang is not None:
@@ -155,6 +189,12 @@ def configure_seo(
         current.sitemap_ttl = sitemap_ttl
     if default_og_image is not None:
         current.default_og_image = default_og_image
+    if enable_sitemap is not None:
+        current.enable_sitemap = bool(enable_sitemap)
+    if sitemap_models is not None:
+        current.sitemap_models = list(sitemap_models)
+    if model_rules is not None:
+        current.model_rules = list(model_rules)
     if extra_bot_patterns is not None:
         current.extra_bot_patterns = list(extra_bot_patterns)
     if custom_detector is not None:
