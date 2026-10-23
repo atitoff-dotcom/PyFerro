@@ -227,6 +227,7 @@ async def _create_authenticated_session(
     asyncio.create_task(notify_session_change())
 
     result = {
+        "authenticated": True,
         "token": rt_obj.token,
         "jwt_token": jwt_token,
         "user_id": user.id,

@@ -18,6 +18,13 @@ from .indexnow import (
     start_indexnow_file_flusher,
     INDEXNOW_ENDPOINTS,
 )
+from .site_tree import (
+    load_site_tree,
+    save_site_tree,
+    match_and_render_site_tree,
+    collect_site_tree_sitemap_urls,
+    flatten_tree_nodes,
+)
 from .dynamic_rules import (
     get_model_schema_for_seo,
     preview_model_rule,
@@ -72,5 +79,11 @@ __all__ = [
     "flush_indexnow_queue",
     "start_indexnow_file_flusher",
     "INDEXNOW_ENDPOINTS",
+    # Дерево сайта (Site Tree SEO)
+    "load_site_tree",
+    "save_site_tree",
+    "match_and_render_site_tree",
+    "collect_site_tree_sitemap_urls",
+    "flatten_tree_nodes",
 ]
 

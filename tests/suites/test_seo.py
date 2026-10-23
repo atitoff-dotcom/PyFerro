@@ -30,6 +30,22 @@ from pyferro.plugins.seo import (
 from pyferro.plugins.seo.router import BOT_ROUTES, BotRoute
 from pyferro.plugins.seo.sitemap import SITEMAP_PROVIDERS
 
+def _sync_sqlite_db():
+    import sqlite3
+    import os
+    for db_name in ("app.db", "data/app.db", "showcase.db", "examples/admin_help/showcase.db"):
+        if os.path.exists(db_name):
+            try:
+                con = sqlite3.connect(db_name)
+                cols = [c[1] for c in con.execute("PRAGMA table_info(pf_showcase_forum_category)").fetchall()]
+                if cols and "parent_id" not in cols:
+                    con.execute("ALTER TABLE pf_showcase_forum_category ADD COLUMN parent_id INTEGER")
+                    con.commit()
+                con.close()
+            except Exception:
+                pass
+
+_sync_sqlite_db()
 
 
 class MockRSGIProto:
@@ -504,11 +520,16 @@ def test_dynamic_model_bot_rendering():
 
         from pyferro.plugins.help.models import ForumCategory, ForumTopic
         async with async_session() as db:
-            c = ForumCategory(name="Архитектура", slug="architecture")
-            db.add(c)
-            await db.flush()
-            t = ForumTopic(category_id=c.id, title="WSRPC vs REST", slug="wsrpc-vs-rest-comparison", first_post_text="WSRPC rules!")
-            db.add(t)
+            from sqlalchemy import select
+            c = (await db.execute(select(ForumCategory).where(ForumCategory.slug == "architecture"))).scalar_one_or_none()
+            if not c:
+                c = ForumCategory(name="Архитектура", slug="architecture")
+                db.add(c)
+                await db.flush()
+            t = (await db.execute(select(ForumTopic).where(ForumTopic.slug == "wsrpc-vs-rest-comparison"))).scalar_one_or_none()
+            if not t:
+                t = ForumTopic(category_id=c.id, title="WSRPC vs REST", slug="wsrpc-vs-rest-comparison", first_post_text="WSRPC rules!")
+                db.add(t)
             await db.commit()
 
         # Бот запрашивает URL форума
@@ -583,5 +604,252 @@ def test_seo_role_rbac_and_admin_config():
 
         # Возвращаем обратно в True
         await seo_toggle_model_permission_admin(session, model_key="ForumTopic", allowed=True)
+
+    asyncio.run(_test())
+
+
+
+# -----------------------------------------------------------------------------
+# 10. Тесты «Живого дерева сайта» (Site Tree Engine, ссылки, Sitemap)
+# -----------------------------------------------------------------------------
+
+def test_site_tree_engine_navigation_and_crawling(monkeypatch):
+    """Проверяет сквозной обход дерева сайта ботом (Главная -> Форум -> Категории -> Темы)."""
+    import pyferro.plugins.help
+    import pyferro.plugins.seo.site_tree as site_tree_mod
+    from pyferro.plugins.seo.site_tree import load_site_tree, match_and_render_site_tree, collect_site_tree_sitemap_urls
+    from pyferro.plugins.seo.router import handle_bot_http
+
+    test_tree = {
+        "id": "root",
+        "title": "Главная страница",
+        "url_pattern": "/",
+        "meta_title": "PyFerro Platform — современное реактивное веб-приложение",
+        "meta_description": "Высокопроизводительное SPA-приложение с реактивными WebSocket-каналами.",
+        "og_image": "",
+        "schema_type": "WebPage",
+        "template": "",
+        "sitemap_enabled": True,
+        "sitemap_priority": 1.0,
+        "sitemap_changefreq": "daily",
+        "children": [
+            {
+                "id": "forum_hub",
+                "title": "Форум сообщества",
+                "url_pattern": "/forum",
+                "meta_title": "Форум сообщества — Главные разделы",
+                "meta_description": "Обсуждения, анонсы, обмен опытом.",
+                "template": "",
+                "sitemap_enabled": True,
+                "sitemap_priority": 0.9,
+                "sitemap_changefreq": "daily",
+                "children": [
+                    {
+                        "id": "category_root",
+                        "title": "Раздел форума",
+                        "url_pattern": "/forum/{slug}",
+                        "model_key": "ForumCategory",
+                        "meta_title": "Раздел «{{ record.name or title }}» — Форум",
+                        "meta_description": "{{ record.description or description }}",
+                        "template": "",
+                        "sitemap_enabled": True,
+                        "sitemap_priority": 0.85,
+                        "sitemap_changefreq": "daily",
+                        "children": [
+                            {
+                                "id": "topic_detail",
+                                "title": "Тема форума",
+                                "url_pattern": "/forum/{parent.slug}/{slug}",
+                                "model_key": "ForumTopic",
+                                "meta_title": "{{ record.title }} — {{ parent.name }} | Форум",
+                                "meta_description": "{{ record.first_post_text }}",
+                                "template": "",
+                                "sitemap_enabled": True,
+                                "sitemap_priority": 0.8,
+                                "sitemap_changefreq": "daily",
+                                "children": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "id": "about_page",
+                "title": "О проекте",
+                "url_pattern": "/about",
+                "meta_title": "О проекте PyFerro",
+                "meta_description": "Технологический стек и возможности.",
+                "template": "",
+                "sitemap_enabled": True,
+                "sitemap_priority": 0.5,
+                "sitemap_changefreq": "monthly",
+                "children": []
+            }
+        ]
+    }
+    monkeypatch.setattr(site_tree_mod, "load_site_tree", lambda: test_tree)
+
+    async def _test_flow():
+        from pyferro.db import engine, Base
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        # 1. Загрузка дерева
+        tree = load_site_tree()
+        assert tree["id"] == "root"
+        assert tree["url_pattern"] == "/"
+        assert len(tree["children"]) >= 2
+        # 2. Бот запрашивает корень "/"
+        scope_root = {
+            "method": "GET",
+            "path": "/",
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)"),
+                (b"host", b"example.com"),
+            ],
+            "query_string": b"",
+        }
+        proto_root = MockRSGIProto()
+        handled_root = await handle_bot_http(scope_root, proto_root)
+        assert handled_root is True
+        assert proto_root.status == 200
+        assert proto_root.headers.get("x-seo-engine") == "site-tree"
+        assert '<nav class="seo-navigation"' in proto_root.body
+        assert 'href="/forum"' in proto_root.body
+        assert 'href="/about"' in proto_root.body
+
+        # 3. Бот переходит по ссылке на "/forum" (Хаб категорий)
+        scope_forum = {
+            "method": "GET",
+            "path": "/forum",
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0 (compatible; Googlebot/2.1)"),
+                (b"host", b"example.com"),
+            ],
+            "query_string": b"",
+        }
+        proto_forum = MockRSGIProto()
+        handled_forum = await handle_bot_http(scope_forum, proto_forum)
+        assert handled_forum is True
+        assert proto_forum.status == 200
+        assert proto_forum.headers.get("x-seo-engine") == "site-tree"
+        assert "Форум сообщества" in proto_forum.body
+
+        # 4. Проверяем сборку Sitemap из дерева
+        sitemap_urls = await collect_site_tree_sitemap_urls()
+        locs = [u["loc"] for u in sitemap_urls]
+        assert "/" in locs
+        assert "/forum" in locs
+        assert "/about" in locs
+
+    asyncio.run(_test_flow())
+
+
+def test_site_tree_rpc_methods():
+    """Проверяет административные RPC-методы для управления деревом сайта."""
+    from pyferro.plugins.crud.admin_handlers import seo_get_tree_admin, seo_save_tree_admin, seo_preview_tree_node_admin
+
+    class MockAdminSession:
+        is_superadmin = True
+        user = type("MockUser", (), {"is_superadmin": True, "id": 1, "login": "admin", "roles": [type("R", (), {"name": "admin"})()]})()
+    async def _test_rpc():
+        session = MockAdminSession()
+        res = await seo_get_tree_admin(session)
+        assert "tree" in res
+        assert "available_models" in res
+        assert res["tree"]["id"] == "root"
+
+        # Превью статического узла
+        node = res["tree"]
+        prev = await seo_preview_tree_node_admin(session, node=node)
+        assert prev["title"]
+        assert prev["body_html"]
+
+        # Превью коллекции (например, список тем раздела)
+        cat_node = {
+            "id": "cat_test",
+            "title": "Раздел форума (Список тем)",
+            "url_pattern": "/forum/{parent.slug}",
+            "node_type": "collection",
+            "model_key": "ForumTopic",
+            "meta_title": "Раздел «{parent.name}»",
+            "meta_description": "{parent.description}",
+        }
+        prev_cat = await seo_preview_tree_node_admin(session, node=cat_node)
+        assert prev_cat["title"]
+        assert prev_cat["body_html"]
+
+        # Превью детального узла (тема форума)
+        topic_node = {
+            "id": "topic_test",
+            "title": "Тема форума (Карточка)",
+            "url_pattern": "/forum/{parent.slug}/{slug}",
+            "node_type": "detail",
+            "model_key": "ForumTopic",
+            "meta_title": "{title} — {parent.name}",
+            "meta_description": "{first_post_text}",
+        }
+        prev_topic = await seo_preview_tree_node_admin(session, node=topic_node)
+        assert prev_topic["title"]
+        assert prev_topic["body_html"]
+
+    asyncio.run(_test_rpc())
+
+
+def test_jinja_seo_engine():
+    """Тестирует движок Jinja2 шаблонов для SEO-страниц: валидацию, мультитабличные циклы и связи."""
+    from pyferro.plugins.seo.jinja_engine import validate_jinja_template, build_template_context, render_jinja_template
+    from pyferro.plugins.crud.admin_handlers import seo_validate_template_admin, seo_preview_tree_node_admin
+
+    # 1. Проверка синтаксиса
+    assert validate_jinja_template("<h1>{{ record.title }}</h1>")["valid"] is True
+    assert validate_jinja_template("{% for x in items %} missing")["valid"] is False
+
+    class MockAdminSession:
+        is_superadmin = True
+        user = type("MockUser", (), {"is_superadmin": True, "id": 1, "login": "admin", "roles": [type("R", (), {"name": "admin"})()]})()
+
+    async def _test():
+        session = MockAdminSession()
+        # RPC валидация
+        val_res = await seo_validate_template_admin(session, template="<h2>{{ title }}</h2>")
+        assert val_res["valid"] is True
+
+        err_res = await seo_validate_template_admin(session, template="{% for a in b %}")
+        assert err_res["valid"] is False
+
+        # Рендеринг шаблона с циклом по нескольким таблицам
+        tpl = """
+<h1>{{ title }}</h1>
+<ul>
+{% for c in ForumCategory %}
+  <li>{{ c.name }}</li>
+{% endfor %}
+</ul>
+<div>
+{% for t in ForumTopic[:5] %}
+  <span>{{ t.title }}</span>
+{% endfor %}
+</div>
+"""
+        ctx = build_template_context(extra={"title": "Живая страница"})
+        rendered = await render_jinja_template(tpl, ctx)
+        assert "<h1>Живая страница</h1>" in rendered
+        assert "<ul>" in rendered
+        assert "<div>" in rendered
+
+        # Превью узла дерева с Jinja2 шаблоном
+        custom_node = {
+            "id": "custom_jinja",
+            "title": "Кастомный узел",
+            "url_pattern": "/custom-page",
+            "node_type": "static",
+            "meta_title": "SEO Заголовок",
+            "meta_description": "SEO Описание",
+            "template": "<h1>Кастомная страница: {{ title }}</h1><p>{{ description }}</p>",
+        }
+        prev = await seo_preview_tree_node_admin(session, node=custom_node)
+        assert prev["title"] == "SEO Заголовок"
+        assert "<h1>Кастомная страница: SEO Заголовок</h1>" in prev["body_html"]
 
     asyncio.run(_test())

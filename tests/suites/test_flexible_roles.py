@@ -13,8 +13,8 @@ from unittest.mock import MagicMock
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE, SYSTEM_ROLES
-from pyferro.core.session import RPCError
+from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE, ADM_HELP_ROLE, SYSTEM_ROLES
+from pyferro.core.session import RPCError, RPC_REGISTRY
 from pyferro.auth.models import User, Role, RefreshToken
 from pyferro.auth.handlers import (
     handle_login,
@@ -256,3 +256,28 @@ async def test_cli_set_admin_password_ensures_admin_role():
     })
     assert login_res["role"] == "admin"
     assert login_res["roles"] == ["admin"]
+
+@pytest.mark.asyncio
+async def test_sync_rpc_permissions_when_adm_help_missing():
+    """Проверяет, что при отсутствии adm-help роли авто-синк создает её и привязывает help.* методы без MissingGreenlet."""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with system_db_session() as db:
+        await ensure_system_roles(db)
+        help_role = (await db.execute(select(Role).where(Role.name == ADM_HELP_ROLE))).scalar_one_or_none()
+        if help_role:
+            await db.delete(help_role)
+            await db.commit()
+
+    # Запускаем авто-синк - он не должен падать или вызывать MissingGreenlet
+    await sync_rpc_permissions()
+
+    async with system_db_session() as db:
+        stmt = select(Role).options(selectinload(Role.rpc_permissions)).where(Role.name == ADM_HELP_ROLE)
+        new_help_role = (await db.execute(stmt)).scalar_one_or_none()
+        assert new_help_role is not None
+        help_methods = {rp.name for rp in new_help_role.rpc_permissions}
+        for rpc_name in RPC_REGISTRY.keys():
+            if rpc_name.startswith("help."):
+                assert rpc_name in help_methods

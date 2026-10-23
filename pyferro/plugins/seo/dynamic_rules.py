@@ -55,15 +55,38 @@ def get_model_schema_for_seo(model_key: str) -> Dict[str, Any]:
     if not meta:
         return {"fields": [], "relations": []}
 
+    HUMAN_FIELD_LABELS = {
+        "name": "Название",
+        "title": "Заголовок",
+        "slug": "Короткий адрес латиницей",
+        "description": "Описание",
+        "first_post_text": "Текст статьи",
+        "content": "Текст статьи",
+        "author_name": "Автор",
+        "author": "Автор",
+        "id": "Номер ID",
+        "parent_id": "Родительский раздел",
+        "category_id": "Категория",
+        "views_count": "Просмотры",
+        "replies_count": "Ответы",
+        "created_at": "Дата создания",
+        "price": "Цена",
+        "sku": "Артикул",
+        "image": "Изображение",
+        "cover": "Обложка",
+    }
+
     fields = []
     for f in meta.get_column_fields():
+        lbl = f.label or HUMAN_FIELD_LABELS.get(f.name) or f.name
+        if lbl == f.name and f.name in HUMAN_FIELD_LABELS:
+            lbl = HUMAN_FIELD_LABELS[f.name]
         fields.append({
             "name": f.name,
             "type": f.type,
-            "label": f.label or f.name,
+            "label": lbl,
             "primary_key": f.primary_key,
         })
-
     relations = []
     for f in meta.get_column_fields():
         if f.foreign_key or f.name.endswith("_id"):

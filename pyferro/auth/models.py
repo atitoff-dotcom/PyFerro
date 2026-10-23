@@ -129,10 +129,10 @@ class Role(RowSecureModel):
     description: Mapped[str] = mapped_column(Text)
 
     permissions: Mapped[List["RolePermission"]] = relationship(
-        "RolePermission", back_populates="role", cascade="all, delete-orphan"
+        "RolePermission", back_populates="role", cascade="all, delete-orphan", lazy="selectin"
     )
     rpc_permissions: Mapped[List["RpcPermission"]] = relationship(
-        "RpcPermission", secondary=role_rpc_permission_association, back_populates="roles"
+        "RpcPermission", secondary=role_rpc_permission_association, back_populates="roles", lazy="selectin"
     )
     users: Mapped[List["User"]] = relationship(
         "User", secondary=user_role_association, back_populates="roles"

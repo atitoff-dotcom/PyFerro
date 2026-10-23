@@ -54,7 +54,19 @@ async def serve_help_static(scope, proto) -> None:
         )
     )
 
-    if not is_admin:
+    # В режиме без пользовательского приложения (чистый dev-старт) Справка открыта для гостя,
+    # позволяя протестировать сокеты и войти под учетной записью администратора.
+    # При наличии пользовательского фронтенда активируется строгий Zero-Leakage 404.
+    from pyferro.app import get_current_app
+    app = get_current_app()
+    allow_guest_help = False
+    if app is not None:
+        if getattr(app, "public_help", None) is not None:
+            allow_guest_help = bool(app.public_help)
+        else:
+            allow_guest_help = not app.has_user_frontend
+
+    if not is_admin and not allow_guest_help:
         logger.debug(f"[Admin Help 404] Zero-Leakage: доступ к '{path}' отклонён.")
         proto.response_str(
             status=404,

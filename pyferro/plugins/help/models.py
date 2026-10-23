@@ -14,6 +14,7 @@ class ForumCategory(Base):
     __tablename__ = "pf_showcase_forum_category"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    parent_id = Column(Integer, ForeignKey("pf_showcase_forum_category.id"), nullable=True)
     name = Column(String(100), nullable=False)
     slug = Column(String(100), nullable=False, unique=True)
     description = Column(Text, default="", nullable=False)
@@ -29,13 +30,13 @@ class ForumCategory(Base):
     def to_dict(self):
         return {
             "id": self.id,
+            "parent_id": self.parent_id,
             "name": self.name,
             "slug": self.slug,
             "description": self.description,
             "icon": self.icon,
             "display_order": self.display_order,
         }
-
 
 class ForumTopic(Base):
     __tablename__ = "pf_showcase_forum_topic"

@@ -403,6 +403,7 @@ export class AuthStore<TUser extends AuthUser = AuthUser> {
             email: res.email ?? null,
             permissions: res.permissions || {},
             is_superadmin: Boolean(res.is_superadmin),
+            authenticated: res.authenticated !== undefined ? Boolean(res.authenticated) : Boolean(id),
             ...res
         } as TUser;
     }
@@ -425,19 +426,22 @@ export class AuthStore<TUser extends AuthUser = AuthUser> {
         this.userStore.set(userObj);
 
         const token = res.token;
+        const jwt = res.jwt_token || res.jwt;
         if (token) {
             this.tokenStore.set(token);
             setAuthCookie('ferro_session', token, 2592000);      // 30 дней для сокета и HTTP
-            setAuthCookie('ferro_crud_session', token, 2592000); // 30 дней для панели /crud
+            setAuthCookie('ferro_crud_session', jwt || token, 2592000); // 30 дней для панели /crud (JWT гарантирует Zero-Leakage 404 валидацию)
             if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
                 localStorage.setItem('refresh_token', token);
             }
         }
 
-        const jwt = res.jwt_token || res.jwt;
         if (jwt) {
             this.jwtTokenStore.set(jwt);
             setAuthCookie('rpc_jwt', jwt, 86400); // 24 часа для REST / uploads
+            if (!token) {
+                setAuthCookie('ferro_crud_session', jwt, 86400);
+            }
         }
 
         return userObj;
@@ -651,11 +655,17 @@ export class BinaryWSRPC<TUser extends AuthUser = AuthUser> {
                 // Вызываем триггер на подключение
                 if (this.onConnect) this.onConnect();
 
-                // Фоновая синхронизация сессии пользователя при переподключении
-                if (this.auth && this.auth.isValid) {
-                    this.auth.syncOnReconnect().catch((err) => {
-                        console.warn('[WSRPC] Ошибка авто-синхронизации сессии при реконнекте:', err);
-                    });
+                // Фоновая синхронизация сессии пользователя при подключении/переподключении
+                if (this.auth) {
+                    if (this.auth.isValid) {
+                        this.auth.syncOnReconnect().catch((err) => {
+                            console.warn('[WSRPC] Ошибка авто-синхронизации сессии при реконнекте:', err);
+                        });
+                    } else if (this.auth.token || (typeof document !== 'undefined' && (getAuthCookie('ferro_session') || getAuthCookie('ferro_crud_session')))) {
+                        this.auth.restoreSession().catch((err) => {
+                            console.warn('[WSRPC] Ошибка авто-восстановления сессии при подключении:', err);
+                        });
+                    }
                 }
                 
                 resolve();

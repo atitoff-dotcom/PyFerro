@@ -137,8 +137,12 @@ async def test_help_reverse_call():
 async def test_help_static_zero_leakage_404_and_authorized():
     from pyferro.plugins.help.static_handler import serve_help_static
     from pyferro.plugins.crud.auth import create_crud_session
+    from pyferro.app import FerroApp
 
-    # 1. Unauthenticated request -> 404 Zero-Leakage
+    # Создаем экземпляр с активным Zero-Leakage 404 (пользовательский фронтенд или public_help=False)
+    app = FerroApp(public_help=False)
+
+    # 1. Unauthenticated request with Zero-Leakage -> 404 Not Found
     scope_anon = MagicMock()
     scope_anon.path = "/admin/help/index.html"
     scope_anon.headers = []
@@ -171,3 +175,12 @@ async def test_help_static_zero_leakage_404_and_authorized():
     await serve_help_static(scope_auth, proto_auth)
     assert proto_auth.response_bytes.call_count == 1
     assert proto_auth.response_bytes.call_args[1]["status"] == 200
+
+    # 4. Режим без пользовательского приложения (чистый dev-старт, public_help=True) -> гость получает 200
+    app_bare = FerroApp(public_help=True)
+    proto_bare = MagicMock()
+    proto_bare.response_bytes = MagicMock()
+    proto_bare.response_file = MagicMock()
+    proto_bare.response_str = MagicMock()
+    await serve_help_static(scope_anon, proto_bare)
+    assert proto_bare.response_bytes.call_count == 1 or proto_bare.response_file.call_count == 1

@@ -79,8 +79,20 @@ async def collect_all_sitemap_urls() -> List[Dict[str, Any]]:
         except Exception as e:
             logger.error(f"[SITEMAP] Ошибка при сборе URL из {provider.__name__}: {e}", exc_info=True)
 
-    # Добавляем ссылки из динамических правил моделей админки
+    # Добавляем ссылки из Живого дерева сайта (Site Tree Engine)
     try:
+        from .site_tree import collect_site_tree_sitemap_urls
+        tree_urls = await collect_site_tree_sitemap_urls()
+        existing_locs = {u.get("loc") for u in urls if isinstance(u, dict)}
+        for tu in tree_urls:
+            loc = tu.get("loc")
+            if loc and loc not in existing_locs:
+                urls.append(tu)
+                existing_locs.add(loc)
+    except Exception as e:
+        logger.error(f"[SITEMAP] Ошибка сбора URL из дерева сайта: {e}", exc_info=True)
+
+    # Добавляем ссылки из динамических правил моделей админки (legacy)
         cfg = get_seo_config()
         if cfg.model_rules:
             from pyferro.db import async_session

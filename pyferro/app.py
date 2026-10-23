@@ -18,6 +18,13 @@ from .core.router import http_route, HTTP_ROUTES
 from .core.lifecycle import on_startup, on_shutdown, run_startup_callbacks, run_shutdown_callbacks
 from .core.logger import logger, setup_logging
 
+_CURRENT_APP: Optional["FerroApp"] = None
+
+
+def get_current_app() -> Optional["FerroApp"]:
+    """Возвращает текущий активный экземпляр FerroApp."""
+    return _CURRENT_APP
+
 
 class _SessionCounter:
     """Сериализуемый счетчик сессий (совместим с multiprocessing spawn / pickle в Python 3.14)."""
@@ -80,6 +87,7 @@ class FerroApp:
         static_dir: Optional[str] = None,
         static_prefix: str = "/static",
         index_file: Optional[str] = None,
+        public_help: Optional[bool] = None,
         # Внешняя авторизация и плагины
         oauth: Optional[Union[List[Any], Dict[str, Any]]] = None,
         backplane_url: Optional[str] = None,
@@ -168,7 +176,14 @@ class FerroApp:
                 self.index_file = os.path.join(self.static_dir, index_file)
             else:
                 self.index_file = os.path.abspath(index_file)
+        elif self.static_dir:
+            candidate = os.path.join(self.static_dir, "index.html")
+            if os.path.exists(candidate):
+                self.index_file = candidate
 
+        self.public_help = public_help
+        global _CURRENT_APP
+        _CURRENT_APP = self
         self.enable_seo = enable_seo
         self._session_counter = _SessionCounter()
         self._on_connect_callbacks: List[Callable] = []
@@ -264,6 +279,28 @@ class FerroApp:
                     print(f" ❌ Ошибка смены пароля: {e}", file=sys.stderr)
                     print("=" * 64, file=sys.stderr)
                     sys.exit(1)
+        return False
+
+    @property
+    def has_user_frontend(self) -> bool:
+        """
+        Проверяет, подключен ли пользовательский фронтенд:
+        - Задан существующий index_file
+        - Или задана существующая директория static_dir с файлами
+        - Или зарегистрирован пользовательский HTTP маршрут для корня '/'
+        """
+        if self.index_file and os.path.exists(self.index_file):
+            return True
+        if self.static_dir and os.path.isdir(self.static_dir):
+            try:
+                if any(os.scandir(self.static_dir)):
+                    return True
+            except Exception:
+                pass
+        for route_path, methods, handler in HTTP_ROUTES:
+            if not route_path.startswith("/admin") and not route_path.startswith("/upload") and not route_path.startswith("/sitemap"):
+                if route_path in ("/", "/*"):
+                    return True
         return False
 
     def _auto_authenticate_ws(self, session: JsonRpcSession) -> None:
@@ -568,7 +605,19 @@ class FerroApp:
                     self._serve_static_file(proto, safe_full_path)
                     return
 
-        # 6. 404 Not Found
+        # 6. Если пользовательского фронтенда нет и запрос к корню GET / — авто-редирект на /admin/help/
+        if method == "GET" and path == "/" and not self.has_user_frontend:
+            proto.response_str(
+                status=307,
+                headers=[
+                    ("location", "/admin/help/"),
+                    ("content-length", "0"),
+                ],
+                body=""
+            )
+            return
+
+        # 7. 404 Not Found
         proto.response_str(
             status=404,
             headers=[("content-type", "text/plain; charset=utf-8")],

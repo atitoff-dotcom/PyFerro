@@ -118,10 +118,12 @@ async def ensure_system_roles(db) -> tuple[Role, Role]:
         db.add(guest_role)
         existing[GUEST_ROLE] = guest_role
 
+    roles_added = False
     if SEO_ROLE not in existing:
         seo_role = Role(name=SEO_ROLE, description="Поисковая оптимизация и индексация (SEO Bot / Crawler)")
         db.add(seo_role)
         existing[SEO_ROLE] = seo_role
+        roles_added = True
 
     for adm_r in ADM_SECTION_ROLES:
         if adm_r not in existing:
@@ -129,15 +131,12 @@ async def ensure_system_roles(db) -> tuple[Role, Role]:
             r_obj = Role(name=adm_r, description=desc)
             db.add(r_obj)
             existing[adm_r] = r_obj
+            roles_added = True
 
-    await db.commit()
-    await db.refresh(existing[ADMIN_ROLE])
-    await db.refresh(existing[GUEST_ROLE])
-    if SEO_ROLE in existing:
-        await db.refresh(existing[SEO_ROLE])
-    for adm_r in ADM_SECTION_ROLES:
-        if adm_r in existing:
-            await db.refresh(existing[adm_r])
+    if roles_added or ADMIN_ROLE not in existing or GUEST_ROLE not in existing:
+        await db.commit()
+        stmt_roles = select(Role).options(selectinload(Role.rpc_permissions))
+        existing = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
     return existing[ADMIN_ROLE], existing[GUEST_ROLE]
 
 
@@ -179,25 +178,28 @@ async def sync_rpc_permissions() -> None:
                 logger.critical(f"[Discovery] {error_msg}")
                 raise RuntimeError(error_msg)
 
-            # Гарантируем наличие системной роли seo в существующей БД
+            # Гарантируем наличие системной роли seo и ролей подразделов в существующей БД
+            roles_created = False
             if SEO_ROLE not in existing_roles:
                 seo_role = Role(
                     name=SEO_ROLE,
                     description="Поисковая оптимизация и индексация (SEO Bot / Crawler)",
                 )
                 db.add(seo_role)
-                await db.commit()
-                await db.refresh(seo_role)
-                existing_roles[SEO_ROLE] = seo_role
+                roles_created = True
 
             for adm_r in ADM_SECTION_ROLES:
                 if adm_r not in existing_roles:
                     desc = ADM_ROLE_DESCRIPTIONS.get(adm_r, f"Администратор подраздела {adm_r}")
                     r_obj = Role(name=adm_r, description=desc)
                     db.add(r_obj)
-                    await db.commit()
-                    await db.refresh(r_obj)
-                    existing_roles[adm_r] = r_obj
+                    roles_created = True
+
+            if roles_created:
+                await db.commit()
+                stmt_roles = select(Role).options(selectinload(Role.rpc_permissions))
+                existing_roles = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
+
             guest_role = existing_roles[GUEST_ROLE]
             guest_rpc_ids = {rp.id for rp in guest_role.rpc_permissions}
             # 2. Сканируем зарегистрированные методы
@@ -218,7 +220,6 @@ async def sync_rpc_permissions() -> None:
                     first_line = f"RPC method {method_name}"
 
                 # Дефолтная привязка к guest: строго только методы логина
-                is_login = method_name in DEFAULT_LOGIN_METHODS or method_name.startswith("login.")
                 is_fw = getattr(handler, "is_framework", None)
                 if is_fw is None:
                     is_fw = is_framework_handler(handler)
@@ -261,14 +262,9 @@ async def sync_rpc_permissions() -> None:
                 deleted_count = len(stale_perms)
 
             if added_count > 0 or updated_count > 0 or deleted_count > 0:
-                await db.commit()
-                if added_count > 0:
-                    logger.info(f"[Discovery] Зарегистрировано {added_count} новых RPC-методов в базе данных")
-                if updated_count > 0:
-                    logger.info(f"[Discovery] Обновлено {updated_count} описаний RPC-методов из docstrings")
-                if deleted_count > 0:
-                    logger.info(f"[Discovery] Удалено {deleted_count} устаревших RPC-методов из базы данных")
-            # 3. Гарантируем привязку методов логина к роли guest
+                await db.flush()
+
+            # 4. Гарантируем привязку методов логина к роли guest
             guest_role_updated = False
             for method_name, perm in existing_perms.items():
                 is_login = method_name in DEFAULT_LOGIN_METHODS or method_name.startswith("login.")
@@ -277,27 +273,23 @@ async def sync_rpc_permissions() -> None:
                     guest_rpc_ids.add(perm.id)
                     guest_role_updated = True
 
-            if guest_role_updated:
-                await db.commit()
-
-            # 4. Привязываем help.* методы к роли adm-help
+            # 5. Привязываем help.* методы к роли adm-help
+            help_updated = False
             if ADM_HELP_ROLE in existing_roles:
                 help_role = existing_roles[ADM_HELP_ROLE]
                 help_rpc_ids = {rp.id for rp in help_role.rpc_permissions}
-                help_updated = False
                 for method_name, perm in existing_perms.items():
                     if method_name.startswith("help.") and perm.id not in help_rpc_ids:
                         help_role.rpc_permissions.append(perm)
                         help_rpc_ids.add(perm.id)
                         help_updated = True
-                if help_updated:
-                    await db.commit()
-            # 5. Инициализируем CRUD-разрешения по умолчанию для роли seo (тестовые модели форума)
+
+            # 6. Инициализируем CRUD-разрешения по умолчанию для роли seo (тестовые модели форума)
+            seo_updated = False
             if SEO_ROLE in existing_roles:
                 seo_role = existing_roles[SEO_ROLE]
                 stmt_seo_perms = select(RolePermission).where(RolePermission.role_id == seo_role.id)
                 existing_seo_models = {p.model_name for p in (await db.execute(stmt_seo_perms)).scalars().all()}
-                seo_updated = False
                 for m_key in ["ForumCategory", "ForumTopic", "ForumPost"]:
                     if m_key not in existing_seo_models:
                         db.add(RolePermission(
@@ -310,10 +302,17 @@ async def sync_rpc_permissions() -> None:
                             read_global=True,
                         ))
                         seo_updated = True
-                if seo_updated:
-                    await db.commit()
 
-            # 6. Актуализируем in-memory кэш гостя
+            if added_count > 0 or updated_count > 0 or deleted_count > 0 or guest_role_updated or help_updated or seo_updated:
+                await db.commit()
+                if added_count > 0:
+                    logger.info(f"[Discovery] Зарегистрировано {added_count} новых RPC-методов в базе данных")
+                if updated_count > 0:
+                    logger.info(f"[Discovery] Обновлено {updated_count} описаний RPC-методов из docstrings")
+                if deleted_count > 0:
+                    logger.info(f"[Discovery] Удалено {deleted_count} устаревших RPC-методов из базы данных")
+
+            # 7. Актуализируем in-memory кэш гостя
             await reload_guest_permissions_cache()
 
     except RuntimeError:

@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { rpc, wsStatus } from "@wsrpc/wsrpc";
+  import { rpc, wsStatus, auth } from "@wsrpc/wsrpc";
   import CodeBox from "./components/CodeBox.svelte";
 
-  // Активная вкладка: "rpc" или "migrations"
-  let activeTab = $state<"rpc" | "migrations">("rpc");
+  // Активная вкладка: "rpc", "migrations" или "seo"
+  let activeTab = $state<"rpc" | "migrations" | "seo">("rpc");
 
   // Статус WebSocket
   let connectionState = $state<"CONNECTED" | "CONNECTING" | "DISCONNECTED">("CONNECTING");
@@ -20,6 +20,11 @@
     "mig_architecture": true,
     "mig_snapshot": false,
     "mig_cli": false,
+    "seo_intro": true,
+    "seo_tables": true,
+    "seo_url": true,
+    "seo_crawler": true,
+    "seo_gui": true,
   });
 
   function toggleSection(id: string) {
@@ -82,11 +87,23 @@
 
   async function checkAuth() {
     try {
-      const res = await rpc.call("login.whoami", {});
-      if (res && res.authenticated) {
-        authUser = res;
+      const ok = await auth.restoreSession();
+      if (ok && auth.user) {
+        authUser = {
+          authenticated: true,
+          username: auth.user.username,
+          role: auth.user.role,
+          roles: auth.user.roles,
+          is_superadmin: auth.user.is_superadmin,
+        };
       } else {
-        authUser = null;
+        const res = await rpc.call("login.whoami", {});
+        if (res && res.authenticated) {
+          authUser = res;
+          auth.setSession(res);
+        } else {
+          authUser = null;
+        }
       }
     } catch {
       authUser = null;
@@ -101,12 +118,18 @@
     loginLoading = true;
     loginError = "";
     try {
-      const res = await rpc.call("login.submit", {
+      const user = await auth.login({
         username: loginUsername.trim(),
         password: loginPassword,
       });
-      if (res) {
-        await checkAuth();
+      if (user) {
+        authUser = {
+          authenticated: true,
+          username: user.username,
+          role: user.role,
+          roles: user.roles,
+          is_superadmin: user.is_superadmin,
+        };
         isLoginModalOpen = false;
         loginPassword = "";
       }
@@ -119,20 +142,35 @@
 
   async function doLogout() {
     try {
-      await rpc.call("login.logout", {});
+      await auth.logout();
     } catch {}
     authUser = null;
-    document.cookie = "ferro_crud_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    document.cookie = "rpc_jwt=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
     await checkAuth();
   }
 
   onMount(() => {
+    // Явно запускаем WebSocket подключение
+    rpc.connect();
+
     const unsub = wsStatus.subscribe((val) => {
       connectionState = val;
       if (val === "CONNECTED") {
         measurePing();
         checkAuth();
+      }
+    });
+
+    const unsubAuth = auth.subscribe((user) => {
+      if (user && (user.authenticated || user.user_id)) {
+        authUser = {
+          authenticated: true,
+          username: user.username,
+          role: user.role,
+          roles: user.roles,
+          is_superadmin: user.is_superadmin,
+        };
+      } else if (!user) {
+        authUser = null;
       }
     });
 
@@ -174,6 +212,7 @@
 
     return () => {
       unsub();
+      unsubAuth();
       if (typeof cleanupNotification === "function") cleanupNotification();
       if (typeof unregisterReverse === "function") unregisterReverse();
     };
@@ -367,6 +406,7 @@
       </button>
 
       <!-- Кнопка Вкладка 2: Миграции -->
+      <!-- Кнопка Вкладка 2: Миграции -->
       <button
         onclick={() => (activeTab = "migrations")}
         class={`w-full text-left p-2.5 rounded-lg border transition-all ${
@@ -380,6 +420,22 @@
           <span class="text-[9px] font-mono px-1 py-0.2 rounded bg-emerald-100 text-emerald-700">Safe Evol</span>
         </div>
         <p class="text-[11px] text-slate-500 mt-1">Миграции, VACUUM, CLI</p>
+      </button>
+
+      <!-- Кнопка Вкладка 3: SEO & Индексация -->
+      <button
+        onclick={() => (activeTab = "seo")}
+        class={`w-full text-left p-2.5 rounded-lg border transition-all ${
+          activeTab === "seo"
+            ? "bg-amber-50/90 border-amber-300 text-amber-900 shadow-xs"
+            : "border-transparent text-slate-600 hover:bg-slate-50"
+        }`}
+      >
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-xs">🌐 3. SEO и Поисковики</span>
+          <span class="text-[9px] font-mono px-1 py-0.2 rounded bg-amber-100 text-amber-700">Dynamic</span>
+        </div>
+        <p class="text-[11px] text-slate-500 mt-1">Таблицы, ссылки, боты, GUI</p>
       </button>
     </div>
 
@@ -404,7 +460,6 @@
           <span class="truncate">Мультивывод (стриминг)</span>
         </button>
         <button
-        <button
           onclick={() => openSectionDirectly("rpc_errors")}
           class="w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 text-slate-700 flex items-center space-x-2 transition-colors"
         >
@@ -425,7 +480,7 @@
           <span class="w-4 text-center font-mono font-bold text-amber-600">5</span>
           <span class="truncate">Симметричный Reverse RPC</span>
         </button>
-      {:else}
+      {:else if activeTab === "migrations"}
         <button
           onclick={() => openSectionDirectly("mig_architecture")}
           class="w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 text-slate-700 flex items-center space-x-2 transition-colors"
@@ -446,6 +501,42 @@
         >
           <span class="w-4 text-center font-mono font-bold text-purple-600">3</span>
           <span class="truncate">CLI команды pyferro</span>
+        </button>
+      {:else}
+        <button
+          onclick={() => openSectionDirectly("seo_intro")}
+          class="w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 text-slate-700 flex items-center space-x-2 transition-colors"
+        >
+          <span class="w-4 text-center font-mono font-bold text-amber-600">1</span>
+          <span class="truncate">Зачем SEO в SPA?</span>
+        </button>
+        <button
+          onclick={() => openSectionDirectly("seo_tables")}
+          class="w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 text-slate-700 flex items-center space-x-2 transition-colors"
+        >
+          <span class="w-4 text-center font-mono font-bold text-blue-600">2</span>
+          <span class="truncate">Поля таблиц в базе</span>
+        </button>
+        <button
+          onclick={() => openSectionDirectly("seo_url")}
+          class="w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 text-slate-700 flex items-center space-x-2 transition-colors"
+        >
+          <span class="w-4 text-center font-mono font-bold text-emerald-600">3</span>
+          <span class="truncate">Сборка адреса URL</span>
+        </button>
+        <button
+          onclick={() => openSectionDirectly("seo_crawler")}
+          class="w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 text-slate-700 flex items-center space-x-2 transition-colors"
+        >
+          <span class="w-4 text-center font-mono font-bold text-purple-600">4</span>
+          <span class="truncate">Цепочка ссылок ботов</span>
+        </button>
+        <button
+          onclick={() => openSectionDirectly("seo_gui")}
+          class="w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 text-slate-700 flex items-center space-x-2 transition-colors"
+        >
+          <span class="w-4 text-center font-mono font-bold text-rose-600">5</span>
+          <span class="truncate">Настройка в Mission Control</span>
         </button>
       {/if}
     </div>
@@ -558,6 +649,18 @@
       >
         <span>🛡️ 2. Обновление схемы (Safe Evolution)</span>
         <span class="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded">Zero-Data-Loss</span>
+      </button>
+
+      <button
+        onclick={() => (activeTab = "seo")}
+        class={`flex items-center space-x-2 border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${
+          activeTab === "seo"
+            ? "border-amber-600 text-amber-700 font-bold"
+            : "border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900"
+        }`}
+      >
+        <span>🌐 3. SEO и Поисковики</span>
+        <span class="text-[11px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded">Для людей</span>
       </button>
     </nav>
     <!-- ========================================================================= -->
@@ -1514,7 +1617,668 @@ pyferro migrate stamp 0001_baseline_v0.7.0`}
 
       </div>
     {/if}
+    <!-- ========================================================================= -->
+    <!-- ВКЛАДКА 3: SEO И ИНДЕКСАЦИЯ ДЛЯ ЛЮДЕЙ (ПОШАГОВЫЙ ГИД НА ПРИМЕРЕ ФОРУМА)      -->
+    <!-- ========================================================================= -->
+    {#if activeTab === "seo"}
+      <div class="space-y-6">
 
+        <!-- ВВОДНЫЙ БЛОК -->
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center space-x-3">
+              <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-800 font-bold text-lg">🌐</span>
+              <div>
+                <h2 class="text-xl font-bold text-slate-900">Поисковая оптимизация и Индексация (SEO)</h2>
+                <p class="text-xs text-slate-500">Как подружить быстрое SPA-приложение с поисковиками Яндекс, Google и мессенджерами</p>
+              </div>
+            </div>
+            <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+              Руководство без заумных терминов
+            </span>
+          </div>
+
+          <p class="text-sm text-slate-600 leading-relaxed mt-2">
+            В этом разделе мы простыми словами, на примере обычного <strong>Форума сообщества</strong>, разберем:
+            откуда берутся страницы в поиске, как собираются ссылки, зачем нужно ключевое слово <code class="font-mono text-xs bg-slate-100 text-slate-800 px-1 py-0.5 rounded border border-slate-200">&#123;parent.slug&#125;</code>
+            и как за пару кликов настроить поисковую оптимизацию в панели управления <strong>Mission Control</strong>.
+          </p>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100 text-xs">
+            <div class="p-3 rounded-lg bg-blue-50/60 border border-blue-100 text-blue-900">
+              <div class="font-bold flex items-center space-x-1 mb-1">
+                <span>⚡</span>
+                <span>Для живых людей</span>
+              </div>
+              <p class="text-slate-600">Сайт открывается мгновенно как одностраничное приложение (SPA) — без перезагрузок и мерцания экрана.</p>
+            </div>
+            <div class="p-3 rounded-lg bg-emerald-50/60 border border-emerald-100 text-emerald-900">
+              <div class="font-bold flex items-center space-x-1 mb-1">
+                <span>🤖</span>
+                <span>Для поисковых роботов</span>
+              </div>
+              <p class="text-slate-600">Сервер отдает чистый HTML со всеми заголовками, статьями и кликабельными ссылками для перехода вглубь.</p>
+            </div>
+            <div class="p-3 rounded-lg bg-purple-50/60 border border-purple-100 text-purple-900">
+              <div class="font-bold flex items-center space-x-1 mb-1">
+                <span>🧩</span>
+                <span>Настройка без кода</span>
+              </div>
+              <p class="text-slate-600">Вся структура собирается визуально в панели управления — кликайте по подсказкам, система сделает остальное.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- КАРТОЧКА 1: ПРОБЛЕМА SPA И БОТОВ -->
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden" id="seo_intro">
+          <button
+            onclick={() => toggleSection("seo_intro")}
+            class="w-full flex items-center justify-between p-5 text-left bg-slate-50/60 hover:bg-slate-50 transition-colors"
+          >
+            <div class="flex items-center space-x-3">
+              <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700 font-bold text-sm">1</span>
+              <div>
+                <h3 class="text-base font-bold text-slate-900">В чем проблема современных сайтов (SPA) и зачем нужен SEO модуль?</h3>
+                <p class="text-xs text-slate-500">Почему роботы Яндекса и Google без специального модуля видят пустой белый лист</p>
+              </div>
+            </div>
+            <div class="flex items-center space-x-3 text-slate-400 text-sm">
+              <span class="text-xs font-mono font-medium">{openSections["seo_intro"] ? "Свернуть" : "Развернуть"}</span>
+              <span class="transform transition-transform duration-200 {openSections['seo_intro'] ? 'rotate-180' : ''}">▼</span>
+            </div>
+          </button>
+
+          {#if openSections["seo_intro"]}
+            <div class="p-6 border-t border-slate-100 space-y-5">
+              <p class="text-sm text-slate-700 leading-relaxed">
+                Большинство современных веб-сайтов (на React, Vue, Svelte) работают как <strong>SPA (Single Page Application)</strong>.
+                Для человека за компьютером это очень удобно, но для поисковиков это катастрофа, если сервер не обучен отдавать контент роботам.
+              </p>
+
+              <!-- Сравнение: человек против робота -->
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Как видит человек -->
+                <div class="rounded-xl border border-blue-200 bg-blue-50/40 p-4">
+                  <div class="flex items-center space-x-2 text-blue-900 font-bold text-sm mb-2">
+                    <span class="text-lg">👨‍💻</span>
+                    <span>Как видит человек в браузере:</span>
+                  </div>
+                  <p class="text-xs text-slate-600 mb-3 leading-relaxed">
+                    Браузер (Chrome, Safari, Firefox) загружает JavaScript-движок и сам «рисует» на экране форум,
+                    карточки тем, аватарки и кнопки. Всё летает, переходы между страницами происходят мгновенно без перезагрузки.
+                  </p>
+                  <div class="rounded-lg bg-white border border-blue-200 p-3 shadow-2xs">
+                    <div class="text-[11px] font-bold text-slate-800 mb-1">Форум сообщества</div>
+                    <div class="text-[10px] text-slate-500">Раздел: Архитектура и WebSockets</div>
+                    <div class="mt-2 text-[10px] text-blue-600 font-semibold flex items-center space-x-1">
+                      <span>✓ 12 тем</span>
+                      <span>•</span>
+                      <span>✓ 328 просмотров</span>
+                      <span>•</span>
+                      <span>✓ Кнопка «Создать тему»</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Как видит поисковый бот -->
+                <div class="rounded-xl border border-rose-200 bg-rose-50/40 p-4">
+                  <div class="flex items-center space-x-2 text-rose-900 font-bold text-sm mb-2">
+                    <span class="text-lg">🤖</span>
+                    <span>Как видит поисковый бот (без PyFerro SEO):</span>
+                  </div>
+                  <p class="text-xs text-slate-600 mb-3 leading-relaxed">
+                    Роботы Яндекса, Google, Telegram и WhatsApp приходят забрать страницу быстро. Они не запускают сложный JavaScript.
+                    Они скачивают исходный HTML и видят буквально <strong>пустой каркас</strong>:
+                  </p>
+                  <div class="rounded-lg bg-slate-900 p-3 font-mono text-[11px] text-rose-300">
+                    &lt;div id="app"&gt;&lt;/div&gt;<br />
+                    <span class="text-slate-500">&lt;!-- Пустота! Никакого текста форума нет --&gt;</span>
+                  </div>
+                  <div class="mt-2 text-[11px] text-rose-700 font-medium">
+                    ⚠️ Итог: сайт не попадает в поиск Яндекса, а в Telegram ссылка выглядит серой безымянной строкой.
+                  </div>
+                </div>
+              </div>
+
+              <!-- Решение PyFerro -->
+              <div class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+                <div class="flex items-center space-x-2 text-emerald-900 font-bold text-sm mb-1">
+                  <span>✅</span>
+                  <span>Решение PyFerro: Умный динамический рендеринг (Dynamic Rendering)</span>
+                </div>
+                <p class="text-xs text-emerald-800 leading-relaxed">
+                  Когда на сайт заходит человек — он получает сверхбыстрое интерактивное приложение.
+                  А когда на сайт заглядывает поисковый робот или мессенджер — PyFerro перехватывает запрос и мгновенно
+                  отдает ему <strong>чистый готовый HTML с живыми ссылками и статьями</strong>. Поисковик счастлив, а пользователи не теряют в скорости!
+                </p>
+              </div>
+            </div>
+          {/if}
+        </div>
+
+        <!-- КАРТОЧКА 2: ИСХОДНЫЕ ДАННЫЕ В БАЗЕ ДАННЫХ -->
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden" id="seo_tables">
+          <button
+            onclick={() => toggleSection("seo_tables")}
+            class="w-full flex items-center justify-between p-5 text-left bg-slate-50/60 hover:bg-slate-50 transition-colors"
+          >
+            <div class="flex items-center space-x-3">
+              <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700 font-bold text-sm">2</span>
+              <div>
+                <h3 class="text-base font-bold text-slate-900">Что хранится в базе данных? (Разбираем поля двух таблиц)</h3>
+                <p class="text-xs text-slate-500">Наглядные карточки таблиц «Разделы форума» и «Темы форума» с реальными примерами</p>
+              </div>
+            </div>
+            <div class="flex items-center space-x-3 text-slate-400 text-sm">
+              <span class="text-xs font-mono font-medium">{openSections["seo_tables"] ? "Свернуть" : "Развернуть"}</span>
+              <span class="transform transition-transform duration-200 {openSections['seo_tables'] ? 'rotate-180' : ''}">▼</span>
+            </div>
+          </button>
+
+          {#if openSections["seo_tables"]}
+            <div class="p-6 border-t border-slate-100 space-y-6">
+              <p class="text-sm text-slate-700 leading-relaxed">
+                Чтобы поисковик знал, какие страницы показывать людям, система берет данные прямо из вашей базы.
+                Наш демонстрационный форум состоит всего из <strong>двух связанных таблиц</strong>:
+              </p>
+
+              <!-- ТАБЛИЦА 1: РАЗДЕЛЫ И ПОДРАЗДЕЛЫ ФОРУМА -->
+              <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-5">
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center space-x-2">
+                    <span class="text-base">📁</span>
+                    <span class="font-bold text-sm text-slate-900">Таблица 1: Разделы и Подразделы</span>
+                    <code class="text-xs font-mono bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-700">pf_showcase_forum_category</code>
+                  </div>
+                  <span class="text-xs text-slate-500">Папки и вложенные подпапки</span>
+                </div>
+
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs bg-white rounded-lg border border-slate-200">
+                    <thead class="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th class="p-2.5">Поле в таблице</th>
+                        <th class="p-2.5">Что это означает простыми словами</th>
+                        <th class="p-2.5">Пример 1: Главный раздел</th>
+                        <th class="p-2.5">Пример 2: Вложенный подраздел</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-slate-700">
+                      <tr>
+                        <td class="p-2.5 font-mono font-semibold text-blue-600">id</td>
+                        <td class="p-2.5">Уникальный номер строки в базе</td>
+                        <td class="p-2.5 font-mono text-slate-900 font-bold">1</td>
+                        <td class="p-2.5 font-mono text-slate-900 font-bold">2</td>
+                      </tr>
+                      <tr class="bg-purple-50/40">
+                        <td class="p-2.5 font-mono font-bold text-purple-800">parent_id</td>
+                        <td class="p-2.5 font-semibold text-purple-900">
+                          📂 В какой папке лежит? (Если пусто — это главная папка!)
+                        </td>
+                        <td class="p-2.5 font-mono text-slate-400">NULL (Корневой)</td>
+                        <td class="p-2.5 font-mono font-bold text-purple-800">1 (лежит внутри папки 1)</td>
+                      </tr>
+                      <tr>
+                        <td class="p-2.5 font-mono font-semibold text-blue-600">name</td>
+                        <td class="p-2.5">Красивое название на русском языке</td>
+                        <td class="p-2.5 font-medium text-slate-900">«Разработка и Архитектура»</td>
+                        <td class="p-2.5 font-medium text-slate-900">«Архитектура и WebSockets»</td>
+                      </tr>
+                      <tr>
+                        <td class="p-2.5 font-mono font-semibold text-blue-600">slug</td>
+                        <td class="p-2.5">Короткий хвостик для адреса ссылки латиницей</td>
+                        <td class="p-2.5 font-mono font-bold text-sky-700">"development"</td>
+                        <td class="p-2.5 font-mono font-bold text-amber-700">"architecture"</td>
+                      </tr>
+                      <tr>
+                        <td class="p-2.5 font-mono font-semibold text-blue-600">description</td>
+                        <td class="p-2.5">Описание раздела (увидят поисковики)</td>
+                        <td class="p-2.5 text-slate-500">«Вопросы веб-разработки и бэкенда»</td>
+                        <td class="p-2.5 text-slate-500">«Обсуждение RSGI, Granian и WSRPC»</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- ТАБЛИЦА 2: ТЕМЫ ФОРУМА -->
+              <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-5">
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center space-x-2">
+                    <span class="text-base">📄</span>
+                    <span class="font-bold text-sm text-slate-900">Таблица 2: Темы форума (Статьи)</span>
+                    <code class="text-xs font-mono bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-700">pf_showcase_forum_topic</code>
+                  </div>
+                  <span class="text-xs text-slate-500">Документы внутри подпапок</span>
+                </div>
+
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs bg-white rounded-lg border border-slate-200">
+                    <thead class="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th class="p-2.5">Поле в таблице</th>
+                        <th class="p-2.5">Что это означает простыми словами</th>
+                        <th class="p-2.5">Пример записи в нашей базе</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-slate-700">
+                      <tr>
+                        <td class="p-2.5 font-mono font-semibold text-emerald-600">id</td>
+                        <td class="p-2.5">Уникальный номер темы</td>
+                        <td class="p-2.5 font-mono text-slate-900 font-bold">101</td>
+                      </tr>
+                      <tr class="bg-amber-50/40">
+                        <td class="p-2.5 font-mono font-bold text-amber-800">category_id</td>
+                        <td class="p-2.5 font-semibold text-amber-900">
+                          🔗 В каком подразделе лежит тема (указывает на номер 2 выше!)
+                        </td>
+                        <td class="p-2.5 font-mono font-bold text-amber-800">2 (Архитектура)</td>
+                      </tr>
+                      <tr>
+                        <td class="p-2.5 font-mono font-semibold text-emerald-600">title</td>
+                        <td class="p-2.5">Заголовок статьи или вопроса</td>
+                        <td class="p-2.5 font-medium text-slate-900">«Как устроен WSRPC в PyFerro по сравнению со стандартным REST?»</td>
+                      </tr>
+                      <tr>
+                        <td class="p-2.5 font-mono font-semibold text-emerald-600">slug</td>
+                        <td class="p-2.5">Короткий хвостик адреса темы латиницей</td>
+                        <td class="p-2.5 font-mono font-bold text-emerald-700">"wsrpc-vs-rest-comparison"</td>
+                      </tr>
+                      <tr>
+                        <td class="p-2.5 font-mono font-semibold text-emerald-600">first_post_text</td>
+                        <td class="p-2.5">Текст первого сообщения (пойдет в превью поиска)</td>
+                        <td class="p-2.5 text-slate-500">«В отличие от классического REST, WSRPC исключает постоянный TCP handshake...»</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- ВАЖНЫЙ ВЫВОД О РОДИТЕЛЕ И ДЕДУШКЕ -->
+              <div class="rounded-xl border border-blue-200 bg-blue-50/50 p-4 flex items-start space-x-3">
+                <span class="text-xl">💡</span>
+                <div class="text-xs text-blue-900 space-y-1">
+                  <div class="font-bold">Как работает вложенность: «Папка ➔ Вложенная папка ➔ Файл»</div>
+                  <p class="leading-relaxed text-blue-800">
+                    Это устроено точно так же, как папки на вашем компьютере:
+                    <br />
+                    1. <strong>Главная папка (root):</strong> Раздел «Разработка и Архитектура» (<code class="font-mono text-slate-800">parent_id = NULL</code>).
+                    <br />
+                    2. <strong>Вложенная папка (parent):</strong> Подраздел «Архитектура и WebSockets» (<code class="font-mono text-slate-800">parent_id = 1</code>).
+                    <br />
+                    3. <strong>Файл статьи (тема):</strong> «Как устроен WSRPC...» лежит в подпапке (<code class="font-mono text-slate-800">category_id = 2</code>).
+                  </p>
+                </div>
+              </div>
+
+            </div>
+          {/if}
+        </div>
+
+        <!-- КАРТОЧКА 3: СБОРКА АДРЕСА URL ИЗ КИРПИЧИКОВ -->
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden" id="seo_url">
+          <button
+            onclick={() => toggleSection("seo_url")}
+            class="w-full flex items-center justify-between p-5 text-left bg-slate-50/60 hover:bg-slate-50 transition-colors"
+          >
+            <div class="flex items-center space-x-3">
+              <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 font-bold text-sm">3</span>
+              <div>
+                <h3 class="text-base font-bold text-slate-900">Как собирается адрес ссылки (URL) из кирпичиков?</h3>
+                <p class="text-xs text-slate-500">Разбираем формулу /forum/&#123;root.slug&#125;/&#123;parent.slug&#125;/&#123;slug&#125; на понятные цветные блоки</p>
+              </div>
+            </div>
+            <div class="flex items-center space-x-3 text-slate-400 text-sm">
+              <span class="text-xs font-mono font-medium">{openSections["seo_url"] ? "Свернуть" : "Развернуть"}</span>
+              <span class="transform transition-transform duration-200 {openSections['seo_url'] ? 'rotate-180' : ''}">▼</span>
+            </div>
+          </button>
+
+          {#if openSections["seo_url"]}
+            <div class="p-6 border-t border-slate-100 space-y-6">
+              <p class="text-sm text-slate-700 leading-relaxed">
+                Мы хотим, чтобы адрес статьи в браузере отражал реальную иерархию папок и нравился поисковикам:
+              </p>
+
+              <!-- Итоговый адрес -->
+              <div class="p-3.5 rounded-xl bg-slate-900 text-white font-mono text-sm flex items-center space-x-2 shadow-inner overflow-x-auto">
+                <span class="text-slate-500">https://ваш-сайт.ру</span>
+                <span class="text-sky-300 font-bold">/forum</span>
+                <span class="text-slate-500">/</span>
+                <span class="text-purple-300 font-bold">development</span>
+                <span class="text-slate-500">/</span>
+                <span class="text-amber-300 font-bold">architecture</span>
+                <span class="text-slate-500">/</span>
+                <span class="text-emerald-300 font-bold">wsrpc-vs-rest-comparison</span>
+              </div>
+
+              <!-- Формула шаблона -->
+              <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+                <div class="text-xs font-bold uppercase tracking-wider text-slate-400">Формула шаблона в PyFerro:</div>
+                <div class="text-base font-mono font-bold text-slate-800 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <span class="text-sky-600">/forum</span>/<span class="text-purple-600">&#123;root.slug&#125;</span>/<span class="text-amber-600">&#123;parent.slug&#125;</span>/<span class="text-emerald-600">&#123;slug&#125;</span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2 text-xs">
+                  <!-- Кирпичик 1 -->
+                  <div class="p-3 rounded-lg border border-sky-200 bg-sky-50/50">
+                    <div class="font-bold text-sky-800 flex items-center space-x-1 mb-1">
+                      <span>1. Корень:</span>
+                      <code class="font-mono bg-white px-1 py-0.5 rounded text-sky-700">/forum</code>
+                    </div>
+                    <p class="text-slate-600 leading-relaxed">
+                      Статичное слово. Все страницы сообщества начинаются с него.
+                    </p>
+                  </div>
+
+                  <!-- Кирпичик 2 -->
+                  <div class="p-3 rounded-lg border border-purple-200 bg-purple-50/50">
+                    <div class="font-bold text-purple-800 flex items-center space-x-1 mb-1">
+                      <span>2. Главная папка:</span>
+                      <code class="font-mono bg-white px-1 py-0.5 rounded text-purple-700">&#123;root.slug&#125;</code>
+                    </div>
+                    <p class="text-slate-600 leading-relaxed">
+                      Корневой раздел форума.<br />
+                      В нашем примере подставится: <strong class="text-purple-800">development</strong>.
+                    </p>
+                  </div>
+
+                  <!-- Кирпичик 3 -->
+                  <div class="p-3 rounded-lg border border-amber-200 bg-amber-50/50">
+                    <div class="font-bold text-amber-800 flex items-center space-x-1 mb-1">
+                      <span>3. Подпапка:</span>
+                      <code class="font-mono bg-white px-1 py-0.5 rounded text-amber-700">&#123;parent.slug&#125;</code>
+                    </div>
+                    <p class="text-slate-600 leading-relaxed">
+                      Непосредственный подраздел темы.<br />
+                      В нашем примере подставится: <strong class="text-amber-800">architecture</strong>.
+                    </p>
+                  </div>
+
+                  <!-- Кирпичик 4 -->
+                  <div class="p-3 rounded-lg border border-emerald-200 bg-emerald-50/50">
+                    <div class="font-bold text-emerald-800 flex items-center space-x-1 mb-1">
+                      <span>4. Сама статья:</span>
+                      <code class="font-mono bg-white px-1 py-0.5 rounded text-emerald-700">&#123;slug&#125;</code>
+                    </div>
+                    <p class="text-slate-600 leading-relaxed">
+                      Хвостик самой темы.<br />
+                      В примере: <strong class="text-emerald-800">wsrpc-vs-rest-comparison</strong>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Универсальность -->
+              <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div class="font-bold text-xs text-slate-900 mb-1">🎯 А как выглядят страницы промежуточных каталогов?</div>
+                <div class="text-xs text-slate-600 space-y-1 leading-relaxed">
+                  <div>• Страница главного раздела: <code class="font-mono font-bold bg-white px-1.5 py-0.5 rounded text-slate-800">/forum/development</code> (выводит список подразделов)</div>
+                  <div>• Страница подраздела: <code class="font-mono font-bold bg-white px-1.5 py-0.5 rounded text-slate-800">/forum/development/architecture</code> (выводит список тем)</div>
+                  <div>• Страница темы: <code class="font-mono font-bold bg-white px-1.5 py-0.5 rounded text-slate-800">/forum/development/architecture/wsrpc-vs-rest-comparison</code> (сама статья)</div>
+                </div>
+              </div>
+
+            </div>
+          {/if}
+        </div>
+
+        <!-- КАРТОЧКА 4: ЦЕПОЧКА ССЫЛОК ДЛЯ РОБОТА -->
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden" id="seo_crawler">
+          <button
+            onclick={() => toggleSection("seo_crawler")}
+            class="w-full flex items-center justify-between p-5 text-left bg-slate-50/60 hover:bg-slate-50 transition-colors"
+          >
+            <div class="flex items-center space-x-3">
+              <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 text-purple-700 font-bold text-sm">4</span>
+              <div>
+                <h3 class="text-base font-bold text-slate-900">Как поисковый робот ходит по сайту (Цепочка ссылок)</h3>
+                <p class="text-xs text-slate-500">Пошаговый переход робота от главной страницы форума вглубь по иерархии</p>
+              </div>
+            </div>
+            <div class="flex items-center space-x-3 text-slate-400 text-sm">
+              <span class="text-xs font-mono font-medium">{openSections["seo_crawler"] ? "Свернуть" : "Развернуть"}</span>
+              <span class="transform transition-transform duration-200 {openSections['seo_crawler'] ? 'rotate-180' : ''}">▼</span>
+            </div>
+          </button>
+
+          {#if openSections["seo_crawler"]}
+            <div class="p-6 border-t border-slate-100 space-y-6">
+              <p class="text-sm text-slate-700 leading-relaxed">
+                Поисковый робот ходит по сайту шаг за шагом, переходя по ссылкам <code class="font-mono text-xs bg-slate-100 text-slate-800 px-1 py-0.5 rounded border border-slate-200">&lt;a href="..."&gt;</code>.
+                Вот как выглядит реальный маршрут краулера Яндекса или Google:
+              </p>
+
+              <!-- Цепочка шагов -->
+              <div class="space-y-4">
+                <!-- Шаг 1 -->
+                <div class="rounded-xl border border-slate-200 bg-white p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div class="space-y-1">
+                    <div class="flex items-center space-x-2">
+                      <span class="h-6 w-6 rounded-full bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center">1</span>
+                      <span class="font-bold text-xs text-slate-900">Робот приходит на каталог форума:</span>
+                      <code class="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded text-blue-700 font-bold">/forum</code>
+                    </div>
+                    <p class="text-xs text-slate-500 pl-8">
+                      Сервер отдает список главных разделов сообщества:
+                    </p>
+                  </div>
+                  <div class="rounded-lg bg-slate-50 border border-slate-200 p-2.5 font-mono text-xs text-slate-800 shrink-0">
+                    &lt;a href="<span class="text-blue-600 font-bold">/forum/development</span>"&gt;Разработка и Код&lt;/a&gt;<br />
+                    &lt;a href="<span class="text-blue-600 font-bold">/forum/marketing</span>"&gt;Продвижение и Маркетинг&lt;/a&gt;
+                  </div>
+                </div>
+
+                <!-- Стрелка вниз -->
+                <div class="flex justify-center text-slate-400 font-bold text-sm">↓ робот кликает по ссылке /forum/development</div>
+
+                <!-- Шаг 2 -->
+                <div class="rounded-xl border border-slate-200 bg-white p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div class="space-y-1">
+                    <div class="flex items-center space-x-2">
+                      <span class="h-6 w-6 rounded-full bg-purple-100 text-purple-700 font-bold text-xs flex items-center justify-center">2</span>
+                      <span class="font-bold text-xs text-slate-900">Робот попадает в главный раздел:</span>
+                      <code class="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded text-purple-700 font-bold">/forum/development</code>
+                    </div>
+                    <p class="text-xs text-slate-500 pl-8">
+                      Сервер отдает список вложенных подразделов:
+                    </p>
+                  </div>
+                  <div class="rounded-lg bg-slate-50 border border-slate-200 p-2.5 font-mono text-xs text-slate-800 shrink-0">
+                    &lt;a href="<span class="text-purple-700 font-bold">/forum/development/architecture</span>"&gt;Архитектура&lt;/a&gt;<br />
+                    &lt;a href="<span class="text-purple-700 font-bold">/forum/development/security</span>"&gt;Безопасность&lt;/a&gt;
+                  </div>
+                </div>
+
+                <!-- Стрелка вниз -->
+                <div class="flex justify-center text-slate-400 font-bold text-sm">↓ робот кликает по ссылке /forum/development/architecture</div>
+
+                <!-- Шаг 3 -->
+                <div class="rounded-xl border border-slate-200 bg-white p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div class="space-y-1">
+                    <div class="flex items-center space-x-2">
+                      <span class="h-6 w-6 rounded-full bg-amber-100 text-amber-700 font-bold text-xs flex items-center justify-center">3</span>
+                      <span class="font-bold text-xs text-slate-900">Робот попадает в подраздел:</span>
+                      <code class="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded text-amber-700 font-bold">/forum/development/architecture</code>
+                    </div>
+                    <p class="text-xs text-slate-500 pl-8">
+                      Сервер отдает список тем внутри этого подраздела:
+                    </p>
+                  </div>
+                  <div class="rounded-lg bg-slate-50 border border-slate-200 p-2.5 font-mono text-xs text-slate-800 shrink-0">
+                    &lt;a href="<span class="text-amber-700 font-bold">/forum/development/architecture/wsrpc-vs-rest-comparison</span>"&gt;<br />
+                    &nbsp;&nbsp;Как устроен WSRPC по сравнению с REST?<br />
+                    &lt;/a&gt;
+                  </div>
+                </div>
+
+                <!-- Стрелка вниз -->
+                <div class="flex justify-center text-slate-400 font-bold text-sm">↓ робот кликает по ссылке на тему форума</div>
+
+                <!-- Шаг 4 -->
+                <div class="rounded-xl border border-slate-200 bg-emerald-50/40 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div class="space-y-1">
+                    <div class="flex items-center space-x-2">
+                      <span class="h-6 w-6 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center">4</span>
+                      <span class="font-bold text-xs text-emerald-900">Робот открывает страницу статьи и читает текст:</span>
+                      <code class="font-mono text-xs bg-white px-2 py-0.5 rounded text-emerald-700 font-bold">/forum/development/architecture/wsrpc-vs-rest-comparison</code>
+                    </div>
+                    <p class="text-xs text-slate-600 pl-8">
+                      Сервер отдает полный текст статьи, автора, дату и мета-теги. Страница гарантированно проиндексирована!
+                    </p>
+                  </div>
+                  <div class="rounded-lg bg-white border border-emerald-200 p-2.5 text-xs text-emerald-800 shrink-0 font-medium">
+                    ✅ 100% готовность к индексации в Яндексе и Google
+                  </div>
+                </div>
+              </div>
+
+              <!-- Карта сайта sitemap.xml -->
+              <div class="rounded-xl border border-slate-200 bg-white p-4">
+                <div class="flex items-center justify-between">
+                  <div class="space-y-1">
+                    <div class="font-bold text-xs text-slate-900 flex items-center space-x-1.5">
+                      <span>🗺️</span>
+                      <span>Бонус: Автоматическая карта сайта sitemap.xml</span>
+                    </div>
+                    <p class="text-xs text-slate-500">
+                      PyFerro сам генерирует стандартный файл <code class="font-mono text-slate-700">/sitemap.xml</code> по дереву сайта, включая все разделы, подразделы и темы.
+                    </p>
+                  </div>
+                  <a
+                    href="/sitemap.xml"
+                    target="_blank"
+                    class="px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
+                  >
+                    Открыть sitemap.xml ↗
+                  </a>
+                </div>
+              </div>
+
+            </div>
+          {/if}
+        </div>
+
+        <!-- КАРТОЧКА 5: ПОШАГОВАЯ НАСТРОЙКА В MISSION CONTROL GUI -->
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden" id="seo_gui">
+          <button
+            onclick={() => toggleSection("seo_gui")}
+            class="w-full flex items-center justify-between p-5 text-left bg-slate-50/60 hover:bg-slate-50 transition-colors"
+          >
+            <div class="flex items-center space-x-3">
+              <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-100 text-rose-700 font-bold text-sm">5</span>
+              <div>
+                <h3 class="text-base font-bold text-slate-900">Как настроить это в админке Mission Control (GUI) за 3 шага</h3>
+                <p class="text-xs text-slate-500">Никакого кода — пошаговый процесс создания узлов дерева в веб-интерфейсе /admin#seo</p>
+              </div>
+            </div>
+            <div class="flex items-center space-x-3 text-slate-400 text-sm">
+              <span class="text-xs font-mono font-medium">{openSections["seo_gui"] ? "Свернуть" : "Развернуть"}</span>
+              <span class="transform transition-transform duration-200 {openSections['seo_gui'] ? 'rotate-180' : ''}">▼</span>
+            </div>
+          </button>
+
+          {#if openSections["seo_gui"]}
+            <div class="p-6 border-t border-slate-100 space-y-6">
+              <div class="flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <div class="font-bold text-xs text-slate-900">Где это настраивается?</div>
+                  <p class="text-xs text-slate-500">В панели управления PyFerro Mission Control перейдите во вкладку «SEO и Роботы».</p>
+                </div>
+                <a
+                  href="/admin#seo"
+                  target="_blank"
+                  class="px-3.5 py-2 rounded-lg bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 shadow-xs transition-colors shrink-0"
+                >
+                  Перейти в /admin#seo ↗
+                </a>
+              </div>
+
+              <!-- 3 Шага настройки -->
+              <!-- 3 Шага настройки -->
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Шаг 1 -->
+                <div class="rounded-xl border border-slate-200 bg-white p-4 flex flex-col justify-between">
+                  <div class="space-y-2">
+                    <div class="flex items-center space-x-2">
+                      <span class="h-6 w-6 rounded-full bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center">1</span>
+                      <span class="font-bold text-xs text-slate-900">Задаем адрес страницы (URL)</span>
+                    </div>
+                    <p class="text-xs text-slate-600 leading-relaxed">
+                      В левой колонке нажимаем <strong>«+ Добавить подраздел»</strong>:
+                    </p>
+                    <ul class="text-[11px] text-slate-600 space-y-1 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      <li>• <strong>Название:</strong> Форум сообщества</li>
+                      <li>• <strong>Шаблон пути:</strong> <code class="font-mono text-blue-600">/forum</code></li>
+                      <li>• <strong>Тип:</strong> Универсальная HTML + Jinja2 страница ✨</li>
+                    </ul>
+                  </div>
+                  <div class="mt-3 text-[10px] text-slate-400">Любая страница может содержать несколько таблиц сразу</div>
+                </div>
+
+                <!-- Шаг 2 -->
+                <div class="rounded-xl border border-slate-200 bg-white p-4 flex flex-col justify-between">
+                  <div class="space-y-2">
+                    <div class="flex items-center space-x-2">
+                      <span class="h-6 w-6 rounded-full bg-amber-100 text-amber-700 font-bold text-xs flex items-center justify-center">2</span>
+                      <span class="font-bold text-xs text-slate-900">Вставляем циклы Jinja2</span>
+                    </div>
+                    <p class="text-xs text-slate-600 leading-relaxed">
+                      Кликаем кнопку <strong>«+ Вставить цикл по таблице»</strong>:
+                    </p>
+                    <ul class="text-[11px] text-slate-600 space-y-1 bg-slate-50 p-2.5 rounded-lg border border-slate-100 font-mono">
+                      <li>• {"{"}% for c in ForumCategory %{"}"}</li>
+                      <li>• {"{"}% for t in ForumTopic[:5] %{"}"}</li>
+                      <li>• {"{{"} t.category.slug {"}}"} / {"{{"} t.slug {"}}"}</li>
+                    </ul>
+                  </div>
+                  <div class="mt-3 text-[10px] text-slate-400">Система автоматически проверяет синтаксис на лету</div>
+                </div>
+
+                <!-- Шаг 3 -->
+                <div class="rounded-xl border border-slate-200 bg-white p-4 flex flex-col justify-between">
+                  <div class="space-y-2">
+                    <div class="flex items-center space-x-2">
+                      <span class="h-6 w-6 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center">3</span>
+                      <span class="font-bold text-xs text-slate-900">Смотрим живой результат</span>
+                    </div>
+                    <p class="text-xs text-slate-600 leading-relaxed">
+                      В правой колонке мгновенно обновляется внешний вид:
+                    </p>
+                    <ul class="text-[11px] text-slate-600 space-y-1 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      <li>• <strong>Telegram / Соцсети:</strong> сниппет с фото и описанием</li>
+                      <li>• <strong>Робот:</strong> чистый семантический HTML со ссылками</li>
+                      <li>• <strong>Статус:</strong> зеленая плашка «✓ Шаблон корректен»</li>
+                    </ul>
+                  </div>
+                  <div class="mt-3 text-[10px] text-slate-400">Жмем кнопку «Сохранить дерево» — готово к поисковикам!</div>
+                </div>
+              </div>
+              <div class="rounded-xl border border-slate-200 bg-slate-50/60 p-5 space-y-3">
+                <div class="text-xs font-bold text-slate-800">Как выглядит готовая карточка в мессенджере (Telegram / WhatsApp):</div>
+
+                <div class="max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-2">
+                  <div class="flex items-center space-x-2 text-[10px] text-blue-600 font-bold uppercase tracking-wider">
+                    <span>💬 Telegram Ссылка-превью</span>
+                  </div>
+                  <div class="font-bold text-xs text-slate-900">
+                    Как устроен WSRPC в PyFerro по сравнению со стандартным REST? — Форум
+                  </div>
+                  <p class="text-[11px] text-slate-600 leading-relaxed line-clamp-2">
+                    В отличие от классического REST, WSRPC исключает постоянный TCP/TLS handshake оверхед, работает по единому сокету и поддерживает стриминг данных...
+                  </p>
+                  <div class="text-[10px] text-slate-400 font-mono">
+                    ваш-сайт.ру/forum/architecture/wsrpc-vs-rest-comparison
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          {/if}
+        </div>
+
+      </div>
+    {/if}
   <!-- МОДАЛЬНОЕ ОКНО АВТОРИЗАЦИИ ДЛЯ SHOWCASE / SSO -->
   {#if isLoginModalOpen}
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">

@@ -9,8 +9,9 @@ import os
 import platform
 import sys
 import time
+import re
+import html
 from typing import Any, Dict, List, Optional
-
 from pyferro.core.session import (
     rpc_method,
     RPCError,
@@ -895,3 +896,221 @@ async def seo_toggle_model_permission_admin(
         await db.commit()
 
     return {"status": "ok", "model_key": model_key, "seo_allowed": allowed}
+
+
+
+@rpc_method("admin.seo_get_tree")
+async def seo_get_tree_admin(session) -> Dict[str, Any]:
+    """Возвращает актуальное дерево сайта, доступные модели, пресеты и конфигурацию."""
+    require_admin_section(session, "seo")
+    from pyferro.plugins.seo.site_tree import load_site_tree, STRUCTURE_PRESETS
+    from pyferro.plugins.seo.config import get_seo_config
+    from pyferro.plugins.seo.dynamic_rules import get_model_schema_for_seo
+    try:
+        import pyferro.plugins.help
+    except Exception:
+        pass
+    cfg = get_seo_config()
+    tree = load_site_tree()
+
+    # Собираем список доступных моделей с их полями и связями
+    models_info = []
+    system_blacklist = {
+        "User", "Role", "RpcPermission", "UserRole", "UserTeam",
+        "RoleRpcPermission", "RolePermission", "UserPermission",
+        "UserDelegation", "RefreshToken", "ActiveSession", "FileItem", "OAuthAccount"
+    }
+
+    for meta in ModelRegistry.all().values():
+        if meta.is_internal or getattr(getattr(meta, "crud_config", None), "internal", False):
+            continue
+        if meta.key in system_blacklist:
+            continue
+        if meta.table_name.startswith(("pf_auth_", "pf_system_", "pf_user_", "pf_file_")):
+            continue
+
+        schema_info = get_model_schema_for_seo(meta.key)
+        models_info.append(schema_info)
+
+    presets_list = [
+        {"key": k, "title": v["title"], "description": v["description"], "icon": v.get("icon", "📄")}
+        for k, v in STRUCTURE_PRESETS.items()
+    ]
+
+    return {
+        "tree": tree,
+        "site_url": cfg.site_url,
+        "site_name": cfg.site_name,
+        "default_og_image": cfg.default_og_image,
+        "indexnow_key": cfg.indexnow_key,
+        "available_models": models_info,
+        "presets": presets_list,
+    }
+
+
+@rpc_method("admin.seo_apply_preset")
+async def seo_apply_preset_admin(session, preset_key: str) -> Dict[str, Any]:
+    """Применяет универсальный шаблон структуры сайта (ecommerce, blog, clean, forum)."""
+    require_admin_section(session, "seo")
+    from pyferro.plugins.seo.site_tree import STRUCTURE_PRESETS, save_site_tree
+
+    preset = STRUCTURE_PRESETS.get(preset_key)
+    if not preset:
+        raise RPCError(-32602, f"Неизвестный шаблон: {preset_key}")
+
+    import copy
+    new_tree = copy.deepcopy(preset["tree"])
+    save_site_tree(new_tree)
+
+    admin_name = _extract_username_safe(session)
+    logger.info(f"[SEO Admin] Администратор '{admin_name}' применил шаблон '{preset['title']}'")
+
+    return {
+        "status": "ok",
+        "message": f"Шаблон «{preset['title']}» успешно применен!",
+        "tree": new_tree
+    }
+
+
+@rpc_method("admin.seo_save_tree")
+async def seo_save_tree_admin(session, tree: Dict[str, Any], site_url: Optional[str] = None, site_name: Optional[str] = None, indexnow_key: Optional[str] = None) -> Dict[str, Any]:
+    """Сохраняет структуру дерева сайта и обновляет общие настройки проекта."""
+    require_admin_section(session, "seo")
+    from pyferro.plugins.seo.site_tree import save_site_tree
+    from pyferro.plugins.seo.config import configure_seo
+
+    save_site_tree(tree)
+
+    updates = {}
+    if site_url is not None:
+        updates["site_url"] = site_url
+    if site_name is not None:
+        updates["site_name"] = site_name
+    if indexnow_key is not None:
+        updates["indexnow_key"] = indexnow_key
+
+    if updates:
+        configure_seo(**updates)
+
+    admin_name = _extract_username_safe(session)
+    logger.info(f"[SEO Tree Admin] Администратор '{admin_name}' сохранил структуру дерева сайта.")
+
+    return {
+        "status": "ok",
+        "message": "Дерево сайта и параметры поисковой оптимизации успешно сохранены",
+        "tree": tree
+    }
+
+
+@rpc_method("admin.seo_validate_template")
+async def seo_validate_template_admin(session, template: str) -> Dict[str, Any]:
+    """Проверяет синтаксис Jinja2 шаблона перед сохранением или в реальном времени."""
+    require_admin_section(session, "seo")
+    from pyferro.plugins.seo.jinja_engine import validate_jinja_template
+    return validate_jinja_template(template)
+
+
+@rpc_method("admin.seo_preview_tree_node")
+async def seo_preview_tree_node_admin(
+    session,
+    node: Dict[str, Any],
+    parents: Optional[List[Dict[str, Any]]] = None,
+    sample_id: Optional[Any] = None
+) -> Dict[str, Any]:
+    """Генерирует живое превью того, что увидит бот (карточка, HTML, ссылки) для узла дерева."""
+    require_admin_section(session, "seo")
+    from pyferro.plugins.seo.site_tree import (
+        _render_static_node,
+        _render_collection_node,
+        _render_detail_node,
+        _get_model_meta,
+        _resolve_relation_meta,
+    )
+    from pyferro.plugins.seo.dynamic_rules import compile_pattern_to_regex
+    from pyferro.db import async_session
+
+    p_list = parents or []
+    node_type = node.get("node_type", "static")
+    pattern = node.get("url_pattern", "/")
+
+    # Пробуем смоделировать рендеринг
+    try:
+        compiled, keys = compile_pattern_to_regex(pattern)
+
+        if node_type == "static":
+            page_data = await _render_static_node(node, p_list, pattern)
+        elif node_type == "collection":
+            sample_params = {}
+            if keys:
+                for fk, ck in keys:
+                    if "." in fk:
+                        rel_name, fld = fk.split(".", 1)
+                        parent_model = None
+                        if p_list:
+                            parent_model = p_list[-1].get("model_key")
+                        if parent_model:
+                            p_meta = _get_model_meta(parent_model)
+                            if p_meta:
+                                async with async_session() as db:
+                                    p_row = (await db.execute(select(p_meta.model_cls).limit(1))).scalar_one_or_none()
+                                    if p_row:
+                                        sample_params[ck] = getattr(p_row, fld, "sample")
+                    if ck not in sample_params:
+                        sample_params[ck] = "sample"
+            sim_path = re.sub(r"\{[a-zA-Z0-9_.]+\}", "sample", pattern)
+            page_data = await _render_collection_node(node, p_list, sim_path, sample_params, keys)
+        elif node_type == "detail":
+            sample_params = {}
+            model_key = node.get("model_key")
+            meta = _get_model_meta(model_key) if model_key else None
+            if meta:
+                async with async_session() as db:
+                    row = (await db.execute(select(meta.model_cls).limit(1))).scalar_one_or_none()
+                    if row:
+                        slug_val = getattr(row, "slug", None)
+                        id_val = getattr(row, "id", None)
+                        for fk_tuple, clean_key in keys:
+                            if "." in fk_tuple:
+                                rel_name, fld = fk_tuple.split(".", 1)
+                                for f in meta.get_column_fields():
+                                    if rel_name == "parent" or f.name.startswith(rel_name) or (f.foreign_key and rel_name in f.name):
+                                        p_meta = _resolve_relation_meta(f)
+                                        if p_meta:
+                                            p_fk_val = getattr(row, f.name, None)
+                                            if p_fk_val is not None:
+                                                p_row = (await db.execute(select(p_meta.model_cls).where(p_meta.model_cls.id == p_fk_val))).scalar_one_or_none()
+                                                if p_row:
+                                                    sample_params[clean_key] = getattr(p_row, fld, "sample")
+                            else:
+                                sample_params[clean_key] = slug_val or id_val or 1
+            if not sample_params and keys:
+                for fk, ck in keys:
+                    sample_params[ck] = sample_id or 1
+            sim_path = re.sub(r"\{[a-zA-Z0-9_.]+\}", "sample", pattern)
+            page_data = await _render_detail_node(node, p_list, sim_path, sample_params, keys)
+        else:
+            page_data = await _render_static_node(node, p_list, pattern)
+
+        if page_data:
+            return {
+                "title": page_data.title,
+                "description": page_data.description,
+                "url": page_data.canonical_url,
+                "og_image": page_data.og_image,
+                "schema_type": page_data.schema_type,
+                "breadcrumbs": [{"title": b[0], "url": b[1]} for b in page_data.breadcrumbs],
+                "body_html": page_data.body_html,
+            }
+    except Exception as e:
+        logger.warning(f"[SEO Tree Preview] Ошибка превью узла {node.get('title')}: {e}")
+
+    # Fallback превью, если данных в БД еще нет
+    return {
+        "title": node.get("meta_title") or node.get("title", ""),
+        "description": node.get("meta_description", ""),
+        "url": node.get("url_pattern", "/"),
+        "og_image": node.get("og_image") or "",
+        "schema_type": node.get("schema_type", "WebPage"),
+        "breadcrumbs": [{"title": p.get("title", ""), "url": p.get("url_pattern", "/")} for p in p_list] + [{"title": node.get("title", ""), "url": node.get("url_pattern", "/")}],
+        "body_html": f"<h1>{html.escape(node.get('title', ''))}</h1><p>{html.escape(node.get('meta_description', ''))}</p>",
+    }

@@ -44,7 +44,8 @@ app = FerroApp(
     login_rpc="",  # Public access for interactive showcase
     static_dir=PUBLIC_DIR,
     index_file="index.html",
-    cors=True
+    cors=True,
+    enable_seo=True
 )
 
 # Регистрация бизнес-моделей в CRUD
@@ -199,7 +200,27 @@ async def init_database():
 
                     # 7. Seed demo forum categories & topics (pf_showcase_...)
                     from pyferro.plugins.help.models import ForumCategory, ForumTopic, ForumPost
+                    c_dev = ForumCategory(
+                        parent_id=None,
+                        name="Разработка и Архитектура",
+                        slug="development",
+                        description="Вопросы веб-разработки, архитектуры бэкенда и системной безопасности",
+                        icon="code",
+                        display_order=1
+                    )
+                    c_mkt = ForumCategory(
+                        parent_id=None,
+                        name="Продвижение и Маркетинг",
+                        slug="marketing",
+                        description="Поисковая оптимизация, привлечение аудитории и продвижение веб-проектов",
+                        icon="trending-up",
+                        display_order=2
+                    )
+                    db.add_all([c_dev, c_mkt])
+                    await db.flush()
+
                     c_arch = ForumCategory(
+                        parent_id=c_dev.id,
                         name="Архитектура и WebSockets",
                         slug="architecture",
                         description="Обсуждение RSGI, Granian, WebSocket и протокола WSRPC",
@@ -207,6 +228,7 @@ async def init_database():
                         display_order=1
                     )
                     c_sec = ForumCategory(
+                        parent_id=c_dev.id,
                         name="Безопасность и RBAC",
                         slug="security",
                         description="Авторизация, роли, делегирование и безопасность на уровне строк (RLS)",
@@ -214,15 +236,15 @@ async def init_database():
                         display_order=2
                     )
                     c_seo = ForumCategory(
-                        name="SEO и продвижение",
+                        parent_id=c_mkt.id,
+                        name="SEO и Индексация",
                         slug="seo",
                         description="Dynamic Rendering для роботов, Schema.org, OpenGraph и IndexNow",
                         icon="search",
-                        display_order=3
+                        display_order=1
                     )
                     db.add_all([c_arch, c_sec, c_seo])
                     await db.flush()
-
                     t1 = ForumTopic(
                         category_id=c_arch.id,
                         title="Как устроен WSRPC в PyFerro по сравнению со стандартным REST?",
@@ -261,32 +283,41 @@ async def init_database():
                     db.add(p1)
 
                     await db.commit()
-
-                    # Настройка стандартных правил SEO для форума
-                    from pyferro.plugins.seo.config import configure_seo
-                    configure_seo(
-                        model_rules=[
-                            {
-                                "model_key": "ForumTopic",
-                                "url_pattern": "/forum/{category.slug}/{slug}",
-                                "title_template": "{title} — раздел «{category.name}» | Форум",
-                                "description_template": "{first_post_text}",
-                                "schema_type": "DiscussionForumPosting",
-                                "sitemap_enabled": True,
-                                "sitemap_priority": 0.9,
-                                "sitemap_changefreq": "daily",
-                                "breadcrumbs": [
-                                    {"title": "Главная", "url": "/"},
-                                    {"title": "{category.name}", "url": "/forum/{category.slug}"},
-                                    {"title": "{title}", "url": ""}
-                                ]
-                            }
-                        ]
-                    )
-
                     logger.info("[Showcase] Fresh database initialized and seeded successfully.")
                 else:
-                    logger.info("[Showcase] Database already populated, skipping initial seed.")
+                    from pyferro.plugins.help.models import ForumCategory
+                    has_dev = (await db.execute(select(ForumCategory).where(ForumCategory.slug == "development"))).scalar_one_or_none()
+                    if not has_dev:
+                        from sqlalchemy import delete
+                        from pyferro.plugins.help.models import ForumTopic, ForumPost
+                        await db.execute(delete(ForumPost))
+                        await db.execute(delete(ForumTopic))
+                        await db.execute(delete(ForumCategory))
+                        await db.flush()
+
+                        c_dev = ForumCategory(parent_id=None, name="Разработка и Архитектура", slug="development", description="Вопросы веб-разработки, архитектуры бэкенда и системной безопасности", icon="code", display_order=1)
+                        c_mkt = ForumCategory(parent_id=None, name="Продвижение и Маркетинг", slug="marketing", description="Поисковая оптимизация, привлечение аудитории и продвижение веб-проектов", icon="trending-up", display_order=2)
+                        db.add_all([c_dev, c_mkt])
+                        await db.flush()
+
+                        c_arch = ForumCategory(parent_id=c_dev.id, name="Архитектура и WebSockets", slug="architecture", description="Обсуждение RSGI, Granian, WebSocket и протокола WSRPC", icon="server", display_order=1)
+                        c_sec = ForumCategory(parent_id=c_dev.id, name="Безопасность и RBAC", slug="security", description="Авторизация, роли, делегирование и безопасность на уровне строк (RLS)", icon="shield", display_order=2)
+                        c_seo = ForumCategory(parent_id=c_mkt.id, name="SEO и Индексация", slug="seo", description="Dynamic Rendering для роботов, Schema.org, OpenGraph и IndexNow", icon="search", display_order=1)
+                        db.add_all([c_arch, c_sec, c_seo])
+                        await db.flush()
+
+                        t1 = ForumTopic(category_id=c_arch.id, title="Как устроен WSRPC в PyFerro по сравнению со стандартным REST?", slug="wsrpc-vs-rest-comparison", author_name="Алексей Смирнов", views_count=328, replies_count=12, first_post_text="В отличие от классического REST, WSRPC исключает постоянный TCP/TLS handshake оверхед, работает по единому сокету и поддерживает стриминг данных.")
+                        t2 = ForumTopic(category_id=c_sec.id, title="Row-Level Security (RLS) без сложной возни в SQL", slug="row-level-security-guide", author_name="Елена Васильева", views_count=195, replies_count=5, first_post_text="Модели, наследующие RowSecureModel, автоматически получают атрибуты creator_id, owner_id и team_id. Права на уровне строк фильтруются контекстом сессии.")
+                        t3 = ForumTopic(category_id=c_seo.id, title="Почему мы отказались от тяжелого SSR в пользу Dynamic Rendering для ботов", slug="dynamic-rendering-vs-ssr", author_name="Дмитрий Ковалев", views_count=412, replies_count=19, first_post_text="Тяжелый Node.js SSR увеличивает потребление памяти в 5-10 раз. PyFerro обслуживает людей как быстрое SPA, а ботам на лету отдает семантический HTML с микроразметкой JSON-LD.")
+                        db.add_all([t1, t2, t3])
+                        await db.flush()
+
+                        p1 = ForumPost(topic_id=t1.id, author_name="Максим Архитектор", content="Полностью поддерживаю, задержки упали с 45мс до 1.5мс в реальных сценариях!")
+                        db.add(p1)
+                        await db.commit()
+                        logger.info("[Showcase] Forum categories upgraded to 2-level hierarchy.")
+                    else:
+                        logger.info("[Showcase] Database already populated, skipping initial seed.")
         except Exception as e:
             logger.error(f"[Showcase] Database initialization error: {e}", exc_info=True)
 

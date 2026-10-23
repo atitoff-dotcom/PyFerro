@@ -176,3 +176,16 @@ async def test_app_seo_interceptor():
     await app(scope_browser, proto_browser)
     # Так как нет index_file или static, вернется 404 (перехватчик не сработал)
     assert proto_browser.status == 404
+
+
+@pytest.mark.asyncio
+async def test_app_bare_root_redirect_to_admin_help():
+    app = FerroApp()
+    assert not app.has_user_frontend
+
+    scope = MockScope(proto="http", method="GET", path="/")
+    proto = MockProto()
+    await app(scope, proto)
+    assert proto.status == 307
+    headers = dict(proto.headers)
+    assert headers.get("location") == "/admin/help/"
