@@ -114,6 +114,23 @@ async def issue_refresh_token(db_session, user_id: int) -> RefreshToken:
     return rt_obj
 
 
+async def _get_or_create_default_user_role(db_session) -> Role:
+    """Возвращает базовую пользовательскую роль по умолчанию (например, 'user')."""
+    from pyferro.core.lib.config import settings
+    default_role_name = getattr(settings, "default_user_role", None) or "user"
+    stmt = select(Role).options(
+        selectinload(Role.permissions),
+        selectinload(Role.rpc_permissions),
+    ).where(Role.name == default_role_name)
+    role = (await db_session.execute(stmt)).scalar_one_or_none()
+    if not role:
+        role = Role(name=default_role_name, description="Обычный зарегистрированный пользователь")
+        db_session.add(role)
+        await db_session.flush()
+        await db_session.refresh(role)
+    return role
+
+
 async def _create_authenticated_session(
     db_session,
     user: User,
@@ -138,18 +155,22 @@ async def _create_authenticated_session(
     user = (await db_session.execute(stmt_user)).scalar_one()
 
     user_roles = user.roles
-    if not user_roles:
-        logger.warning(f"[AUTH] Отказ во входе: у пользователя '{user.login}' отсутствуют назначенные роли.")
-        raise RPCError("Вход запрещен: учетная запись не имеет назначенных ролей")
+    custom_role_names = [r.name for r in user_roles] if user_roles else []
+    admin_scopes = user.get_admin_roles()
 
-    raw_role_names = [r.name for r in user_roles]
-    if "admin" in raw_role_names:
+    if not custom_role_names and not admin_scopes and not getattr(user, "is_superadmin", False):
+        def_role = await _get_or_create_default_user_role(db_session)
+        user.roles.append(def_role)
+        await db_session.commit()
+        custom_role_names = [def_role.name]
+        logger.info(f"[AUTH] Пользователю '{user.login}' автоматически назначена базовая роль '{def_role.name}'.")
+
+    if getattr(user, "is_superadmin", False):
         role_name = "admin"
         role_names = ["admin"]
     else:
-        role_names = raw_role_names
-        role_name = role_names[0]
-
+        role_names = list(set(custom_role_names) | admin_scopes)
+        role_name = custom_role_names[0] if custom_role_names else (sorted(admin_scopes)[0] if admin_scopes else "user")
     if rt_obj is None:
         rt_obj = await issue_refresh_token(db_session, user.id)
 
@@ -179,17 +200,17 @@ async def _create_authenticated_session(
 
     target = transport or session
     session_data = AuthSession(
-        uid=user.id,
+        user_id=user.id,
         user=user,
-        user_name=user.login,
-        user_role=role_name,
-        user_roles=role_names,
+        username=user.login,
+        roles=role_names,
+        is_superadmin=getattr(user, "is_superadmin", False),
         session_db_id=ws_session.id,
         user_ctx=user_context,
         allowed_rpc_methods=getattr(user_context, "allowed_rpc_methods", set()),
         send_request_cb=getattr(target, "send_request", None),
         send_stream_cb=getattr(target, "send_stream_chunk", None),
-        close_cb=getattr(target, "close", None)
+        close_cb=getattr(target, "close", None),
     )
 
     if transport:
@@ -200,20 +221,15 @@ async def _create_authenticated_session(
         session.register_on_close(cleanup_app_session)
 
     # Автоматическая бесшовная регистрация администратора в CRUD сессиях
-    is_admin_user = (
-        role_name in ("admin", "ADMIN")
-        or "admin" in role_names
-        or "ADMIN" in role_names
-        or getattr(user, "is_superadmin", False) is True
-    )
-    if is_admin_user:
+    from pyferro.core.identity import get_session_identity
+    ident = get_session_identity(session_data)
+    if ident and ident.is_admin:
         try:
             from pyferro.plugins.crud.auth import create_crud_session
             crud_info = {
-                "uid": user.id,
                 "user_id": user.id,
                 "username": user.login,
-                "role": "admin",
+                "role": role_name,
                 "roles": role_names,
                 "is_superadmin": getattr(user, "is_superadmin", False),
             }
@@ -421,15 +437,46 @@ async def handle_whoami(session: JsonRpcSession, args: Dict[str, Any]) -> Dict[s
         if not user:
             return {"authenticated": False, "role": "guest", "roles": ["guest"], "permissions": {}}
 
-        raw_roles = [r.name for r in user.roles]
-        if "admin" in raw_roles:
+        raw_roles = [r.name for r in user.roles] if user.roles else []
+        admin_scopes = user.get_admin_roles()
+        if getattr(user, "is_superadmin", False):
             role_names = ["admin"]
             role_name = "admin"
         else:
-            role_names = raw_roles if raw_roles else ["guest"]
-            role_name = role_names[0]
+            role_names = list(set(raw_roles) | admin_scopes) if (raw_roles or admin_scopes) else ["guest"]
+            role_name = raw_roles[0] if raw_roles else (sorted(admin_scopes)[0] if admin_scopes else "guest")
+        # Автоматическая синхронизация сессии в реестр CRUD для администраторов
+        token = ""
+        cookies = getattr(session, "cookies", None)
+        if cookies and isinstance(cookies, dict):
+            from pyferro.core.http import extract_session_token
+            token = extract_session_token(cookies)
 
-        return {
+        is_admin_user = (
+            role_name in ("admin", "ADMIN")
+            or "admin" in role_names
+            or "ADMIN" in role_names
+            or getattr(user, "is_superadmin", False) is True
+            or any(isinstance(r, str) and (r == "admin" or r.startswith("adm_")) for r in role_names)
+        )
+        if is_admin_user and token:
+            try:
+                from pyferro.plugins.crud.auth import create_crud_session
+                crud_info = {
+                    "uid": user.id,
+                    "user_id": user.id,
+                    "username": user.login,
+                    "role": role_name,
+                    "roles": role_names,
+                    "is_superadmin": getattr(user, "is_superadmin", False),
+                    "perms_dict": user._get_permissions_dict(),
+                    "allowed_rpc_methods": {"*"},
+                }
+                create_crud_session(crud_info, token=token)
+            except Exception:
+                pass
+
+        res = {
             "authenticated": True,
             "user_id": user.id,
             "username": user.login,
@@ -440,6 +487,9 @@ async def handle_whoami(session: JsonRpcSession, args: Dict[str, Any]) -> Dict[s
             "permissions": user._get_permissions_dict(),
             "is_superadmin": getattr(user, "is_superadmin", False)
         }
+        if token:
+            res["token"] = token
+        return res
 
 
 @rpc_method("auth.logout")
@@ -524,12 +574,14 @@ async def handle_register(session: JsonRpcSession, args: Dict[str, Any]) -> Dict
                 raise RPCError("Пользователь с таким email уже существует")
 
         pwd_hash = await asyncio.to_thread(User._hash_password, password)
+        def_role = await _get_or_create_default_user_role(db_session)
         new_user = User(
             name=name,
             login=username,
             email=email,
             password_hash=pwd_hash
         )
+        new_user.roles.append(def_role)
         db_session.add(new_user)
         await db_session.commit()
         await db_session.refresh(new_user)
@@ -708,6 +760,7 @@ async def handle_oauth_vk(session: JsonRpcSession, args: Dict[str, Any]) -> Dict
                     if (await db_session.execute(check_stmt)).scalar_one_or_none():
                         clean_login = f"vk_{vk_user_id}"
 
+                    def_role = await _get_or_create_default_user_role(db_session)
                     user = User(
                         name=full_name or clean_login,
                         first_name=first_name or None,
@@ -716,6 +769,7 @@ async def handle_oauth_vk(session: JsonRpcSession, args: Dict[str, Any]) -> Dict
                         email=vk_email,
                         password_hash=None
                     )
+                    user.roles.append(def_role)
                     db_session.add(user)
                     await db_session.flush()
                     logger.info(f"[AUTH VK] Зарегистрирован новый пользователь '{user.login}' (id={user.id}) через VK.")
@@ -863,6 +917,7 @@ async def handle_oauth_yandex(session: JsonRpcSession, args: Dict[str, Any]) -> 
                     if (await db_session.execute(check_stmt)).scalar_one_or_none():
                         clean_login = f"ya_{ya_user_id}"
 
+                    def_role = await _get_or_create_default_user_role(db_session)
                     user = User(
                         name=full_name or clean_login,
                         first_name=first_name or None,
@@ -871,6 +926,7 @@ async def handle_oauth_yandex(session: JsonRpcSession, args: Dict[str, Any]) -> 
                         email=ya_email,
                         password_hash=None
                     )
+                    user.roles.append(def_role)
                     db_session.add(user)
                     await db_session.flush()
                     logger.info(f"[AUTH YANDEX] Зарегистрирован новый пользователь '{user.login}' (id={user.id}) через Яндекс ID.")

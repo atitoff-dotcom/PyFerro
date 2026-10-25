@@ -13,8 +13,9 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyferro.core.session import rpc_method, RPCError, JsonRpcSession
+from pyferro.core.constants import admRole
+from pyferro.core.lib.config import settings
 from pyferro.db import async_session, system_db_session
-
 try:
     from pyferro.auth.core import system_bypass_ctx
 except ImportError:
@@ -75,22 +76,11 @@ def _get_model_meta(model_name: str) -> ModelMeta:
 
 
 def _is_guest(session: Any) -> bool:
-    if session is None:
+    from pyferro.core.identity import get_session_identity
+    ident = get_session_identity(session)
+    if not ident:
         return True
-    user_role = None
-    if hasattr(session, "data") and session.data is not None:
-        user_role = getattr(session.data, "user_role", None)
-    if not user_role:
-        user_role = getattr(session, "user_role", None)
-
-    if user_role:
-        return user_role == "guest"
-
-    if hasattr(session, "authenticated"):
-        return not bool(session.authenticated)
-
-    return True
-
+    return ident.role == "guest"
 def _is_framework_or_test_model(meta: ModelMeta) -> bool:
     table = meta.table_name or ""
     return bool(table.startswith(("pf_", "auth_", "test_")) or getattr(meta, "is_framework", False))
@@ -103,32 +93,7 @@ async def handle_crud_schema(session: JsonRpcSession, params: Dict[str, Any]) ->
     """Возвращает схему одной или всех доступных пользователю моделей."""
     provider = get_identity_provider()
     uid = provider.user_id(session)
-    is_super = provider.is_superuser(uid)
-
-    from pyferro.core.constants import ADMIN_ROLE
-    from pyferro.core.lib.config import settings
-
-    role = getattr(session, "user_role", None) or getattr(getattr(session, "data", None), "user_role", None)
-    if hasattr(role, "value"):
-        role = role.value
-    if role in ("admin", "ADMIN", ADMIN_ROLE):
-        is_super = True
-    roles = getattr(session, "user_roles", [])
-    for r in roles:
-        val = r.value if hasattr(r, "value") else r
-        if val in ("admin", "ADMIN", ADMIN_ROLE):
-            is_super = True
-            break
-
-    if hasattr(session, "cookies") and session.cookies:
-        from pyferro.core.http import extract_session_token
-        token = extract_session_token(session.cookies)
-        if token:
-            from .auth import get_crud_session
-            sdata = get_crud_session(token)
-            if sdata and sdata.get("role") in ("admin", "ADMIN", ADMIN_ROLE):
-                is_super = True
-
+    is_super = provider.is_superuser(session)
     target_model = params.get("model")
     try:
         from pyferro.db import Base
@@ -441,16 +406,17 @@ async def handle_crud_update_cell(session: JsonRpcSession, params: Dict[str, Any
                 raise RPCError(-32602, f"Поле '{field}' защищено от записи (read-only)")
             raise RPCError(-32602, f"Поле '{field}' недоступно для редактирования")
 
-        # Защита системных ролей от переименования
+        # Защита системных ролей от переименования и защита зарезервированных имен
         if (model_name in ("auth_role", "pf_auth_role", "Role") or model_name.endswith("auth_role")) and field == "name":
-            from pyferro.core.constants import SYSTEM_ROLES
+            from pyferro.core.constants import GUEST_ROLE, ADMIN_ROLE
+            val_str = str(value or "").strip()
+            if val_str in (ADMIN_ROLE, GUEST_ROLE) or val_str.startswith("adm_"):
+                raise RPCError(-32602, f"Имя роли '{val_str}' зарезервировано системой")
             stmt_check = select(cls).where(cls.id == record_id)
             role_obj = (await db.execute(stmt_check)).scalar_one_or_none()
-            if role_obj and role_obj.name in SYSTEM_ROLES:
+            if role_obj and (role_obj.name in (ADMIN_ROLE, GUEST_ROLE) or role_obj.name.startswith("adm_")):
                 raise RPCError(-32602, f"Системная роль '{role_obj.name}' является встроенной (immutable) и не может быть переименована")
-
         field_meta = meta.fields[field]
-
         if field_meta.type == "m2m":
             target_meta = ModelRegistry.get(field_meta.target_model) if field_meta.target_model else None
             if not target_meta:
@@ -605,12 +571,11 @@ async def handle_crud_delete(session: JsonRpcSession, params: Dict[str, Any]) ->
 
         # Защита системных ролей от удаления
         if model_name in ("auth_role", "pf_auth_role", "Role") or model_name.endswith("auth_role"):
-            from pyferro.core.constants import SYSTEM_ROLES
+            from pyferro.core.constants import GUEST_ROLE, ADMIN_ROLE
             stmt_check = select(cls).where(cls.id == record_id)
             role_obj = (await db.execute(stmt_check)).scalar_one_or_none()
-            if role_obj and role_obj.name in SYSTEM_ROLES:
+            if role_obj and (role_obj.name in (ADMIN_ROLE, GUEST_ROLE) or role_obj.name.startswith("adm_")):
                 raise RPCError(-32602, f"Системная роль '{role_obj.name}' является встроенной (immutable) и не может быть удалена")
-
         mapper = inspect(cls)
         pk_cols = list(mapper.primary_key)
         if hasattr(cls, "id"):
@@ -689,6 +654,7 @@ async def handle_crud_create(session: JsonRpcSession, params: Dict[str, Any]) ->
                 filtered_data[k] = coerce_value(meta.fields[k], v)
 
         # Авто-заполнение creator_id и owner_id
+        # Авто-заполнение creator_id и owner_id
         if meta.is_row_secure:
             if hasattr(cls, "creator_id"):
                 filtered_data["creator_id"] = ctx.user_id
@@ -697,7 +663,9 @@ async def handle_crud_create(session: JsonRpcSession, params: Dict[str, Any]) ->
             if hasattr(cls, "team_id") and "team_id" not in filtered_data:
                 if ctx.primary_team_id:
                     filtered_data["team_id"] = ctx.primary_team_id
-
+            for owner_col in meta.owner_columns:
+                if hasattr(cls, owner_col) and owner_col not in filtered_data:
+                    filtered_data[owner_col] = acting_for_id or ctx.user_id
         now = datetime.now(timezone.utc)
         if hasattr(cls, "created_at") and "created_at" not in filtered_data:
             filtered_data["created_at"] = now
@@ -788,10 +756,12 @@ async def handle_crud_lookup(session: JsonRpcSession, params: Dict[str, Any]) ->
 
 
 # -----------------------------------------------------------------------------
-# Регистрация стандартных WSRPC RPC-методов crud.*
+# -----------------------------------------------------------------------------
+# WSRPC Эндпоинты (Декларативная регистрация в RPC_REGISTRY)
+# Все методы CRUD изолированы в административном скоупе [admRole.admin, admRole.adm_crud]
 # -----------------------------------------------------------------------------
 
-@rpc_method("crud.schema")
+@rpc_method("crud.schema", scope=[admRole.admin, admRole.adm_crud])
 async def crud_schema(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
     """Получение схемы моделей данных и прав доступа.
 
@@ -805,7 +775,7 @@ async def crud_schema(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[s
     return await handle_crud_schema(session, params)
 
 
-@rpc_method("crud.get")
+@rpc_method("crud.get", scope=[admRole.admin, admRole.adm_crud])
 async def crud_get(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
     """Получение детальной карточки записи по идентификатору.
 
@@ -819,7 +789,7 @@ async def crud_get(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str,
     return await handle_crud_get(session, params)
 
 
-@rpc_method("crud.list")
+@rpc_method("crud.list", scope=[admRole.admin, admRole.adm_crud])
 async def crud_list(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
     """Просмотр списка записей с пагинацией и фильтрацией.
 
@@ -833,7 +803,7 @@ async def crud_list(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str
     return await handle_crud_list(session, params)
 
 
-@rpc_method("crud.create")
+@rpc_method("crud.create", scope=[admRole.admin, admRole.adm_crud])
 async def crud_create(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
     """Создание новой записи в модели данных.
 
@@ -847,7 +817,7 @@ async def crud_create(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[s
     return await handle_crud_create(session, params)
 
 
-@rpc_method("crud.update_cell")
+@rpc_method("crud.update_cell", scope=[admRole.admin, admRole.adm_crud])
 async def crud_update_cell(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
     """Быстрое инлайн-обновление отдельного поля записи.
 
@@ -861,7 +831,7 @@ async def crud_update_cell(session: JsonRpcSession, params: Dict[str, Any]) -> D
     return await handle_crud_update_cell(session, params)
 
 
-@rpc_method("crud.bulk_update")
+@rpc_method("crud.bulk_update", scope=[admRole.admin, admRole.adm_crud])
 async def crud_bulk_update(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
     """Массовое обновление выбранных записей модели.
 
@@ -875,7 +845,7 @@ async def crud_bulk_update(session: JsonRpcSession, params: Dict[str, Any]) -> D
     return await handle_crud_bulk_update(session, params)
 
 
-@rpc_method("crud.delete")
+@rpc_method("crud.delete", scope=[admRole.admin, admRole.adm_crud])
 async def crud_delete(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
     """Удаление записи по первичному ключу.
 
@@ -889,7 +859,7 @@ async def crud_delete(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[s
     return await handle_crud_delete(session, params)
 
 
-@rpc_method("crud.lookup")
+@rpc_method("crud.lookup", scope=[admRole.admin, admRole.adm_crud])
 async def crud_lookup(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[str, Any]:
     """Поиск связанных записей для выпадающих списков.
 
@@ -901,4 +871,3 @@ async def crud_lookup(session: JsonRpcSession, params: Dict[str, Any]) -> Dict[s
     :return: Словарь со списком объектов 'items', содержащих 'id' и отображаемую метку 'label'.
     """
     return await handle_crud_lookup(session, params)
-

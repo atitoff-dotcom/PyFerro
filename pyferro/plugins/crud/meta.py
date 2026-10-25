@@ -11,9 +11,19 @@ import fnmatch
 from sqlalchemy import inspect
 from sqlalchemy.orm import Mapper
 
+from pyferro.core.logger import logger
 
-SENSITIVE_PATTERNS = ("*password*", "*_hash", "*secret*", "*token*", "*private_key*")
 
+SENSITIVE_PATTERNS = (
+    "*password*",
+    "*_hash",
+    "*secret*",
+    "*token*",
+    "*private_key*",
+    "*api_key*",
+    "*apikey*",
+    "*salt*",
+)
 
 def is_sensitive_field(field_name: str) -> bool:
     """Проверяет, является ли поле конфиденциальным (пароли, хэши, токены, секреты)."""
@@ -98,6 +108,7 @@ class ModelMeta:
     hidden_fields: Set[str] = field(default_factory=set)
     readonly_fields: Set[str] = field(default_factory=set)
     protected_fields: Set[str] = field(default_factory=set)
+    owner_columns: Set[str] = field(default_factory=set)
 
     def get_public_fields(self) -> List[FieldMeta]:
         """Возвращает список только открытых (не скрытых) полей."""
@@ -165,12 +176,33 @@ def build_model_meta(cls: Type[Any]) -> ModelMeta:
     v_name_plural = getattr(crud_cfg, "verbose_name_plural", None) or f"{v_name}s"
 
     col_names = {c.name for c in table.columns}
-    is_row_secure = any(c in col_names for c in ("creator_id", "owner_id", "team_id"))
+    raw_owner = getattr(crud_cfg, "owner_columns", set()) or set()
+    if isinstance(raw_owner, (set, list, tuple)):
+        cfg_owner = set(raw_owner) & col_names
+    else:
+        cfg_owner = set()
+
+    is_row_secure = any(c in col_names for c in ("creator_id", "owner_id", "team_id")) or bool(cfg_owner)
     is_archivable = "is_archived" in col_names
 
     # По умолчанию для моделей с владением поля владения защищены (требуют права transfer)
-    if is_row_secure and not cfg_protected:
-        cfg_protected = {"owner_id", "team_id", "creator_id"}.intersection(col_names)
+    if is_row_secure:
+        default_protected = ({"owner_id", "team_id", "creator_id"} | cfg_owner) & col_names
+        if not cfg_protected:
+            cfg_protected = default_protected
+        else:
+            cfg_protected = cfg_protected | cfg_owner
+
+    # Предупреждение о колонках, похожих на владельца, если модель не объявлена защищенной
+    standard_owner_cols = {"owner_id", "creator_id", "team_id"}
+    if not (standard_owner_cols & col_names) and not cfg_owner:
+        suspicious = {"user_id", "author_id", "tenant_id"} & col_names
+        for susp in sorted(suspicious):
+            logger.warning(
+                f"[CRUD] Модель {model_name} содержит колонку '{susp}', "
+                f"но не объявлена как колонка владельца (class Crud: owner_columns). "
+                f"RLS для неё не применяется."
+            )
 
     fields_map: Dict[str, FieldMeta] = {}
 
@@ -276,5 +308,6 @@ def build_model_meta(cls: Type[Any]) -> ModelMeta:
         fields=fields_map,
         hidden_fields=cfg_hidden,
         readonly_fields=cfg_readonly,
-        protected_fields=cfg_protected
+        protected_fields=cfg_protected,
+        owner_columns=cfg_owner
     )

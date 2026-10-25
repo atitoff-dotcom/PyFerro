@@ -50,6 +50,8 @@ def get_seo_config() -> SeoConfig:
 
     site_url = (
         seo_raw.get("site_url")
+        or cfg_dict.get("sitemap_host")
+        or getattr(app_cfg, "sitemap_host", None)
         or os.getenv("SITE_URL")
         or "http://localhost:8080"
     ).rstrip("/")

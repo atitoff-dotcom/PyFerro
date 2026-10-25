@@ -9,7 +9,7 @@ import orjson
 from .logger import logger
 from .lib.config import settings
 from .tabular import pack_tabular, unpack_tabular, is_tabular, tabular_response
-
+from .constants import is_system_rpc_name
 # Контекстные переменные для доступа к сессиям из любой точки кода
 current_transport_ctx: ContextVar = ContextVar("current_transport", default=None)
 current_session_ctx: ContextVar = ContextVar("current_session", default=None)
@@ -22,14 +22,24 @@ GUEST_ALLOWED_RPC_METHODS: set = set()
 GUEST_ALLOWED_CRUD_MODELS: set = set()
 
 def is_guest_rpc_allowed(method_name: str) -> bool:
-    """Проверяет O(1) доступность RPC-метода для системной роли guest."""
+    """
+    Проверяет O(1) доступность RPC-метода для роли guest.
+    На уровне кода ядра выполнение административных методов (со скоупами admRole, crud.*, permissions.*)
+    принципиально и безусловно заблокировано для неавторизованных посетителей (guest).
+    """
+    if method_name.startswith("crud.") or method_name.startswith("permissions."):
+        return False
+
+    handler = RPC_REGISTRY.get(method_name)
+    if handler and getattr(handler, "scopes", None):
+        return False
+
     if method_name in GUEST_ALLOWED_RPC_METHODS:
         return True
     for p in GUEST_ALLOWED_RPC_METHODS:
         if p.endswith(".*") and method_name.startswith(p[:-1]):
             return True
     return False
-
 
 def is_framework_handler(handler: Any) -> bool:
     """
@@ -63,32 +73,12 @@ def is_framework_handler(handler: Any) -> bool:
     return False
 def _is_session_admin(session: Any) -> bool:
     """Производит проверку прав администратора для сессии, включая токены или Cookie."""
-    if not session:
-        return False
-    if getattr(session, "is_superadmin", False) is True or getattr(session, "is_admin", False) is True:
+    from .identity import get_session_identity
+    identity = get_session_identity(session)
+    if identity and identity.is_admin:
         return True
-    data = getattr(session, "data", None)
-    if data:
-        if getattr(data, "is_superadmin", False) is True or getattr(data, "is_admin", False) is True:
-            return True
-        if isinstance(data, dict):
-            if data.get("is_superadmin"):
-                return True
-            role = data.get("role") or data.get("user_role")
-            roles = data.get("roles") or data.get("user_roles") or []
-            return role in ("admin", "ADMIN", "superadmin") or any(r in ("admin", "ADMIN", "superadmin") for r in roles)
-    if isinstance(session, dict):
-        if session.get("is_superadmin"):
-            return True
-        role = session.get("role") or session.get("user_role")
-        roles = session.get("roles") or session.get("user_roles") or []
-        return role in ("admin", "ADMIN", "superadmin") or any(r in ("admin", "ADMIN", "superadmin") for r in roles)
-    role = getattr(session, "user_role", None) or getattr(session, "role", None)
-    if isinstance(role, str) and role.lower() in ("admin", "superadmin", "administrator"):
-        return True
-    roles = getattr(session, "user_roles", None) or getattr(session, "roles", None)
-    if isinstance(roles, (list, tuple, set)) and any(isinstance(r, str) and r.lower() in ("admin", "superadmin", "administrator") for r in roles):
-        return True
+
+    # Проверка через cookies / токен
     cookies = getattr(session, "cookies", None)
     if cookies and isinstance(cookies, dict):
         from .http import extract_session_token
@@ -97,8 +87,10 @@ def _is_session_admin(session: Any) -> bool:
             try:
                 from pyferro.plugins.crud.auth import get_crud_session
                 sdata = get_crud_session(token)
-                if sdata and (sdata.get("is_superadmin") or str(sdata.get("role") or "").lower() in ("admin", "superadmin", "administrator")):
-                    return True
+                if sdata:
+                    token_identity = get_session_identity(sdata)
+                    if token_identity and token_identity.is_admin:
+                        return True
             except Exception:
                 pass
     return False
@@ -116,46 +108,38 @@ def require_admin(session: Any) -> None:
 
 
 def has_admin_section_access(session: Any, section: str) -> bool:
-    """Проверяет, имеет ли сессия доступ к указанному подразделу панели (admin или adm-<section>)."""
-    if getattr(session, "is_superadmin", False) is True:
+    """Проверяет, имеет ли сессия доступ к указанному подразделу панели (admin или adm_<section>)."""
+    from .identity import get_session_identity
+    identity = get_session_identity(session)
+    if not identity:
+        cookies = getattr(session, "cookies", None)
+        if cookies and isinstance(cookies, dict):
+            from .http import extract_session_token
+            token = extract_session_token(cookies)
+            if token:
+                try:
+                    from pyferro.plugins.crud.auth import get_crud_session
+                    sdata = get_crud_session(token)
+                    identity = get_session_identity(sdata)
+                except Exception:
+                    pass
+
+    if not identity:
+        return False
+    if identity.is_superadmin:
         return True
-    if _is_session_admin(session):
-        return True
 
-    user = getattr(session, "user", None)
-    if user:
-        if getattr(user, "is_superadmin", False):
-            return True
-        user_roles = getattr(user, "roles", [])
-        for r in user_roles:
-            r_name = getattr(r, "name", str(r))
-            if r_name in ("admin", f"adm-{section}", "adm-all"):
-                return True
-
-    cookies = getattr(session, "cookies", None)
-    if cookies:
-        token = extract_session_token(cookies)
-        if token:
-            try:
-                from pyferro.plugins.crud.auth import get_crud_session
-                sdata = get_crud_session(token)
-                if sdata:
-                    if sdata.get("is_superadmin") or str(sdata.get("role") or "").lower() == "admin":
-                        return True
-                    roles = sdata.get("roles", [])
-                    if "admin" in roles or f"adm-{section}" in roles or "adm-all" in roles:
-                        return True
-            except Exception:
-                pass
-    return False
-
+    target_role = section if section.startswith("adm_") else f"adm_{section}"
+    allowed_names = {"admin", "adm_all", target_role}
+    return any(r in allowed_names for r in identity.roles)
 
 def require_admin_section(session: Any, section: str) -> None:
-    """Требует наличия прав администратора всей системы или роли adm-<section>."""
+    """Требует наличия прав администратора всей системы или роли adm_<section>."""
     if getattr(session, "is_superadmin", False) is True:
         return
     if not has_admin_section_access(session, section):
-        raise RPCError(-32003, f"Доступ к разделу '{section}' запрещен. Требуется роль 'admin' или 'adm-{section}'.")
+        target_role = section if section.startswith("adm_") else f"adm_{section}"
+        raise RPCError(-32003, f"Доступ к разделу '{section}' запрещен. Требуется роль 'admin' или '{target_role}'.")
 class RPCError(Exception):
     """
     Исключение для RPC-ошибок, сообщения которых возвращаются клиенту.
@@ -178,20 +162,38 @@ class RPCError(Exception):
 def rpc_method(
     name: str,
     description: Optional[str] = None,
+    scope: Any = None,
     http: bool = False,
     is_framework: Optional[bool] = None,
 ):
     """
     Декоратор для регистрации JSON-RPC 2.0 методов.
-    Все права доступа настраиваются динамически в базе данных (роли guest, user, admin).
+    Поддерживает декларативное ограничение скоупа доступа через admRole:
+      @rpc_method("crud.create", scope=[admRole.admin, admRole.adm_crud])
+      @rpc_method("admin.seo_ping", scope=admRole.adm_seo)
 
     :param name: Обязательное сетевое имя метода (например, "orders.create", "system.ping").
     :param description: Описание метода для документации и матрицы прав (по умолчанию извлекается из docstring).
+    :param scope: Требуемая административная роль (admRole, str или коллекция ролей).
     :param http: Разрешить прямой вызов метода через HTTP POST /rpc.
     :param is_framework: Явный признак системного метода фреймворка (по умолчанию определяется автоматически).
     """
     if not isinstance(name, str) or not name.strip():
         raise TypeError("Декоратор @rpc_method требует явное строковое имя метода: @rpc_method(\"namespace.method\")")
+
+    # Нормализация скоупов доступа к методу (frozenset строк)
+    if scope is None:
+        normalized_scopes = frozenset()
+    elif isinstance(scope, str):
+        normalized_scopes = frozenset({scope})
+    elif hasattr(scope, "value"):
+        normalized_scopes = frozenset({str(scope.value)})
+    elif hasattr(scope, "__iter__"):
+        normalized_scopes = frozenset({
+            (s.value if hasattr(s, "value") else str(s)) for s in scope
+        })
+    else:
+        normalized_scopes = frozenset({str(scope)})
 
     def decorator(func):
         try:
@@ -241,6 +243,7 @@ def rpc_method(
         wrapper.http = http
         wrapper.description = description
         wrapper.is_framework = fw_flag
+        wrapper.scopes = normalized_scopes
         return func
     return decorator
 
@@ -310,71 +313,61 @@ class JsonRpcSession:
         self._on_close_callbacks.append(callback)
 
     @property
+    def identity(self) -> Optional[Any]:
+        from .identity import get_session_identity
+        if self.data is not None:
+            return get_session_identity(self.data)
+        return None
+
+    @property
     def authenticated(self) -> bool:
         return self.data is not None
 
     @property
-    def user_role(self):
-        if not self.data:
-            return 'guest'
-        if isinstance(self.data, dict):
-            return self.data.get('role') or self.data.get('user_role') or 'guest'
-        return getattr(self.data, 'user_role', None) or getattr(self.data, 'role', 'guest')
+    def role(self) -> str:
+        ident = self.identity
+        return ident.role if ident else "guest"
 
     @property
-    def user_roles(self):
-        if not self.data:
-            return ['guest']
-        if isinstance(self.data, dict):
-            roles = self.data.get('roles') or self.data.get('user_roles')
-            if roles:
-                return list(roles)
-            role = self.data.get('role') or self.data.get('user_role')
-            return [role] if role else ['guest']
-        if hasattr(self.data, 'user_roles') and self.data.user_roles:
-            return list(self.data.user_roles)
-        role = getattr(self.data, 'user_role', None) or getattr(self.data, 'role', None)
-        return [role] if role else ['guest']
+    def roles(self) -> list:
+        ident = self.identity
+        return list(ident.roles) if ident else ["guest"]
+
+    @property
+    def user_role(self) -> str:
+        return self.role
+
+    @property
+    def user_roles(self) -> list:
+        return self.roles
+
     @property
     def user_id(self) -> Optional[int]:
-        if not self.data:
-            return None
-        if isinstance(self.data, dict):
-            val = self.data.get("user_id") or self.data.get("uid") or self.data.get("id")
-            try:
-                return int(val) if val is not None else None
-            except (ValueError, TypeError):
-                return None
-        val = getattr(self.data, "user_id", None) or getattr(self.data, "uid", None)
-        try:
-            return int(val) if val is not None else None
-        except (ValueError, TypeError):
-            return None
+        ident = self.identity
+        return ident.user_id if ident else None
+
+    @property
+    def uid(self) -> Optional[int]:
+        return self.user_id
 
     @property
     def username(self) -> str:
-        if not self.data:
-            return "guest"
-        if isinstance(self.data, dict):
-            return str(self.data.get("username") or self.data.get("user_name") or "guest")
-        return str(getattr(self.data, "username", None) or getattr(self.data, "user_name", "guest"))
+        ident = self.identity
+        return ident.username if ident else "guest"
+
+    @property
+    def user_name(self) -> str:
+        return self.username
 
     @property
     def is_superadmin(self) -> bool:
-        if not self.data:
-            return False
-        if isinstance(self.data, dict):
-            if self.data.get("is_superadmin"):
-                return True
-            role = self.data.get("role") or self.data.get("user_role")
-            roles = self.data.get("roles") or self.data.get("user_roles") or []
-            return role in ("admin", "ADMIN", "superadmin") or any(r in ("admin", "ADMIN", "superadmin") for r in roles)
-        return bool(getattr(self.data, "is_superadmin", False))
+        ident = self.identity
+        return ident.is_superadmin if ident else False
 
     @property
     def is_admin(self) -> bool:
-        return self.is_superadmin
-
+        ident = self.identity
+        return ident.is_admin if ident else False
     @property
     def cookies(self) -> Dict[str, str]:
         """Возвращает распарсенные HTTP-куки из handshake текущего WebSocket-соединения."""
@@ -536,53 +529,40 @@ class JsonRpcSession:
         Проверяет права доступа текущей сессии к указанному RPC-методу без запуска его обработчика.
         Возвращает кортеж (allowed, error_code, error_message).
         """
-        if method_name not in RPC_REGISTRY:
+        handler = RPC_REGISTRY.get(method_name)
+        if not handler:
             return False, -32601, f"Method '{method_name}' not found"
 
-        # 1. Проверка для методов CRUD
-        if method_name.startswith("crud."):
-            if not self.authenticated:
-                if method_name not in ("crud.list", "crud.get", "crud.schema"):
-                    return (
-                        False,
-                        -32003,
-                        "Мутации в CRUD запрещены для роли Гость. Используйте специализированные RPC-методы.",
-                    )
-                if is_preflight and method_name in ("crud.list", "crud.get") and isinstance(params, dict) and params.get("model"):
-                    model_name = str(params["model"])
-                    if model_name not in GUEST_ALLOWED_CRUD_MODELS:
-                        return False, -32003, f"Чтение модели '{model_name}' запрещено для роли Гость."
-            elif is_preflight and isinstance(params, dict) and params.get("model"):
-                if not (self.is_admin or self.is_superadmin):
-                    model_name = str(params["model"])
-                    action_map = {
-                        "crud.list": "can_read",
-                        "crud.get": "can_read",
-                        "crud.lookup": "can_read",
-                        "crud.create": "can_create",
-                        "crud.update_cell": "can_update",
-                        "crud.bulk_update": "can_update",
-                        "crud.delete": "can_delete",
-                    }
-                    perm_key = action_map.get(method_name)
-                    if perm_key:
-                        user_ctx = getattr(self.data, "user_ctx", None) if self.data else None
-                        perms_dict = getattr(user_ctx, "perms_dict", {}) if user_ctx else {}
-                        if not perms_dict and isinstance(self.data, dict):
-                            perms_dict = self.data.get("perms_dict") or self.data.get("permissions") or {}
-                        model_perms = perms_dict.get(model_name, {}) if isinstance(perms_dict, dict) else {}
-                        if not model_perms.get(perm_key, False):
-                            return False, -32003, f"Доступ к операции '{method_name}' для модели '{model_name}' запрещен."
-            return True, 0, ""
+        # 1. Декларативная проверка административных скоупов (admRole)
+        method_scopes = getattr(handler, "scopes", None)
+        if method_scopes:
+            if not self.authenticated or getattr(self, "is_guest", False):
+                return False, -32001, "Unauthorized: административные методы недоступны для роли guest."
+            if not (self.is_admin or self.is_superadmin):
+                user_roles = set(getattr(self, "user_roles", []))
+                if self.data:
+                    u_roles = getattr(self.data, "user_roles", [])
+                    if u_roles:
+                        user_roles |= set(u_roles)
+                    role = getattr(self.data, "user_role", None)
+                    if role:
+                        user_roles.add(role)
+                if not (user_roles & method_scopes):
+                    return False, -32003, f"Доступ к методу '{method_name}' запрещен: требуется одна из ролей {sorted(method_scopes)}"
 
         # 2. Системные методы управления правами требуют прав администратора
         if method_name.startswith("permissions."):
+            if not self.authenticated or getattr(self, "is_guest", False):
+                return False, -32001, "Unauthorized: административные методы недоступны для роли guest."
             if not (self.is_admin or self.is_superadmin):
                 return False, -32003, "Доступ запрещен: требуются права администратора"
             return True, 0, ""
 
         # 3. Проверка обычных RPC-методов для роли guest
-        if not self.authenticated:
+        if not self.authenticated or getattr(self, "is_guest", False):
+            if method_scopes or method_name.startswith("crud.") or method_name.startswith("permissions."):
+                return False, -32001, "Unauthorized: административные методы недоступны для роли guest."
+
             login_rpc = settings.security.get("login_rpc")
             is_allowed_guest = (
                 is_guest_rpc_allowed(method_name)
@@ -593,10 +573,35 @@ class JsonRpcSession:
             if not is_allowed_guest:
                 return False, -32001, "Unauthorized: доступ запрещен для роли Гость."
             return True, 0, ""
-
         # 4. Проверка прав авторизованного пользователя (O(1) in-memory)
-        has_perm = False
         session_data = self.data
+
+        # Жесткий барьер безопасности: системные и административные методы (admin.*, system.*, *_admin)
+        # принципиально не могут вызываться несистемными пользовательскими ролями.
+        is_auth_lifecycle = method_name.startswith("login.") or method_name in ("auth.login", "auth.me", "auth.whoami", "auth.submit", "auth.logout")
+        if not is_auth_lifecycle and is_system_rpc_name(method_name):
+            has_sys_perm = False
+            role = getattr(session_data, "user_role", None) or getattr(self, "user_role", None)
+            roles = getattr(session_data, "user_roles", None) or getattr(self, "user_roles", [])
+            is_adm = (role in ("admin", "ADMIN") or "admin" in roles or "ADMIN" in roles or self.is_superadmin or _is_session_admin(self))
+
+            if is_adm:
+                has_sys_perm = True
+            elif method_name.startswith("seo.") and (has_admin_section_access(self, "adm_seo") or has_admin_section_access(self, "seo")):
+                has_sys_perm = True
+            elif (method_name.startswith("permissions.") or method_name.startswith("delegations.")) and (
+                has_admin_section_access(self, "adm_roles") or has_admin_section_access(self, "adm_users")
+            ):
+                has_sys_perm = True
+            elif method_name.startswith("help.") and has_admin_section_access(self, "adm_help"):
+                has_sys_perm = True
+            elif method_name.startswith("crud.") and has_admin_section_access(self, "adm_crud"):
+                has_sys_perm = True
+
+            if not has_sys_perm:
+                return False, -32003, f"Доступ запрещен: метод '{method_name}' является системным и требует административной роли."
+            return True, 0, ""
+
         if session_data:
             if hasattr(session_data, "has_rpc_permission"):
                 has_perm = session_data.has_rpc_permission(method_name)

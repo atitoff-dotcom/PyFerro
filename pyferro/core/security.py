@@ -46,6 +46,7 @@ def create_access_token(user_id: int, username: str, roles: list[str], user_agen
     ua_fingerprint = hashlib.sha256(user_agent.encode('utf-8', errors='ignore')).hexdigest()
 
     payload = {
+        "typ": "access",
         "sub": str(user_id),
         "username": username,
         "roles": roles,
@@ -60,8 +61,13 @@ def create_access_token(user_id: int, username: str, roles: list[str], user_agen
 
 
 def decode_access_token(token: str) -> dict:
-    return jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
-
+    payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
+    if payload.get("typ") not in (None, "access"):
+        raise jwt.InvalidTokenError(f"Invalid token type: expected 'access', got {payload.get('typ')!r}")
+    sub = payload.get("sub")
+    if sub is None or not str(sub).isdigit() or int(sub) <= 0:
+        raise jwt.InvalidTokenError(f"Invalid token subject: {sub!r}")
+    return payload
 
 def get_password_iterations() -> int:
     try:

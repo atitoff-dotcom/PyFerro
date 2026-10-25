@@ -82,6 +82,8 @@ class DefaultAccessPolicy:
             if hasattr(cls, "team_id") and ctx.user_team_ids:
                 conditions.append(cls.team_id.in_(ctx.user_team_ids))
 
+            conditions.extend(self._extra_owner_conditions(cls, meta, ctx))
+
             return or_(*conditions) if conditions else false()
 
         # 4. Обновление (update)
@@ -98,6 +100,8 @@ class DefaultAccessPolicy:
             if hasattr(cls, "team_id") and ctx.user_team_ids:
                 conditions.append(cls.team_id.in_(ctx.user_team_ids))
 
+            conditions.extend(self._extra_owner_conditions(cls, meta, ctx))
+
             return or_(*conditions) if conditions else false()
 
         # 5. Удаление (delete)
@@ -111,9 +115,22 @@ class DefaultAccessPolicy:
             elif hasattr(cls, "creator_id") and ctx.effective_user_ids:
                 conditions.append(cls.creator_id.in_(ctx.effective_user_ids))
 
+            if hasattr(cls, "team_id") and ctx.user_team_ids:
+                conditions.append(cls.team_id.in_(ctx.user_team_ids))
+
+            conditions.extend(self._extra_owner_conditions(cls, meta, ctx))
+
             return or_(*conditions) if conditions else false()
 
         return None
+
+    def _extra_owner_conditions(self, cls: Any, meta: ModelMeta, ctx: AccessContext) -> list:
+        conds = []
+        for col_name in meta.owner_columns:
+            col = getattr(cls, col_name, None)
+            if col is not None and ctx.effective_user_ids:
+                conds.append(col.in_(ctx.effective_user_ids))
+        return conds
 
     def allowed_fields(
         self,

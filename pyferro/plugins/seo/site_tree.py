@@ -26,6 +26,7 @@ from pyferro.plugins.crud import ModelRegistry
 from .schemas import SeoPageData
 from .renderer import HtmlBuilder
 from .dynamic_rules import resolve_template, compile_pattern_to_regex, PARAM_RE
+from .jinja_engine import serialize_safe_record, is_model_allowed_for_seo
 
 SEO_TREE_FILE = os.getenv("SEO_TREE_FILE", "data/seo_tree.json")
 
@@ -41,8 +42,9 @@ def _get_model_meta(model_key: Optional[str]):
             meta = ModelRegistry.get(model_key)
         except Exception:
             pass
+    if meta and not is_model_allowed_for_seo(meta):
+        return None
     return meta
-
 
 def _resolve_relation_meta(f):
     """Определяет целевую модель связи по полю внешнего ключа."""
@@ -522,9 +524,65 @@ async def match_and_render_site_tree(path: str) -> Optional[SeoPageData]:
                 return res
         except Exception as e:
             logger.error(f"[SEO Tree] Ошибка рендеринга узла {node.get('title')} ({pattern}): {e}", exc_info=True)
+    logger.debug(f"[SEO Tree 404] Путь '{clean_path}' не обработан: совпадений с активными записями в БД не найдено.")
     return None
 
 
+def _build_breadcrumbs(
+    parents: List[Dict[str, Any]],
+    current_title: str,
+    current_path: str,
+    record: Optional[Dict[str, Any]] = None,
+    relations: Optional[Dict[str, Any]] = None
+) -> List[Tuple[str, str]]:
+    """
+    Универсально собирает валидные хлебные крошки (название, URL) для краулеров и Schema.org.
+    Для статических узлов берет их фиксированные пути.
+    Для динамических узлов берет реальные имена сущностей из БД (record / parent / root)
+    и формирует корректные URL без задвоений.
+    """
+    breadcrumbs: List[Tuple[str, str]] = []
+    record = record or {}
+    relations = relations or {}
+
+    dynamic_parents = [p for p in parents if "{" in p.get("url_pattern", "")]
+
+    for p in parents:
+        pattern = p.get("url_pattern", "/")
+        if "{" not in pattern:
+            breadcrumbs.append((p.get("title", ""), pattern))
+            continue
+
+        dyn_idx = dynamic_parents.index(p)
+        is_immediate_parent = (dyn_idx == len(dynamic_parents) - 1)
+        is_grandparent = (dyn_idx == len(dynamic_parents) - 2)
+
+        if is_immediate_parent and relations.get("parent"):
+            p_rec = relations["parent"]
+            p_rel = {"parent": relations.get("root", {})}
+        elif is_grandparent and relations.get("root"):
+            p_rec = relations["root"]
+            p_rel = {}
+        else:
+            p_rec = relations.get("root") or relations.get("parent") or record
+            p_rel = relations
+
+        p_title = (
+            p_rec.get("name")
+            or p_rec.get("title")
+            or p_rec.get("caption")
+            or resolve_template(p.get("title", ""), p_rec, p_rel)
+            or p.get("title", "")
+        )
+
+        p_url = resolve_template(pattern, p_rec, p_rel)
+        if not p_url or "{" in p_url or "}" in p_url:
+            p_url = pattern
+
+        breadcrumbs.append((p_title, p_url))
+
+    breadcrumbs.append((current_title, current_path))
+    return breadcrumbs
 async def _render_static_node(
     node: Dict[str, Any],
     parents: List[Dict[str, Any]],
@@ -619,7 +677,8 @@ async def _render_collection_node(
         for full_key, clean_key in keys:
             val = extracted_params.get(clean_key)
             if not val:
-                continue
+                return None
+            key_resolved = False
             if "." in full_key:
                 rel_name, field_name = full_key.split(".", 1)
                 for f in meta.get_column_fields():
@@ -633,7 +692,7 @@ async def _render_collection_node(
                                 if col is not None:
                                     row = (await db.execute(select(t_cls).where(col == val))).scalar_one_or_none()
                                     if row:
-                                        p_dict = row.to_dict() if hasattr(row, "to_dict") else {c.name: getattr(row, c.name, None) for c in t_cls.__table__.columns}
+                                        p_dict = serialize_safe_record(row, target_meta)
                                         parent_relations[rel_name] = p_dict
                                         if rel_name == "parent":
                                             parent_record.update(p_dict)
@@ -641,50 +700,63 @@ async def _render_collection_node(
                                         if hasattr(t_cls, "parent_id") and getattr(row, "parent_id", None):
                                             gp_row = (await db.execute(select(t_cls).where(t_cls.id == getattr(row, "parent_id")))).scalar_one_or_none()
                                             if gp_row:
-                                                gp_dict = gp_row.to_dict() if hasattr(gp_row, "to_dict") else {c.name: getattr(gp_row, c.name, None) for c in t_cls.__table__.columns}
+                                                gp_dict = serialize_safe_record(gp_row, target_meta)
                                                 parent_relations["root"] = gp_dict
                                                 parent_relations["grandparent"] = gp_dict
+                                        key_resolved = True
                                         break
+                if not key_resolved:
+                    return None
             else:
-                # full_key без точки: параметр самого раздела (например /forum/{slug})
+                # full_key без точки: параметр текущей сущности (например {slug})
                 async with async_session() as db:
-                    resolved_in_rel = False
-                    for f in meta.get_column_fields():
-                        if f.foreign_key or f.name.endswith("_id"):
-                            t_meta = _resolve_relation_meta(f)
-                            if t_meta:
-                                t_cls = t_meta.model_cls
-                                col = getattr(t_cls, full_key, None)
-                                if col is not None:
-                                    row = (await db.execute(select(t_cls).where(col == val))).scalar_one_or_none()
-                                    if row:
-                                        p_dict = row.to_dict() if hasattr(row, "to_dict") else {c.name: getattr(row, c.name, None) for c in t_cls.__table__.columns}
-                                        parent_relations["parent"] = p_dict
-                                        parent_record.update(p_dict)
-                                        if hasattr(t_cls, "parent_id") and getattr(row, "parent_id", None):
-                                            gp_row = (await db.execute(select(t_cls).where(t_cls.id == getattr(row, "parent_id")))).scalar_one_or_none()
-                                            if gp_row:
-                                                gp_dict = gp_row.to_dict() if hasattr(gp_row, "to_dict") else {c.name: getattr(gp_row, c.name, None) for c in t_cls.__table__.columns}
-                                                parent_relations["root"] = gp_dict
-                                                parent_relations["grandparent"] = gp_dict
-                                        resolved_in_rel = True
-                                        break
-                    if not resolved_in_rel:
-                        t_cls = meta.model_cls
-                        col = getattr(t_cls, full_key, None)
-                        if col is not None:
-                            row = (await db.execute(select(t_cls).where(col == val))).scalar_one_or_none()
-                            if row:
-                                p_dict = row.to_dict() if hasattr(row, "to_dict") else {c.name: getattr(row, c.name, None) for c in t_cls.__table__.columns}
-                                parent_relations["parent"] = p_dict
-                                parent_record.update(p_dict)
-                                if hasattr(t_cls, "parent_id") and getattr(row, "parent_id", None):
-                                    gp_row = (await db.execute(select(t_cls).where(t_cls.id == getattr(row, "parent_id")))).scalar_one_or_none()
-                                    if gp_row:
-                                        gp_dict = gp_row.to_dict() if hasattr(gp_row, "to_dict") else {c.name: getattr(gp_row, c.name, None) for c in t_cls.__table__.columns}
-                                        parent_relations["root"] = gp_dict
-                                        parent_relations["grandparent"] = gp_dict
-    # Если узел параметризован, но запись в базе не найдена — пропускаем узел для поиска других совпадений
+                    t_cls = meta.model_cls
+                    col = getattr(t_cls, full_key, None)
+                    row = None
+                    if col is not None:
+                        row = (await db.execute(select(t_cls).where(col == val))).scalar_one_or_none()
+                        if row:
+                            p_dict = serialize_safe_record(row, meta)
+                            parent_record.update(p_dict)
+                            key_resolved = True
+                            # Если у сущности есть родитель (например, parent_id в категории форума)
+                            if "parent" not in parent_relations and hasattr(t_cls, "parent_id") and getattr(row, "parent_id", None):
+                                parent_row = (await db.execute(select(t_cls).where(t_cls.id == getattr(row, "parent_id")))).scalar_one_or_none()
+                                if parent_row:
+                                    p_parent_dict = serialize_safe_record(parent_row, meta)
+                                    parent_relations["parent"] = p_parent_dict
+                                    if hasattr(t_cls, "parent_id") and getattr(parent_row, "parent_id", None):
+                                        root_row = (await db.execute(select(t_cls).where(t_cls.id == getattr(parent_row, "parent_id")))).scalar_one_or_none()
+                                        if root_row:
+                                            r_dict = serialize_safe_record(root_row, meta)
+                                            parent_relations["root"] = r_dict
+                                            parent_relations["grandparent"] = r_dict
+
+                    if not key_resolved:
+                        # Если не найдено в самой модели, ищем через связи (внешние ключи)
+                        for f in meta.get_column_fields():
+                            if f.foreign_key or f.name.endswith("_id"):
+                                t_meta = _resolve_relation_meta(f)
+                                if t_meta:
+                                    rel_cls = t_meta.model_cls
+                                    rel_col = getattr(rel_cls, full_key, None)
+                                    if rel_col is not None:
+                                        rel_row = (await db.execute(select(rel_cls).where(rel_col == val))).scalar_one_or_none()
+                                        if rel_row:
+                                            rel_dict = serialize_safe_record(rel_row, t_meta)
+                                            if "parent" not in parent_relations:
+                                                parent_relations["parent"] = rel_dict
+                                            parent_record.update(rel_dict)
+                                            key_resolved = True
+                                            if hasattr(rel_cls, "parent_id") and getattr(rel_row, "parent_id", None):
+                                                gp_row = (await db.execute(select(rel_cls).where(rel_cls.id == getattr(rel_row, "parent_id")))).scalar_one_or_none()
+                                                if gp_row:
+                                                    gp_dict = serialize_safe_record(gp_row, t_meta)
+                                                    parent_relations["root"] = gp_dict
+                                                    parent_relations["grandparent"] = gp_dict
+                                            break
+                if not key_resolved:
+                    return None
     if keys and not parent_record:
         return None
 
@@ -735,15 +807,16 @@ async def _render_collection_node(
         stmt = stmt.limit(50)
         rows = (await db.execute(stmt)).scalars().all()
         for r in rows:
-            items.append(r.to_dict() if hasattr(r, "to_dict") else {c.name: getattr(r, c.name, None) for c in model_cls.__table__.columns})
+            items.append(serialize_safe_record(r, meta))
 
     # 3. Формируем хлебные крошки
-    breadcrumbs = []
-    for p in parents:
-        p_url = resolve_template(p.get("url_pattern", "/"), parent_record, parent_relations)
-        p_title = resolve_template(p.get("title", ""), parent_record, parent_relations)
-        breadcrumbs.append((p_title, p_url))
-    breadcrumbs.append((resolved_title, current_path))
+    breadcrumbs = _build_breadcrumbs(
+        parents=parents,
+        current_title=resolved_title,
+        current_path=current_path,
+        record=parent_record,
+        relations=parent_relations
+    )
 
     # 4. Собираем HTML (через Jinja2 шаблон или стандартный построитель)
     template_str = (node.get("template") or "").strip()
@@ -864,7 +937,7 @@ async def _render_detail_node(
         if not row:
             return None
 
-        record = row.to_dict() if hasattr(row, "to_dict") else {c.name: getattr(row, c.name, None) for c in model_cls.__table__.columns}
+        record = serialize_safe_record(row, meta)
 
         # Загружаем связанные сущности (Foreign Keys)
         relations = {}
@@ -879,17 +952,26 @@ async def _render_detail_node(
                     t_cls = target_meta.model_cls
                     rel_row = (await db.execute(select(t_cls).where(t_cls.id == fk_val))).scalar_one_or_none()
                     if rel_row:
-                        r_dict = rel_row.to_dict() if hasattr(rel_row, "to_dict") else {c.name: getattr(rel_row, c.name, None) for c in t_cls.__table__.columns}
+                        r_dict = serialize_safe_record(rel_row, target_meta)
                         relations[rel_name] = r_dict
                         relations["parent"] = r_dict
                         # Если у родителя тоже есть parent_id (дедушка / корневой раздел)
                         if hasattr(t_cls, "parent_id") and getattr(rel_row, "parent_id", None):
                             gp_row = (await db.execute(select(t_cls).where(t_cls.id == getattr(rel_row, "parent_id")))).scalar_one_or_none()
                             if gp_row:
-                                gp_dict = gp_row.to_dict() if hasattr(gp_row, "to_dict") else {c.name: getattr(gp_row, c.name, None) for c in t_cls.__table__.columns}
+                                gp_dict = serialize_safe_record(gp_row, target_meta)
                                 relations["root"] = gp_dict
                                 relations["grandparent"] = gp_dict
                                 relations["category_parent"] = gp_dict
+        # Валидируем, что сущность действительно принадлежит указанным в URL родительским сущностям
+        for full_key, clean_key in keys:
+            if "." in full_key:
+                r_prefix, f_name = full_key.split(".", 1)
+                expected_val = str(extracted_params.get(clean_key) or "")
+                actual_val = str((relations.get(r_prefix) or relations.get("parent") or {}).get(f_name) or "")
+                if expected_val and (not actual_val or expected_val != actual_val):
+                    return None
+
     field_names = [f.name for f in meta.get_column_fields()]
     fallback_title_field = next((f for f in ["title", "name", "caption", "header"] if f in field_names), "title")
     fallback_desc_field = next((f for f in ["description", "first_post_text", "content", "summary", "text"] if f in field_names), "description")
@@ -916,12 +998,13 @@ async def _render_detail_node(
     resolved_img = resolve_template(raw_img, record, relations) or None
 
     # Хлебные крошки
-    breadcrumbs = []
-    for p in parents:
-        p_title = resolve_template(p.get("title", ""), record, relations)
-        p_url = resolve_template(p.get("url_pattern", "/"), record, relations)
-        breadcrumbs.append((p_title, p_url))
-    breadcrumbs.append((resolved_title, current_path))
+    breadcrumbs = _build_breadcrumbs(
+        parents=parents,
+        current_title=resolved_title,
+        current_path=current_path,
+        record=record,
+        relations=relations
+    )
 
     template_str = (node.get("template") or "").strip()
     if template_str:
@@ -978,26 +1061,33 @@ async def collect_site_tree_sitemap_urls() -> List[Dict[str, Any]]:
         if not node.get("sitemap_enabled", True):
             continue
 
-        node_type = node.get("node_type", "static")
         pattern = node.get("url_pattern", "")
         priority = float(node.get("sitemap_priority", 0.7))
         changefreq = node.get("sitemap_changefreq", "daily")
 
+        # Автоопределение типа узла, если не задан явно
+        node_type = node.get("node_type")
+        if not node_type:
+            if node.get("model_key"):
+                node_type = "detail" if "{" in pattern else "collection"
+            else:
+                node_type = "static"
+
         if node_type == "static":
-            if pattern:
+            if pattern and "{" not in pattern and "}" not in pattern:
                 collected.append({
                     "loc": pattern,
                     "priority": priority,
                     "changefreq": changefreq,
                 })
-        elif node_type == "collection":
-            if "{" not in pattern:
-                collected.append({
-                    "loc": pattern,
-                    "priority": priority,
-                    "changefreq": changefreq,
-                })
-        elif node_type == "detail":
+        elif node_type == "collection" and "{" not in pattern and "}" not in pattern:
+            collected.append({
+                "loc": pattern,
+                "priority": priority,
+                "changefreq": changefreq,
+            })
+        else:
+            # Параметризованный узел (detail или параметризованная коллекция) с привязкой к модели
             model_key = node.get("model_key")
             meta = _get_model_meta(model_key)
             if not meta:
@@ -1008,7 +1098,7 @@ async def collect_site_tree_sitemap_urls() -> List[Dict[str, Any]]:
                 stmt = select(model_cls).limit(50000)
                 rows = (await db.execute(stmt)).scalars().all()
                 for r in rows:
-                    rec = r.to_dict() if hasattr(r, "to_dict") else {c.name: getattr(r, c.name, None) for c in model_cls.__table__.columns}
+                    rec = serialize_safe_record(r, meta)
 
                     relations = {}
                     for f in meta.get_column_fields():
@@ -1022,17 +1112,22 @@ async def collect_site_tree_sitemap_urls() -> List[Dict[str, Any]]:
                                 t_cls = t_meta.model_cls
                                 r_row = (await db.execute(select(t_cls).where(t_cls.id == fk_val))).scalar_one_or_none()
                                 if r_row:
-                                    r_dict = r_row.to_dict() if hasattr(r_row, "to_dict") else {c.name: getattr(r_row, c.name, None) for c in t_cls.__table__.columns}
+                                    r_dict = serialize_safe_record(r_row, t_meta)
                                     relations[rel_name] = r_dict
                                     relations["parent"] = r_dict
+                                    if hasattr(t_cls, "parent_id") and getattr(r_row, "parent_id", None):
+                                        gp_row = (await db.execute(select(t_cls).where(t_cls.id == getattr(r_row, "parent_id")))).scalar_one_or_none()
+                                        if gp_row:
+                                            gp_dict = serialize_safe_record(gp_row, t_meta)
+                                            relations["root"] = gp_dict
+                                            relations["grandparent"] = gp_dict
 
                     loc = resolve_template(pattern, rec, relations)
-                    if loc and "{" not in loc:
+                    if loc and "{" not in loc and "}" not in loc and not re.search(r"(?<!:)//", loc):
                         collected.append({
                             "loc": loc,
                             "priority": priority,
                             "changefreq": changefreq,
                             "lastmod": rec.get("updated_at") or rec.get("created_at"),
                         })
-
     return collected

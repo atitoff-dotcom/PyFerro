@@ -433,9 +433,9 @@ async def test_live_ws_and_cookie_audit_real_users_without_passwords_and_no_hand
             db.add(u_combo)
         else:
             u_combo.roles = [role_mgr, role_aud]
+        await db.flush()
         await db.refresh(u_mgr)
         await db.refresh(u_combo)
-
         # Добавляем активное замещение (UserDelegation), чтобы проверить загрузку delegations_received при логине
         delegation = UserDelegation(
             from_user_id=u_mgr.id,

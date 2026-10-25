@@ -10,9 +10,9 @@ import os
 import mimetypes
 from pathlib import Path
 from pyferro.core.router import http_route
-from pyferro.core.http import extract_cookies, extract_session_token
+from pyferro.core.http import extract_cookies, extract_session_token, extract_session_tokens
 from pyferro.core.logger import logger
-from pyferro.plugins.crud.auth import get_crud_session
+from pyferro.plugins.crud.auth import get_crud_session, get_crud_session_async
 
 PLUGIN_STATIC_DIR = Path(__file__).parent / "static"
 EXAMPLES_PUBLIC_DIR = Path(__file__).resolve().parent.parent.parent.parent / "examples" / "admin_help" / "public"
@@ -28,7 +28,7 @@ def _get_static_dir() -> Path:
 @http_route("/admin/help/*", methods=["GET"])
 async def serve_help_static(scope, proto) -> None:
     """Раздает статику раздела /admin/help с Zero-Leakage 404 защитой."""
-    path = getattr(scope, "path", "/admin/help")
+    path = getattr(scope, "path", None) or (scope.get("path", "/admin/help") if isinstance(scope, dict) else "/admin/help")
 
     if path == "/admin/help":
         proto.response_str(
@@ -42,17 +42,19 @@ async def serve_help_static(scope, proto) -> None:
         return
 
     # Проверка Zero-Leakage 404 (требуется admin или adm-*)
-    token = extract_session_token(scope)
-    session_data = get_crud_session(token) if token else None
-    roles = session_data.get("roles", []) if session_data else []
-    is_admin = bool(
-        session_data and (
-            session_data.get("is_superadmin")
-            or str(session_data.get("role") or "").lower() == "admin"
-            or "admin" in roles
-            or any(isinstance(r, str) and (r == "admin" or r.startswith("adm-")) for r in roles)
-        )
-    )
+    candidate_tokens = extract_session_tokens(scope)
+    session_data = None
+    token = ""
+    for cand in candidate_tokens:
+        session_data = await get_crud_session_async(cand)
+        if session_data:
+            token = cand
+            break
+
+    from pyferro.core.identity import get_session_identity
+    identity = get_session_identity(session_data)
+    is_admin = identity.has_admin_access if identity else False
+    roles = identity.roles if identity else []
 
     # В режиме без пользовательского приложения (чистый dev-старт) Справка открыта для гостя,
     # позволяя протестировать сокеты и войти под учетной записью администратора.

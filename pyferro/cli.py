@@ -18,72 +18,45 @@ from pyferro.auth.models import User, Role
 from pyferro.auth.discovery import sync_rpc_permissions
 
 
-async def ensure_system_roles_exist(db) -> tuple[Role, Role, Role, Role]:
-    """Гарантирует наличие обязательных системных ролей admin, guest, adm-help и seo."""
-    stmt_roles = select(Role).where(Role.name.in_([ADMIN_ROLE, GUEST_ROLE, ADM_HELP_ROLE, SEO_ROLE]))
-    existing = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
-
-    if ADMIN_ROLE not in existing:
-        admin_role = Role(name=ADMIN_ROLE, description="Системный администратор (Superadmin)")
-        db.add(admin_role)
-        existing[ADMIN_ROLE] = admin_role
-
-    if GUEST_ROLE not in existing:
+async def ensure_system_roles_exist(db) -> tuple[None, Role, None, None]:
+    """Гарантирует наличие обязательной встроенной роли guest."""
+    stmt_roles = select(Role).where(Role.name == GUEST_ROLE)
+    guest_role = (await db.execute(stmt_roles)).scalar_one_or_none()
+    if not guest_role:
         guest_role = Role(name=GUEST_ROLE, description="Гость / Неавторизованный посетитель")
         db.add(guest_role)
-        existing[GUEST_ROLE] = guest_role
-
-    if ADM_HELP_ROLE not in existing:
-        help_role = Role(name=ADM_HELP_ROLE, description="Администратор раздела Справки и API (Help & API Explorer)")
-        db.add(help_role)
-        existing[ADM_HELP_ROLE] = help_role
-
-    if SEO_ROLE not in existing:
-        seo_role = Role(name=SEO_ROLE, description="Поисковая оптимизация и индексация (SEO Bot / Crawler)")
-        db.add(seo_role)
-        existing[SEO_ROLE] = seo_role
-
-    await db.commit()
-    await db.refresh(existing[ADMIN_ROLE])
-    await db.refresh(existing[GUEST_ROLE])
-    await db.refresh(existing[ADM_HELP_ROLE])
-    await db.refresh(existing[SEO_ROLE])
-    return existing[ADMIN_ROLE], existing[GUEST_ROLE], existing[ADM_HELP_ROLE], existing[SEO_ROLE]
+        await db.commit()
+        await db.refresh(guest_role)
+    return None, guest_role, None, None
 
 
 async def async_create_superuser(username: str, password: str, email: str = None) -> None:
-    """Асинхронно создает пользователя с ролью администратора (admin)."""
+    """Асинхронно создает пользователя с правами суперадминистратора."""
     # Гарантируем создание таблиц
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     async with system_db_session() as db:
-        roles = await ensure_system_roles_exist(db)
-        admin_role = roles[0]
-
-        # Ищем или создаем пользователя
-        from sqlalchemy.orm import selectinload
-        stmt_user = select(User).options(selectinload(User.roles)).where(User.login == username)
+        stmt_user = select(User).where(User.login == username)
         user = (await db.execute(stmt_user)).scalar_one_or_none()
 
         pwd_hash = User._hash_password(password)
         if user:
             user.password_hash = pwd_hash
+            user.is_superadmin = True
             if email:
                 user.email = email
-            if admin_role not in user.roles:
-                user.roles.append(admin_role)
-            print(f"[OK] Пользователь '{username}' обновлен и наделен правами администратора ({ADMIN_ROLE}).")
+            print(f"[OK] Пользователь '{username}' обновлен и наделен правами суперадминистратора (is_superadmin=True).")
         else:
             user = User(
                 login=username,
                 name=username,
                 email=email,
                 password_hash=pwd_hash,
+                is_superadmin=True,
             )
-            user.roles.append(admin_role)
             db.add(user)
-            print(f"[OK] Администратор '{username}' успешно создан с ролью '{ADMIN_ROLE}'.")
+            print(f"[OK] Суперадминистратор '{username}' успешно создан.")
 
         await db.commit()
 
@@ -92,15 +65,14 @@ async def async_create_superuser(username: str, password: str, email: str = None
 
 
 async def async_set_password(login: str = "admin", password: str = None) -> str:
-    """Обновляет пароль пользователя в существующей БД и гарантирует включение в роль admin."""
+    """Обновляет пароль пользователя в существующей БД и наделяет правами суперадминистратора."""
     import secrets
     import string
     if not password:
         chars = string.ascii_letters + string.digits + "!@#$%^&*"
         password = "".join(secrets.choice(chars) for _ in range(16))
     async with system_db_session() as db:
-        from sqlalchemy.orm import selectinload
-        stmt = select(User).options(selectinload(User.roles)).where(User.login == login)
+        stmt = select(User).where(User.login == login)
         user = (await db.execute(stmt)).scalar_one_or_none()
         if not user:
             raise ValueError(
@@ -108,16 +80,7 @@ async def async_set_password(login: str = "admin", password: str = None) -> str:
                 "Схема данных и пользователи должны быть предварительно инициализированы приложением."
             )
 
-        stmt_role = select(Role).where(Role.name == ADMIN_ROLE)
-        admin_role = (await db.execute(stmt_role)).scalar_one_or_none()
-        if not admin_role:
-            admin_role = Role(name=ADMIN_ROLE, description="Системный администратор (Superadmin)")
-            db.add(admin_role)
-            await db.flush()
-
-        if admin_role not in user.roles:
-            user.roles.append(admin_role)
-
+        user.is_superadmin = True
         user.password_hash = User._hash_password(password)
         await db.commit()
         return password

@@ -71,8 +71,10 @@ def get_crud_session(token: str) -> Optional[Dict[str, Any]]:
                 or payload.get("is_superadmin")
                 or role in ("admin", "ADMIN", "superadmin")
             )
-            raw_sub = payload.get("sub", 1)
-            uid = int(raw_sub) if str(raw_sub).isdigit() else 1
+            raw_sub = payload.get("sub")
+            if raw_sub is None or not str(raw_sub).isdigit() or int(raw_sub) <= 0:
+                return None
+            uid = int(raw_sub)
             return {
                 "uid": uid,
                 "user_id": uid,
@@ -87,6 +89,86 @@ def get_crud_session(token: str) -> Optional[Dict[str, Any]]:
         pass
 
     return None
+
+
+async def get_crud_session_async(token: str) -> Optional[Dict[str, Any]]:
+    """
+    Асинхронно возвращает сессию администратора.
+    1. Проверяет быстрый путь (память, SSO валидатор, JWT).
+    2. При отсутствии или истечении JWT делает fallback-проверку в базе данных (таблица RefreshToken),
+       точно так же, как WebSocket auto_auth, и кэширует результат в память.
+    """
+    if not token:
+        return None
+
+    sdata = get_crud_session(token)
+    if sdata:
+        return sdata
+
+    try:
+        from datetime import datetime, timezone
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from pyferro.db import system_db_session
+        from pyferro.auth.models import User, Role, RefreshToken
+
+        async with system_db_session() as db:
+            stmt_rt = select(RefreshToken).where(
+                RefreshToken.token == token,
+                RefreshToken.expires_at > datetime.now(timezone.utc)
+            )
+            rt_obj = (await db.execute(stmt_rt)).scalar_one_or_none()
+            if not rt_obj:
+                return None
+
+            stmt_user = select(User).options(
+                selectinload(User.roles).selectinload(Role.permissions),
+                selectinload(User.roles).selectinload(Role.rpc_permissions),
+                selectinload(User.teams),
+                selectinload(User.permissions),
+                selectinload(User.rpc_permissions),
+                selectinload(User.delegations_received),
+            ).where(User.id == rt_obj.user_id)
+            user = (await db.execute(stmt_user)).scalar_one_or_none()
+            if not user:
+                return None
+
+            raw_roles = [r.name for r in user.roles] if user.roles else []
+            admin_scopes = user.get_admin_roles() if hasattr(user, "get_admin_roles") else set()
+            is_superadmin = getattr(user, "is_superadmin", False)
+            if is_superadmin:
+                role_names = ["admin"]
+                role_name = "admin"
+            else:
+                role_names = list(set(raw_roles) | admin_scopes) if (raw_roles or admin_scopes) else ["user"]
+                role_name = raw_roles[0] if raw_roles else (sorted(admin_scopes)[0] if admin_scopes else "user")
+
+            is_admin = bool(
+                is_superadmin
+                or role_name in ("admin", "ADMIN")
+                or "admin" in role_names
+                or "ADMIN" in role_names
+                or any(isinstance(r, str) and (r == "admin" or r.startswith("adm_")) for r in role_names)
+            )
+            if not is_admin:
+                return None
+
+            perms = user._get_permissions_dict() if hasattr(user, "_get_permissions_dict") else {}
+            allowed_rpc = {"*"} if is_superadmin else (user.get_permissions().allowed_rpc_methods if hasattr(user, "get_permissions") else {"*"})
+            user_info = {
+                "uid": user.id,
+                "user_id": user.id,
+                "username": user.login,
+                "role": role_name,
+                "roles": role_names,
+                "is_superadmin": is_superadmin,
+                "perms_dict": perms,
+                "allowed_rpc_methods": allowed_rpc,
+            }
+            create_crud_session(user_info, token=token)
+            return user_info
+    except Exception:
+        return None
 
 
 def revoke_crud_session(token: str) -> None:

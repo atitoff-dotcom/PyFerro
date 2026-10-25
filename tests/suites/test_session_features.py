@@ -167,8 +167,8 @@ async def test_guest_vs_user_idle_and_auth_timeout():
     except asyncio.CancelledError:
         pass
 
-    # Restore default auth_timeout=0
-    configure(auth_timeout=0)
+    # Restore defaults
+    configure(auth_timeout=0, guest_idle_timeout=0, user_idle_timeout=0)
     await session.close()
     await session2.close()
 

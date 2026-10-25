@@ -21,7 +21,7 @@ from pyferro.core.session import (
     is_guest_rpc_allowed,
     is_framework_handler,
 )
-from pyferro.core.constants import ADMIN_ROLE
+from pyferro.core.constants import ADMIN_ROLE, is_system_rpc_name
 from pyferro.db import system_db_session
 from .models import Role, User, RolePermission, UserPermission, RpcPermission
 
@@ -95,7 +95,7 @@ async def handle_permissions_get_schema(session: JsonRpcSession, all: bool = Fal
     for name in sorted(RPC_REGISTRY.keys()):
         if name in seen:
             continue
-        if not all and (name.startswith("crud.") or name.startswith("permissions.") or name in ("system.ping", "system.status", "system.ws_status")):
+        if not all and is_system_rpc_name(name):
             continue
         seen.add(name)
         group = name.split(".")[0] if "." in name else "other"
@@ -143,7 +143,7 @@ async def handle_permissions_get_schema(session: JsonRpcSession, all: bool = Fal
             # Также добавляем методы из БД, которых еще не было в rpc_list
             for db_item in db_rpcs:
                 if db_item.name not in seen:
-                    if not all and (db_item.name.startswith("crud.") or db_item.name.startswith("permissions.")):
+                    if not all and is_system_rpc_name(db_item.name):
                         continue
                     if db_item.name not in RPC_REGISTRY and not db_item.name.endswith("*"):
                         continue
@@ -380,8 +380,15 @@ async def handle_permissions_save(
                     ).where(Role.name == GUEST_ROLE)
                     guest_role = (await db.execute(stmt_guest)).scalar_one()
 
-                # 1. Обновляем RPC-права для роли guest
-                final_rpc_names = set(rpc_permissions)
+                # 1. Обновляем RPC-права для роли guest (строго публичные методы, запрет adm_*)
+                final_rpc_names = {
+                    m for m in rpc_permissions
+                    if not (
+                        m.startswith("crud.")
+                        or m.startswith("permissions.")
+                        or (RPC_REGISTRY.get(m) and getattr(RPC_REGISTRY[m], "scopes", None))
+                    )
+                }
                 for name in RPC_REGISTRY.keys():
                     if name.startswith("login.") or (bool(login_rpc) and name.startswith(login_rpc)):
                         final_rpc_names.add(name)
@@ -398,13 +405,15 @@ async def handle_permissions_save(
 
                 guest_role.rpc_permissions = rpc_objs
 
-                # 2. Обновляем CRUD-права для роли guest (строго только can_read)
+                # 2. Обновляем CRUD-права для роли guest (строго только can_read, запрет auth-моделей)
                 for old_p in list(guest_role.permissions):
                     await db.delete(old_p)
                 guest_role.permissions.clear()
 
                 for m_name, p_data in crud_permissions.items():
                     if p_data.get("can_read"):
+                        if m_name in ("User", "Role", "UserRole", "RefreshToken", "ActiveSession", "UserDelegation", "OAuthAccount", "RpcPermission"):
+                            continue
                         perm_obj = RolePermission(
                             role_id=guest_role.id,
                             model_name=m_name,
@@ -417,7 +426,6 @@ async def handle_permissions_save(
                             delete_global=False
                         )
                         db.add(perm_obj)
-
                 await db.commit()
                 from .discovery import reload_guest_permissions_cache
                 await reload_guest_permissions_cache()

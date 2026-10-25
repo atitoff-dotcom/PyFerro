@@ -316,7 +316,7 @@ async def test_crud_sso_and_zero_leakage_404():
     assert proto_admin.file_path is not None and "index.html" in proto_admin.file_path
 
     # 4. Запрос пользователя с ролью adm-seo на канонический маршрут /admin/seo -> 200 OK
-    seo_token = create_crud_session({"username": "seo_alex", "role": "adm-seo", "roles": ["adm-seo"]})
+    seo_token = create_crud_session({"username": "seo_alex", "role": "adm_seo", "roles": ["adm_seo"]})
     scope_seo = MockScope(path="/admin/seo", cookie=f"ferro_crud_session={seo_token}")
     proto_seo = MockRsgiProto()
     await serve_crud_static(scope_seo, proto_seo)

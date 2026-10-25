@@ -8,7 +8,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from uuid import UUID
 
-from pyferro.core.http import extract_header, extract_query_params
+from pyferro.core.http import extract_header, extract_query_params, extract_cookies
 from pyferro.core.logger import logger
 from .detector import is_bot
 from .renderer import render_404_html, render_seo_page
@@ -102,8 +102,8 @@ def bot_page(path: str) -> Callable:
 async def handle_bot_http(scope: Any, proto: Any) -> bool:
     """
     RSGI-перехватчик входящих HTTP-запросов для Dynamic Rendering.
-    Если клиент является ботом и запрошен маршрут, возвращает True (обработано).
-    Если не бот или маршрут не зарегистрирован, возвращает False (пропустить дальше).
+    Если клиент является ботом (или активна сессия эмуляции ?bot=1 / cookie pf_bot_mode=1),
+    генерирует чистый семантический SSR HTML для краулера.
     """
     # 1. Проверяем метод (боты индексируют только GET и HEAD)
     method = getattr(scope, "method", None)
@@ -112,28 +112,60 @@ async def handle_bot_http(scope: Any, proto: Any) -> bool:
     if method not in ("GET", "HEAD"):
         return False
 
-    # 2. Проверяем, является ли клиент поисковым ботом
-    # (также поддерживаем отладочный параметр ?bot=1 для удобного тестирования из обычного браузера)
-    query_params = extract_query_params(scope)
-    is_debug_bot = query_params.get("bot") in ("1", "true")
-    if not (is_debug_bot or is_bot(scope)):
-        return False
-
     path = getattr(scope, "path", None)
     if path is None and isinstance(scope, dict):
         path = scope.get("path")
     if not path:
         return False
 
-    # 3. Ищем совпадающий бот-маршрут
+    query_params = extract_query_params(scope)
+    bot_param = query_params.get("bot")
+
+    # 1.1. Выход из режима эмуляции (?bot=0 или ?bot=false)
+    # Сбрасывает сессионную куку и выполняет 302 редирект на чистый URL
+    if bot_param in ("0", "false"):
+        clean_path = path or "/"
+        proto.response_str(
+            status=302,
+            headers=[
+                ("location", clean_path),
+                ("set-cookie", "pf_bot_mode=; Path=/; Max-Age=0; SameSite=Lax"),
+            ],
+            body=""
+        )
+        return True
+
+    # 1.2. Проверяем сессионную куку эмуляции и параметр URL
+    cookies = extract_cookies(scope)
+    cookie_bot = cookies.get("pf_bot_mode") in ("1", "true")
+    param_bot = bot_param in ("1", "true")
+
+    is_emulation = param_bot or cookie_bot
+    is_search_bot = is_bot(scope)
+
+    if not (is_emulation or is_search_bot):
+        return False
+
+    def _make_headers(extra_headers: Optional[List[Tuple[str, str]]] = None) -> List[Tuple[str, str]]:
+        headers: List[Tuple[str, str]] = [
+            ("content-type", "text/html; charset=utf-8"),
+            ("x-rendered-for", "bot"),
+        ]
+        if param_bot:
+            # Сессионная кука без Max-Age/Expires: действует на сессию вкладки и исчезает при её закрытии
+            headers.append(("set-cookie", "pf_bot_mode=1; Path=/; SameSite=Lax"))
+        if extra_headers:
+            headers.extend(extra_headers)
+        return headers
+
+    # 3. Ищем совпадающий зарегистрированный бот-маршрут (@bot_page)
     for route in BOT_ROUTES:
         params = route.match(path)
         if params is None:
             continue
 
-        # Маршрут совпал! Вызываем хендлер
         ua = extract_header(scope, "user-agent", default="unknown")
-        logger.info(f"[SEO] Бот '{ua}' запросил '{path}'. Рендеринг через {route.handler.__name__}...")
+        logger.info(f"[SEO] Бот '{ua}' запросил '{path}'. Рендеринг через {route.handler.__name__} (emulation={is_emulation})...")
 
         try:
             if route.is_async:
@@ -149,13 +181,12 @@ async def handle_bot_http(scope: Any, proto: Any) -> bool:
             )
             return True
 
-        # Если хендлер вернул None — отдаем 404
         if page_data is None:
             logger.info(f"[SEO] Объект не найден ({path}). Отдаем 404.")
             proto.response_str(
                 status=404,
-                headers=[("content-type", "text/html; charset=utf-8")],
-                body=render_404_html()
+                headers=_make_headers(),
+                body=render_404_html(is_emulation=is_emulation)
             )
             return True
 
@@ -163,41 +194,53 @@ async def handle_bot_http(scope: Any, proto: Any) -> bool:
             logger.warning(f"[SEO] Хендлер {route.handler.__name__} вернул {type(page_data)} вместо SeoPageData.")
             return False
 
-        # Рендерим семантический HTML
         host = extract_header(scope, "host")
-        html_content = render_seo_page(page_data, current_path=path, host=host)
+        html_content = render_seo_page(page_data, current_path=path, host=host, is_emulation=is_emulation)
 
         proto.response_str(
             status=200,
-            headers=[
-                ("content-type", "text/html; charset=utf-8"),
-                ("x-rendered-for", "bot"),
-            ],
+            headers=_make_headers(),
             body=html_content
         )
         return True
 
-    # 4. Проверяем Живое дерево сайта (Site Tree Engine)
+    # 4. Проверяем кэш для Site Tree Engine и динамических правил
+    from .page_cache import get_cached, set_cached
+    found, cached = get_cached(path)
+    if found:
+        if cached is None:
+            # Отрицательный кэш (страница гарантированно не существует)
+            return False
+        engine_name, page_data = cached
+        host = extract_header(scope, "host")
+        html_content = render_seo_page(page_data, current_path=path, host=host, is_emulation=is_emulation)
+        proto.response_str(
+            status=200,
+            headers=_make_headers([("x-seo-engine", engine_name)]),
+            body=html_content
+        )
+        return True
+
+    # 5. Проверяем Живое дерево сайта (Site Tree Engine)
+    had_error = False
     try:
         from .site_tree import match_and_render_site_tree
         page_data = await match_and_render_site_tree(path)
         if page_data:
+            set_cached(path, ("site-tree", page_data))
             host = extract_header(scope, "host")
-            html_content = render_seo_page(page_data, current_path=path, host=host)
+            html_content = render_seo_page(page_data, current_path=path, host=host, is_emulation=is_emulation)
             proto.response_str(
                 status=200,
-                headers=[
-                    ("content-type", "text/html; charset=utf-8"),
-                    ("x-rendered-for", "bot"),
-                    ("x-seo-engine", "site-tree"),
-                ],
+                headers=_make_headers([("x-seo-engine", "site-tree")]),
                 body=html_content
             )
             return True
     except Exception as e:
+        had_error = True
         logger.error(f"[SEO] Ошибка обработки дерева сайта для {path}: {e}", exc_info=True)
 
-    # 5. Проверяем динамические No-Code правила моделей из админки (legacy fallback)
+    # 6. Проверяем динамические No-Code правила моделей из админки (legacy fallback)
     try:
         from .config import get_seo_config
         from .dynamic_rules import match_and_render_model_rule
@@ -205,21 +248,23 @@ async def handle_bot_http(scope: Any, proto: Any) -> bool:
         if cfg.model_rules:
             page_data = await match_and_render_model_rule(path, cfg.model_rules)
             if page_data:
+                set_cached(path, ("dynamic-model-rule", page_data))
                 host = extract_header(scope, "host")
-                html_content = render_seo_page(page_data, current_path=path, host=host)
+                html_content = render_seo_page(page_data, current_path=path, host=host, is_emulation=is_emulation)
                 proto.response_str(
                     status=200,
-                    headers=[
-                        ("content-type", "text/html; charset=utf-8"),
-                        ("x-rendered-for", "bot"),
-                        ("x-seo-engine", "dynamic-model-rule"),
-                    ],
+                    headers=_make_headers([("x-seo-engine", "dynamic-model-rule")]),
                     body=html_content
                 )
                 return True
     except Exception as e:
+        had_error = True
         logger.error(f"[SEO] Ошибка обработки динамического правила для {path}: {e}", exc_info=True)
-    # Ни один бот-маршрут не совпал — передаем дальше (например, в SPA fallback)
+
+    # Ни один движок страницу не нашёл — сохраняем отрицательный кэш (если не было сбоя)
+    if not had_error:
+        set_cached(path, None)
+
     return False
 
 

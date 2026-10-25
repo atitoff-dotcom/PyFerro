@@ -214,14 +214,16 @@ await broadcast_notification("order.updated", {"order_id": 105, "status": "shipp
        __tablename__ = "items"
        id: Mapped[int] = mapped_column(Integer, primary_key=True)
        title: Mapped[str] = mapped_column(String(100), info={"label": "Название"})
-       class Crud:
-           verbose_name = "Элемент"
-           verbose_name_plural = "Элементы"
-           hidden = {"secret_col"}
-           readonly = {"created_at"}
-           protected = {"owner_id"}
-   ```
+        class Crud:
+            verbose_name = "Элемент"
+            verbose_name_plural = "Элементы"
+            hidden = {"secret_col"}
+            readonly = {"created_at"}
+            protected = {"owner_id"}
+            owner_columns = {"user_id"}  # Явное указание колонки владельца для RLS (если не owner_id/creator_id)
+    ```
 3. Контракт методов WSRPC: `crud.schema`, `crud.list` ($tabular), `crud.get`, `crud.create`, `crud.update_cell`, `crud.bulk_update`, `crud.delete`.
+   - 🛡 **RLS и нестандартные колонки владельца (`owner_columns`):** Если автор хранится в `user_id` или `author_id`, обязательно укажите `owner_columns = {"user_id"}` в `class Crud`. Колонка автоматически станет `protected` (защищена от подмены) и изолирует строки пользователей без `view_all`.
 4. ⚠️ **Безопасность панели (Zero-Leakage 404):**
    - Переход на `http://localhost:8080/crud` вернет **404 Not Found**, если в запросе нет Cookie сессии администратора (`ferro_crud_session` или `ferro_session`). Это защитная мера, а не ошибка роутинга!
    - **Управление паролем администратора:** утилита командной строки `python server.py --set-admin-password [пароль] --login admin` безопасно обновляет пароль в БД (строго DML, PBKDF2-SHA256).
@@ -248,6 +250,10 @@ async def article_seo(slug: str):
         og_image=article.cover_url
     )
 ```
+
+- **Кэш страниц и отрицательный кэш 404:**  
+  Встроенный LRU TTL-кэш защищает БД от спам-перебора URL поисковыми краулерами и сканерами.
+  Переменные окружения: `SEO_CACHE_TTL=60` (сек, `0` для отключения кэша), `SEO_CACHE_NEGATIVE_TTL=30` (кэш промахов 404), `SEO_CACHE_MAX_ENTRIES=5000`.
 
 ---
 

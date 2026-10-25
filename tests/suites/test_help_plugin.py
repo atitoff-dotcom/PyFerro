@@ -15,7 +15,7 @@ from pyferro.plugins.help.handlers import (
 
 
 def test_help_system_role_constant():
-    assert ADM_HELP_ROLE == "adm-help"
+    assert ADM_HELP_ROLE == "adm_help"
     assert ADM_HELP_ROLE in SYSTEM_ROLES
 
 
@@ -25,8 +25,7 @@ async def test_help_ping():
     session.session_id = 42
     session.user_id = 1
     session.username = "tester"
-    session.user_roles = ["adm-help"]
-
+    session.user_roles = ["adm_help"]
     res = await help_ping(session)
     assert res["status"] == "pong"
     assert res["client_session_id"] == 42
@@ -164,7 +163,7 @@ async def test_help_static_zero_leakage_404_and_authorized():
     assert proto_redir.response_str.call_args[1]["status"] == 307
 
     # 3. Authenticated request with adm-help role -> 200
-    token = create_crud_session({"user_id": 1, "username": "help_user", "roles": ["adm-help"]})
+    token = create_crud_session({"user_id": 1, "username": "help_user", "roles": ["adm_help"]})
     scope_auth = MagicMock()
     scope_auth.path = "/admin/help/index.html"
     scope_auth.headers = [(b"cookie", f"ferro_crud_session={token}".encode("utf-8"))]

@@ -79,6 +79,10 @@ async def reload_active_sessions_permissions() -> int:
                 sess.data.user_ctx = user_ctx
             if hasattr(sess.data, "allowed_rpc_methods"):
                 sess.data.allowed_rpc_methods = set(getattr(user_ctx, "allowed_rpc_methods", set()))
+            if hasattr(sess.data, "role"):
+                sess.data.role = role_name
+            if hasattr(sess.data, "roles"):
+                sess.data.roles = role_names
             if hasattr(sess.data, "user_role"):
                 sess.data.user_role = role_name
             if hasattr(sess.data, "user_roles"):
@@ -263,8 +267,17 @@ def _compute_expected_rpc_access(
     target_type: str,
     is_superadmin: bool,
     effective_rpc_set: set[str],
+    target_roles: Optional[set[str]] = None,
 ) -> bool:
     """Вычисляет ожидаемый доступ к RPC-методу согласно данным БД CRUD."""
+    handler = RPC_REGISTRY.get(method_name)
+    method_scopes = getattr(handler, "scopes", None) if handler else None
+    if method_scopes:
+        if target_type == "guest":
+            return False
+        if not is_superadmin:
+            if not target_roles or not (target_roles & method_scopes):
+                return False
     if method_name.startswith("permissions."):
         return bool(is_superadmin)
 
@@ -335,11 +348,12 @@ async def audit_target_permissions(target_type: str, target_id: int) -> Dict[str
     is_superadmin = False
     effective_rpc_set: set[str] = set()
     effective_crud_dict: Dict[str, Dict[str, bool]] = {}
-
+    target_roles: set[str] = set()
     try:
         async with system_db_session() as db:
             if target_type == "guest":
                 target_name = "Гости (guest)"
+                target_roles = {GUEST_ROLE}
                 stmt_guest = select(Role).options(
                     selectinload(Role.permissions),
                     selectinload(Role.rpc_permissions),
@@ -371,6 +385,9 @@ async def audit_target_permissions(target_type: str, target_id: int) -> Dict[str
 
                 target_name = user.login or user.name
                 is_superadmin = bool(user.is_superadmin)
+                target_roles = ({r.name for r in user.roles} if user.roles else {"user"}) | user.get_admin_roles()
+                if is_superadmin:
+                    target_roles.add("admin")
                 effective_rpc_set = set(user.get_allowed_rpc_methods())
                 effective_crud_dict = user._get_permissions_dict()
 
@@ -396,7 +413,8 @@ async def audit_target_permissions(target_type: str, target_id: int) -> Dict[str
                     raise ValueError(f"Роль с ID {target_id} не найдена")
 
                 target_name = role.name
-                is_superadmin = role.name in ("admin", ADMIN_ROLE) or role.id == 1
+                is_superadmin = False
+                target_roles = {role.name}
                 effective_rpc_set = {"*"} if is_superadmin else {rp.name for rp in role.rpc_permissions}
                 for p in role.permissions:
                     effective_crud_dict[p.model_name] = {
@@ -426,6 +444,8 @@ async def audit_target_permissions(target_type: str, target_id: int) -> Dict[str
             else:
                 raise ValueError(f"Неизвестный target_type: {target_type}")
 
+        has_crud_scope = is_superadmin or bool(target_roles & {"admin", "adm_crud"})
+
         # --- ЗАПУСК РЕАЛЬНЫХ WS И HTTP COOKIE КЛИЕНТОВ ---
         rpc_results: Dict[str, Dict[str, Any]] = {}
         crud_results: Dict[str, Dict[str, Any]] = {}
@@ -434,7 +454,7 @@ async def audit_target_permissions(target_type: str, target_id: int) -> Dict[str
         if target_type == "guest":
             async with LiveWsAuditClient() as guest_client:
                 for m_name in rpc_methods:
-                    expected = _compute_expected_rpc_access(m_name, "guest", False, effective_rpc_set)
+                    expected = _compute_expected_rpc_access(m_name, "guest", False, effective_rpc_set, target_roles)
                     ws_res = await guest_client.check_access(m_name)
                     ws_actual = ws_res["allowed"]
                     match = (expected == ws_actual)
@@ -455,7 +475,7 @@ async def audit_target_permissions(target_type: str, target_id: int) -> Dict[str
                         })
 
                 for model_key in model_keys:
-                    expected_read = bool(effective_crud_dict.get(model_key, {}).get("can_read", False))
+                    expected_read = bool(effective_crud_dict.get(model_key, {}).get("can_read", False)) if has_crud_scope else False
                     read_res = await guest_client.check_access("crud.list", {"model": model_key})
                     create_res = await guest_client.check_access("crud.create", {"model": model_key})
                     update_res = await guest_client.check_access("crud.update_cell", {"model": model_key})
@@ -505,7 +525,7 @@ async def audit_target_permissions(target_type: str, target_id: int) -> Dict[str
                 async with LiveWsAuditClient(cookies=cookies) as cookie_client:
                     for m_name in rpc_methods:
                         expected = _compute_expected_rpc_access(
-                            m_name, target_type, is_superadmin, effective_rpc_set
+                            m_name, target_type, is_superadmin, effective_rpc_set, target_roles
                         )
                         ws_res = await ws_client.check_access(m_name)
                         ck_res = await cookie_client.check_access(m_name)
@@ -532,12 +552,11 @@ async def audit_target_permissions(target_type: str, target_id: int) -> Dict[str
                     for model_key in model_keys:
                         m_cfg = effective_crud_dict.get(model_key, {})
                         expected_map = {
-                            "can_create": True if is_superadmin else bool(m_cfg.get("can_create", False)),
-                            "can_read": True if is_superadmin else bool(m_cfg.get("can_read", False)),
-                            "can_update": True if is_superadmin else bool(m_cfg.get("can_update", False)),
-                            "can_delete": True if is_superadmin else bool(m_cfg.get("can_delete", False)),
+                            "can_create": True if is_superadmin else (bool(m_cfg.get("can_create", False)) if has_crud_scope else False),
+                            "can_read": True if is_superadmin else (bool(m_cfg.get("can_read", False)) if has_crud_scope else False),
+                            "can_update": True if is_superadmin else (bool(m_cfg.get("can_update", False)) if has_crud_scope else False),
+                            "can_delete": True if is_superadmin else (bool(m_cfg.get("can_delete", False)) if has_crud_scope else False),
                         }
-
                         ws_actual_map = {
                             "can_create": (await ws_client.check_access("crud.create", {"model": model_key}))["allowed"],
                             "can_read": (await ws_client.check_access("crud.list", {"model": model_key}))["allowed"],

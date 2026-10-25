@@ -363,7 +363,7 @@ async def test_admin_seo_handlers():
     # 5. User with adm-seo role is allowed access to SEO methods
     class MockSeoSession:
         is_superadmin = False
-        user = type("MockUser", (), {"is_superadmin": False, "roles": [type("R", (), {"name": "adm-seo"})()]})()
+        user = type("MockUser", (), {"is_superadmin": False, "roles": [type("R", (), {"name": "adm_seo"})()]})()
 
     seo_user = MockSeoSession()
     seo_cfg = await seo_get_config_admin(seo_user)

@@ -1,0 +1,1400 @@
+{
+  "client/smartCache.ts": {
+    "mtime": 1791565351.2681446,
+    "seen": 1792814400.886276,
+    "ast_hash": "fafab3f4e91e18f58fbdb1cc48f55120",
+    "semantic_hash": ""
+  },
+  "client/wsrpc.ts": {
+    "mtime": 1792686234.0386631,
+    "seen": 1792814400.8862822,
+    "ast_hash": "fce02a06d05684bed907b3ddc9cc5905",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/content/showcase_docs.json": {
+    "mtime": 1792676004.5120173,
+    "seen": 1792814400.886285,
+    "ast_hash": "2a383aff8ba6ba1fb60d4669c73c1904",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/App.svelte": {
+    "mtime": 1792747177.1846194,
+    "seen": 1792814400.8862865,
+    "ast_hash": "c8eeb619cee6bcfdd7d2a5f9b84158f2",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/components/CodeBox.svelte": {
+    "mtime": 1792676004.5126228,
+    "seen": 1792814400.8862877,
+    "ast_hash": "fcf33df58fde242454ecc552f05801f6",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/components/CodeInspector.svelte": {
+    "mtime": 1792676004.5126069,
+    "seen": 1792814400.886289,
+    "ast_hash": "64827a12c32707232d093694f16842c0",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/components/PyFerroLogo.svelte": {
+    "mtime": 1792676004.5123484,
+    "seen": 1792814400.88629,
+    "ast_hash": "c66d571535864894e0a2a9c7396ac466",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/components/ui/Badge.svelte": {
+    "mtime": 1792676004.5124419,
+    "seen": 1792814400.8862913,
+    "ast_hash": "bd44a7b6d0d802b1ba540061f836e49c",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/components/ui/Button.svelte": {
+    "mtime": 1792676004.5124688,
+    "seen": 1792814400.8862922,
+    "ast_hash": "e58c4f2b614a0cf8e30ef5b70f2efde7",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/components/ui/Checkbox.svelte": {
+    "mtime": 1792676004.512486,
+    "seen": 1792814400.8862932,
+    "ast_hash": "85fbd3f5dd78b4dfddc1adee1a432db2",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/components/ui/Input.svelte": {
+    "mtime": 1792676004.5125031,
+    "seen": 1792814400.8862944,
+    "ast_hash": "19d8c81d0ab3048e1fc763f915a27580",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/components/ui/Modal.svelte": {
+    "mtime": 1792676004.5125608,
+    "seen": 1792814400.8862956,
+    "ast_hash": "c612f3ff4079ce70349d40b8cb0cde29",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/components/ui/Select.svelte": {
+    "mtime": 1792676004.5125854,
+    "seen": 1792814400.8862965,
+    "ast_hash": "ab32cbd37acf7554432c0fd5ece2bb35",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/main.ts": {
+    "mtime": 1792676004.5122406,
+    "seen": 1792814400.8862977,
+    "ast_hash": "77ffd5827b74ee6dfa8af3c9e214319b",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/package.json": {
+    "mtime": 1792676004.5121732,
+    "seen": 1792814400.8862987,
+    "ast_hash": "c3a504a0ce9b577ae5a0480dc3dce9f5",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/vite-env.d.ts": {
+    "mtime": 1792676004.8694687,
+    "seen": 1792814400.8862996,
+    "ast_hash": "8ff35f7d928eca80d0960602a2ad06f1",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/vite.config.ts": {
+    "mtime": 1792676004.5122027,
+    "seen": 1792814400.8863006,
+    "ast_hash": "3a50512539778b7c239cf78ae3413e1d",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/handlers.py": {
+    "mtime": 1792676004.5067656,
+    "seen": 1792814400.8863018,
+    "ast_hash": "158e065a1d7d388cd7fd6e742be8357e",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/models.py": {
+    "mtime": 1792676004.5068657,
+    "seen": 1792814400.886303,
+    "ast_hash": "7890d4922cc5b5dd27e9948f931664a7",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/public/assets/index-D_EUQvnZ.js": {
+    "mtime": 1792747184.4389627,
+    "seen": 1792814400.886304,
+    "ast_hash": "db74f7eafdb6dc71783ac5816fc73614",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/run.ps1": {
+    "mtime": 1792676004.5074902,
+    "seen": 1792814400.886305,
+    "ast_hash": "3e8c3757d4fa406187dc83dff3ea3b41",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/run.sh": {
+    "mtime": 1792676004.5073256,
+    "seen": 1792814400.886306,
+    "ast_hash": "1c27b6173c57b051e1abd133833931ad",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/server.py": {
+    "mtime": 1792748566.3191197,
+    "seen": 1792814400.886307,
+    "ast_hash": "9f094ed4cf99024f38e29143990dcb10",
+    "semantic_hash": ""
+  },
+  "examples/seo_app.py": {
+    "mtime": 1791783978.7621536,
+    "seen": 1792814400.8863082,
+    "ast_hash": "355ebe55878abfef33d565e2fcc3bb50",
+    "semantic_hash": ""
+  },
+  "pyferro/__init__.py": {
+    "mtime": 1792775343.7364106,
+    "seen": 1792814400.8863094,
+    "ast_hash": "d70dfe998415612279078087ef7d1d2b",
+    "semantic_hash": ""
+  },
+  "pyferro/__main__.py": {
+    "mtime": 1791565102.2419713,
+    "seen": 1792814400.88631,
+    "ast_hash": "2023a33b60fcd04334999eab1af3ca44",
+    "semantic_hash": ""
+  },
+  "pyferro/app.py": {
+    "mtime": 1792687594.534518,
+    "seen": 1792814400.8863115,
+    "ast_hash": "7ac2b5a7643c7e76e5165c3761d2d722",
+    "semantic_hash": ""
+  },
+  "pyferro/auth/__init__.py": {
+    "mtime": 1792507490.10672,
+    "seen": 1792814400.8863125,
+    "ast_hash": "9dd86f43fd074f1f448aa2795915fe48",
+    "semantic_hash": ""
+  },
+  "pyferro/auth/auditor.py": {
+    "mtime": 1792451084.563231,
+    "seen": 1792814400.8863134,
+    "ast_hash": "219e0bd2b574770e1fa9d344aa7c7151",
+    "semantic_hash": ""
+  },
+  "pyferro/auth/config.py": {
+    "mtime": 1791910257.142334,
+    "seen": 1792814400.8863144,
+    "ast_hash": "0f141d1dbe782a48d9180a4953bb4d86",
+    "semantic_hash": ""
+  },
+  "pyferro/auth/core.py": {
+    "mtime": 1792652356.9345071,
+    "seen": 1792814400.8863156,
+    "ast_hash": "01d330f692d588dd47093da51f04bc4b",
+    "semantic_hash": ""
+  },
+  "pyferro/auth/discovery.py": {
+    "mtime": 1792681281.7428718,
+    "seen": 1792814400.8863163,
+    "ast_hash": "28e0200853d5f2673664e30727314cab",
+    "semantic_hash": ""
+  },
+  "pyferro/auth/handlers.py": {
+    "mtime": 1792686195.2838957,
+    "seen": 1792814400.8863173,
+    "ast_hash": "3ce45109a39fe62854cb12de95e9b60c",
+    "semantic_hash": ""
+  },
+  "pyferro/auth/models.py": {
+    "mtime": 1792681212.378725,
+    "seen": 1792814400.8863184,
+    "ast_hash": "3956d0cfaee5d192614c1e0e35502ac2",
+    "semantic_hash": ""
+  },
+  "pyferro/auth/oauth.py": {
+    "mtime": 1791910257.142518,
+    "seen": 1792814400.8863194,
+    "ast_hash": "8f743f2571e14dfbe26b8d6d4bd19e48",
+    "semantic_hash": ""
+  },
+  "pyferro/auth/permission_handlers.py": {
+    "mtime": 1792579832.025598,
+    "seen": 1792814400.8863204,
+    "ast_hash": "8290406fdcf671e978c4a3813bc89e0b",
+    "semantic_hash": ""
+  },
+  "pyferro/auth/permissions.py": {
+    "mtime": 1792007127.4183972,
+    "seen": 1792814400.8863213,
+    "ast_hash": "1004ec5a8150ffc709d5ff20bd1a50af",
+    "semantic_hash": ""
+  },
+  "pyferro/auth/security.py": {
+    "mtime": 1792005169.0415099,
+    "seen": 1792814400.8863225,
+    "ast_hash": "53b977c112cd7226099a89611a6a6444",
+    "semantic_hash": ""
+  },
+  "pyferro/broadcast.py": {
+    "mtime": 1792367879.6085865,
+    "seen": 1792814400.8863235,
+    "ast_hash": "e159d4036b834c7433345c5c78b75ea7",
+    "semantic_hash": ""
+  },
+  "pyferro/cli.py": {
+    "mtime": 1792675906.1238756,
+    "seen": 1792814400.8863244,
+    "ast_hash": "986889c2256cfdde9c02d98a107639ba",
+    "semantic_hash": ""
+  },
+  "pyferro/core/__init__.py": {
+    "mtime": 1792375161.586837,
+    "seen": 1792814400.8863256,
+    "ast_hash": "1b65c290ea1f0a7caf3bba564f5c662e",
+    "semantic_hash": ""
+  },
+  "pyferro/core/backplane.py": {
+    "mtime": 1791141701.7766075,
+    "seen": 1792814400.8863266,
+    "ast_hash": "4bd83fb3e3ac9b3a6b997fada110770c",
+    "semantic_hash": ""
+  },
+  "pyferro/core/constants.py": {
+    "mtime": 1792675736.871224,
+    "seen": 1792814400.8863275,
+    "ast_hash": "374585c3effc860ff0f4f2377a44ba32",
+    "semantic_hash": ""
+  },
+  "pyferro/core/http.py": {
+    "mtime": 1791791677.1671429,
+    "seen": 1792814400.8863297,
+    "ast_hash": "25bb0ecb041a84bc9cad0f63b273c135",
+    "semantic_hash": ""
+  },
+  "pyferro/core/lib/config.py": {
+    "mtime": 1792071531.6119294,
+    "seen": 1792814400.8863306,
+    "ast_hash": "0d24f4aa320abb0f919c3a438c5b5846",
+    "semantic_hash": ""
+  },
+  "pyferro/core/lifecycle.py": {
+    "mtime": 1791926322.287074,
+    "seen": 1792814400.8863313,
+    "ast_hash": "e77fa6d7808ea92f4ea6a87d4b28bd40",
+    "semantic_hash": ""
+  },
+  "pyferro/core/logger.py": {
+    "mtime": 1792372210.5282423,
+    "seen": 1792814400.8863325,
+    "ast_hash": "63b3ee39f9a405462c261f84a76e326c",
+    "semantic_hash": ""
+  },
+  "pyferro/core/router.py": {
+    "mtime": 1785303612.0,
+    "seen": 1792814400.8863335,
+    "ast_hash": "16a09edb18fc3df5c0efb86e61912904",
+    "semantic_hash": ""
+  },
+  "pyferro/core/security.py": {
+    "mtime": 1791921432.551523,
+    "seen": 1792814400.8863344,
+    "ast_hash": "485307b0cff867a0a5116ce6b6dabfcf",
+    "semantic_hash": ""
+  },
+  "pyferro/core/session.py": {
+    "mtime": 1792670191.1413825,
+    "seen": 1792814400.8863354,
+    "ast_hash": "86ec58f1fe4dc95f8c96cbcfb09f2da9",
+    "semantic_hash": ""
+  },
+  "pyferro/core/tabular.py": {
+    "mtime": 1791784040.617975,
+    "seen": 1792814400.8863366,
+    "ast_hash": "fe5b0ab4d61aab5fa060ecf92b187bd7",
+    "semantic_hash": ""
+  },
+  "pyferro/db/__init__.py": {
+    "mtime": 1792071483.495312,
+    "seen": 1792814400.8863373,
+    "ast_hash": "ce6589b66fe9307874d32905a47a9ec5",
+    "semantic_hash": ""
+  },
+  "pyferro/db/naming.py": {
+    "mtime": 1792072446.713103,
+    "seen": 1792814400.8863382,
+    "ast_hash": "af8041da69c5fe6994714149c3ba5691",
+    "semantic_hash": ""
+  },
+  "pyferro/db/session.py": {
+    "mtime": 1791926187.4361284,
+    "seen": 1792814400.8863394,
+    "ast_hash": "4fe866ce9df6ab3b25948647ae11b3fe",
+    "semantic_hash": ""
+  },
+  "pyferro/migrations/__init__.py": {
+    "mtime": 1792648028.102737,
+    "seen": 1792814400.8863404,
+    "ast_hash": "3e5f42c66b2df182ef1b90f640426c99",
+    "semantic_hash": ""
+  },
+  "pyferro/migrations/context.py": {
+    "mtime": 1792647968.4042637,
+    "seen": 1792814400.8863413,
+    "ast_hash": "929e3f3c3695ab8540bbc066bc944bb2",
+    "semantic_hash": ""
+  },
+  "pyferro/migrations/exceptions.py": {
+    "mtime": 1792647946.8250365,
+    "seen": 1792814400.8863423,
+    "ast_hash": "cefac9c4fcf4f520ae60336b05276163",
+    "semantic_hash": ""
+  },
+  "pyferro/migrations/runner.py": {
+    "mtime": 1792654309.7797647,
+    "seen": 1792814400.8863435,
+    "ast_hash": "e3e8da0c985179ba8604eaf8ebb8a768",
+    "semantic_hash": ""
+  },
+  "pyferro/migrations/versions/0001_baseline_v0.7.0.py": {
+    "mtime": 1792654247.541998,
+    "seen": 1792814400.8863444,
+    "ast_hash": "2b6c0a461a1c3a09e8bd1097b29414bc",
+    "semantic_hash": ""
+  },
+  "pyferro/migrations/versions/__init__.py": {
+    "mtime": 1792647975.4003212,
+    "seen": 1792814400.8863454,
+    "ast_hash": "e31fab596c4768b77482666690b25205",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/__init__.py": {
+    "mtime": 1791911978.2666657,
+    "seen": 1792814400.8863466,
+    "ast_hash": "b1ab5b87144af3ce4a83b655233ec440",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/__init__.py": {
+    "mtime": 1791784057.8544796,
+    "seen": 1792814400.8863473,
+    "ast_hash": "194065d06cfc18ccee5d45f9c3e46a15",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/admin_handlers.py": {
+    "mtime": 1792746849.3943977,
+    "seen": 1792814400.8863482,
+    "ast_hash": "4cc66a322615444c6ff53e7e900ca579",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/auth.py": {
+    "mtime": 1791784074.8999784,
+    "seen": 1792814400.8863492,
+    "ast_hash": "404812f957e6d1883937c235e82d8270",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/coerce.py": {
+    "mtime": 1791784101.6807644,
+    "seen": 1792814400.8863504,
+    "ast_hash": "06459c15d693dfa68a8093b46d394bab",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/events.py": {
+    "mtime": 1792774062.599178,
+    "seen": 1792814400.8863513,
+    "ast_hash": "011ecdc4eff6c5e6505bdf30247ee9dd",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/App.svelte": {
+    "mtime": 1792676590.545109,
+    "seen": 1792814400.8863523,
+    "ast_hash": "eced53b5745ea9012762d53375276059",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/DelegationsView.svelte": {
+    "mtime": 1792575918.4662943,
+    "seen": 1792814400.8863535,
+    "ast_hash": "dad4a4b86176c9619af9f39c4e329dd6",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/GuestPermissionsView.svelte": {
+    "mtime": 1792452263.239583,
+    "seen": 1792814400.8863544,
+    "ast_hash": "862218bb9f314210143668f9bf49cd81",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/PermissionsModal.svelte": {
+    "mtime": 1792452185.5045223,
+    "seen": 1792814400.8863554,
+    "ast_hash": "1413064146874f20393a274bd8aba111",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/PyFerroLogo.svelte": {
+    "mtime": 1791631101.7789066,
+    "seen": 1792814400.8863566,
+    "ast_hash": "c66d571535864894e0a2a9c7396ac466",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/RpcCatalogView.svelte": {
+    "mtime": 1792509084.255397,
+    "seen": 1792814400.8863575,
+    "ast_hash": "4d91bfa3675602c90f709f1c58f2d9bf",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/RpcHelpModal.svelte": {
+    "mtime": 1791364498.9787755,
+    "seen": 1792814400.8863585,
+    "ast_hash": "593a72a6f9e2de5acb3baf0b523331e7",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/SeoAdminView.svelte": {
+    "mtime": 1792765644.2835042,
+    "seen": 1792814400.8863595,
+    "ast_hash": "5ee6f8474e89820a3f83f91a7c113a80",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/SettingsView.svelte": {
+    "mtime": 1792509114.5007443,
+    "seen": 1792814400.8863606,
+    "ast_hash": "a1cc5889b4efd1cac51d5573d0dc34ea",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/SystemCockpit.svelte": {
+    "mtime": 1791627891.7406905,
+    "seen": 1792814400.8863618,
+    "ast_hash": "d3c8777f2bd2e062dee910f36d7c1295",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/ui/Badge.svelte": {
+    "mtime": 1791626119.0110767,
+    "seen": 1792814400.8863626,
+    "ast_hash": "cacbfdab181d9bbbce5e9bc0da770445",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/ui/Button.svelte": {
+    "mtime": 1791356514.3569508,
+    "seen": 1792814400.886364,
+    "ast_hash": "e58c4f2b614a0cf8e30ef5b70f2efde7",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/ui/Checkbox.svelte": {
+    "mtime": 1791356536.6805446,
+    "seen": 1792814400.886365,
+    "ast_hash": "85fbd3f5dd78b4dfddc1adee1a432db2",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/ui/Input.svelte": {
+    "mtime": 1791356522.1551464,
+    "seen": 1792814400.886366,
+    "ast_hash": "19d8c81d0ab3048e1fc763f915a27580",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/ui/Modal.svelte": {
+    "mtime": 1791356556.613091,
+    "seen": 1792814400.886367,
+    "ast_hash": "c612f3ff4079ce70349d40b8cb0cde29",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/ui/Select.svelte": {
+    "mtime": 1791356529.8083563,
+    "seen": 1792814400.886368,
+    "ast_hash": "ab32cbd37acf7554432c0fd5ece2bb35",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/main.ts": {
+    "mtime": 1791200893.7993398,
+    "seen": 1792814400.8863692,
+    "ast_hash": "0ec164c0272d7351125f723ac7670d9b",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/package.json": {
+    "mtime": 1792749270.4064078,
+    "seen": 1792814400.8863704,
+    "ast_hash": "2ec21da118062730aadc65a093a2d0d7",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/svelte.config.js": {
+    "mtime": 1791626190.6851635,
+    "seen": 1792814400.8863714,
+    "ast_hash": "f8f3a7fc1b21a6828c8a397fcb7bc5a9",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/tsconfig.json": {
+    "mtime": 1791626198.1900678,
+    "seen": 1792814400.8863723,
+    "ast_hash": "4c7bb1c26f50e257e86339e726bc085a",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/vite-env.d.ts": {
+    "mtime": 1791631123.7935495,
+    "seen": 1792814400.886374,
+    "ast_hash": "8ff35f7d928eca80d0960602a2ad06f1",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/vite.config.ts": {
+    "mtime": 1792670388.374253,
+    "seen": 1792814400.886375,
+    "ast_hash": "4f25c625d4547ed2d6bfc42e831a7c36",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/wsrpc_client.ts": {
+    "mtime": 1791291301.6529427,
+    "seen": 1792814400.886376,
+    "ast_hash": "0fb67d41c543cdd63fbdf928a1bb4d99",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/handlers.py": {
+    "mtime": 1792774547.0348525,
+    "seen": 1792814400.8863769,
+    "ast_hash": "a8df424c3ae7d8ab1fb055eb50a0b5f8",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/identity.py": {
+    "mtime": 1792375311.2802222,
+    "seen": 1792814400.8863783,
+    "ast_hash": "c486bc8a55aefd4cb8d2dff4ffad61cc",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/meta.py": {
+    "mtime": 1792774462.426994,
+    "seen": 1792814400.8863792,
+    "ast_hash": "063deee126ff729d87d8d2bb97eab0cd",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/policy.py": {
+    "mtime": 1792774513.2195337,
+    "seen": 1792814400.88638,
+    "ast_hash": "23409aff19be7412d083ca31cd1995ff",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/registry.py": {
+    "mtime": 1792509013.0342228,
+    "seen": 1792814400.8863811,
+    "ast_hash": "08843aa9e8b628cf77891ddb8b1a34f3",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/static/assets/index-C-3sPPIG.js": {
+    "mtime": 1792765654.0004025,
+    "seen": 1792814400.886382,
+    "ast_hash": "09fe397afd9eada25fe9d1cc2aaf85eb",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/static_handler.py": {
+    "mtime": 1792670330.9814558,
+    "seen": 1792814400.886383,
+    "ast_hash": "684991376460fd67d6f49fd418cf5c7f",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/files/__init__.py": {
+    "mtime": 1790300837.3146873,
+    "seen": 1792814400.886384,
+    "ast_hash": "896264601a559c0cea725874d09ab81a",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/files/handlers.py": {
+    "mtime": 1792367974.5549314,
+    "seen": 1792814400.8863852,
+    "ast_hash": "47ba74aee59c1a409fdc5620263fa36f",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/files/models.py": {
+    "mtime": 1792072132.6540103,
+    "seen": 1792814400.886386,
+    "ast_hash": "67b22715d0c90a8399526f822af68f4c",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/files/service.py": {
+    "mtime": 1791911719.7142792,
+    "seen": 1792814400.8863869,
+    "ast_hash": "c383dfb7493de2287b75e7e73d61af80",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/files/upload.py": {
+    "mtime": 1791921619.2979107,
+    "seen": 1792814400.886388,
+    "ast_hash": "e7cf367df8431b2020a57b1e6b87db5f",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/help/__init__.py": {
+    "mtime": 1792676032.5725555,
+    "seen": 1792814400.886389,
+    "ast_hash": "ddfb0eb40a8c58c02d8f8cce6b5eb67c",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/help/handlers.py": {
+    "mtime": 1792676063.7788596,
+    "seen": 1792814400.88639,
+    "ast_hash": "789d7f443c9e6249a12bddce1af661bd",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/help/models.py": {
+    "mtime": 1792742897.1362803,
+    "seen": 1792814400.886391,
+    "ast_hash": "0fad14eda335aebd447119923441801b",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/help/static/assets/index-D_EUQvnZ.js": {
+    "mtime": 1792747184.4389627,
+    "seen": 1792814400.886392,
+    "ast_hash": "db74f7eafdb6dc71783ac5816fc73614",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/help/static_handler.py": {
+    "mtime": 1792687611.9125195,
+    "seen": 1792814400.886393,
+    "ast_hash": "d905b1c9311f43ecf1838c73ba1b46db",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/raw_ws/__init__.py": {
+    "mtime": 1789655757.457846,
+    "seen": 1792814400.886394,
+    "ast_hash": "c8aa98b087d11130759ec9f8ded44dbb",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/raw_ws/id_gen.py": {
+    "mtime": 1789655722.7524564,
+    "seen": 1792814400.8863952,
+    "ast_hash": "3ccdfbe71fa0ce88a0712ddbb5031ac3",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/raw_ws/manager.py": {
+    "mtime": 1791926391.8021097,
+    "seen": 1792814400.886396,
+    "ast_hash": "2eef3490d4d9c134c80dc56901cc7106",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/raw_ws/router.py": {
+    "mtime": 1789655740.6551948,
+    "seen": 1792814400.886397,
+    "ast_hash": "b0f3177deba4d97b4b82a91bacbb4ac9",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/raw_ws/session.py": {
+    "mtime": 1791565267.2542353,
+    "seen": 1792814400.8863978,
+    "ast_hash": "4e635fe6b5ad416750cc3258142fb02f",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/__init__.py": {
+    "mtime": 1792737971.4008276,
+    "seen": 1792814400.886399,
+    "ast_hash": "9e98bd3653a915e3a8eb04597377bdc2",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/config.py": {
+    "mtime": 1792764409.5719647,
+    "seen": 1792814400.8864,
+    "ast_hash": "594f513a3d2e9ce58911392238e2f399",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/detector.py": {
+    "mtime": 1792065881.8468668,
+    "seen": 1792814400.886401,
+    "ast_hash": "7e48994639dc8f7d8809c4959777f4f8",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/dynamic_rules.py": {
+    "mtime": 1792744638.0134118,
+    "seen": 1792814400.8864021,
+    "ast_hash": "e1cf15485562d8d523de41530aa6721a",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/indexnow.py": {
+    "mtime": 1791565267.0159264,
+    "seen": 1792814400.886403,
+    "ast_hash": "ac34b050fda2f8ba2f04739e44637a56",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/jinja_engine.py": {
+    "mtime": 1792753781.2973585,
+    "seen": 1792814400.886404,
+    "ast_hash": "f4e5991d80cb8f47de8241249703da42",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/page_cache.py": {
+    "mtime": 1792773996.3871086,
+    "seen": 1792814400.8864052,
+    "ast_hash": "4c4fdc12064d2c5a11869ef2883eb4a2",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/renderer.py": {
+    "mtime": 1792765455.405636,
+    "seen": 1792814400.8864062,
+    "ast_hash": "f349aefeff3c578b539158f0271160d4",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/router.py": {
+    "mtime": 1792774037.5580578,
+    "seen": 1792814400.8864071,
+    "ast_hash": "b2497740830183dce4009d1e3fda0730",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/schemas.py": {
+    "mtime": 1791565267.0162005,
+    "seen": 1792814400.886408,
+    "ast_hash": "dfee21f62a03910306e02f43937abac2",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/site_tree.py": {
+    "mtime": 1792774857.7358932,
+    "seen": 1792814400.8864093,
+    "ast_hash": "eca646e943c0ec65145848934e51f3ac",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/seo/sitemap.py": {
+    "mtime": 1792764400.779607,
+    "seen": 1792814400.8864102,
+    "ast_hash": "7527f3ce3ecf15ff87c89f593d99891b",
+    "semantic_hash": ""
+  },
+  "pyferro/smart_cache/__init__.py": {
+    "mtime": 1791910243.2122154,
+    "seen": 1792814400.8864112,
+    "ast_hash": "a8da1d515982fcabad3e802fc5b28b5c",
+    "semantic_hash": ""
+  },
+  "pyferro/smart_cache/engine.py": {
+    "mtime": 1792072124.2927682,
+    "seen": 1792814400.8864124,
+    "ast_hash": "fa1fb9f86f478e87330d4a79ad8cba99",
+    "semantic_hash": ""
+  },
+  "pyferro/smart_cache/handlers.py": {
+    "mtime": 1791910229.3413687,
+    "seen": 1792814400.8864133,
+    "ast_hash": "bf577207982d4d29ec08ee456add2051",
+    "semantic_hash": ""
+  },
+  "pyproject.toml": {
+    "mtime": 1792775325.4762611,
+    "seen": 1792814400.8864143,
+    "ast_hash": "570fe25235c7f2792d11cc9d51653c02",
+    "semantic_hash": ""
+  },
+  "scripts/benchmark.py": {
+    "mtime": 1791784245.1019628,
+    "seen": 1792814400.8864152,
+    "ast_hash": "0ecfa65dba5a809134bd73fc7a200c45",
+    "semantic_hash": ""
+  },
+  "scripts/build_docs.py": {
+    "mtime": 1791784228.1055768,
+    "seen": 1792814400.8864164,
+    "ast_hash": "4e5b52b93a6d81f91b7b812fea2574cb",
+    "semantic_hash": ""
+  },
+  "scripts/security_audit.py": {
+    "mtime": 1791784275.367836,
+    "seen": 1792814400.8864174,
+    "ast_hash": "c26f7c4240e399985a6f20eebf1ebb89",
+    "semantic_hash": ""
+  },
+  "tests/conftest.py": {
+    "mtime": 1792774073.9156516,
+    "seen": 1792814400.8864183,
+    "ast_hash": "b3d7506f8440bdaf8cb704c5040c76ad",
+    "semantic_hash": ""
+  },
+  "tests/framework/__init__.py": {
+    "mtime": 1789145942.0208483,
+    "seen": 1792814400.8864195,
+    "ast_hash": "f1ae1af95e2fc8d359b19fe55d4a1ebc",
+    "semantic_hash": ""
+  },
+  "tests/framework/assertions.py": {
+    "mtime": 1789145937.1977177,
+    "seen": 1792814400.8864205,
+    "ast_hash": "8e3669ac4a620fa1e699451aa547cfa1",
+    "semantic_hash": ""
+  },
+  "tests/framework/client.py": {
+    "mtime": 1792450194.2125006,
+    "seen": 1792814400.8864214,
+    "ast_hash": "105a23ad2f89d467d9de2958c5cace53",
+    "semantic_hash": ""
+  },
+  "tests/framework/config.py": {
+    "mtime": 1791409892.288251,
+    "seen": 1792814400.8864222,
+    "ast_hash": "d2a6072c90553c904d9cebfd542b34b6",
+    "semantic_hash": ""
+  },
+  "tests/framework/personas.py": {
+    "mtime": 1792450309.7677078,
+    "seen": 1792814400.8864233,
+    "ast_hash": "72d29d5ca2abfaa8ac32ee293821ed15",
+    "semantic_hash": ""
+  },
+  "tests/run.py": {
+    "mtime": 1789655783.3944397,
+    "seen": 1792814400.8864243,
+    "ast_hash": "17856b28bee7cdaad9135831842fe7db",
+    "semantic_hash": ""
+  },
+  "tests/suites/__init__.py": {
+    "mtime": 1789145947.0489845,
+    "seen": 1792814400.8864253,
+    "ast_hash": "f6255f5e34b07b2d258f1cc7ef704b12",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_admin_cockpit.py": {
+    "mtime": 1792670660.5731955,
+    "seen": 1792814400.8864264,
+    "ast_hash": "ecb4c8e7803af32626662f89731e6ce6",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_app.py": {
+    "mtime": 1792687749.4641376,
+    "seen": 1792814400.8864274,
+    "ast_hash": "61c43ed39751370851b7cf7e9e702a15",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_audit_findings.py": {
+    "mtime": 1792774647.1457026,
+    "seen": 1792814400.8864284,
+    "ast_hash": "9268796cfd91035d735f19213fba2640",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_auth.py": {
+    "mtime": 1792375039.290901,
+    "seen": 1792814400.8864295,
+    "ast_hash": "5eb5e9e42ab6290e64dd228d105b3162",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_crud.py": {
+    "mtime": 1792670700.0593958,
+    "seen": 1792814400.8864305,
+    "ast_hash": "d25dfc530d364d55d21805687ce14e0f",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_crud_granular_and_delegation.py": {
+    "mtime": 1792005961.1098073,
+    "seen": 1792814400.8864315,
+    "ast_hash": "dd9bd13cb08d76f20c8f45d24a13057b",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_dx_improvements.py": {
+    "mtime": 1792653600.8106148,
+    "seen": 1792814400.8864324,
+    "ast_hash": "c200159895dea801ba3416b17a0c3ad8",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_files.py": {
+    "mtime": 1792368340.0425575,
+    "seen": 1792814400.8864336,
+    "ast_hash": "0c4a5f60725e0a2b0f13bd1a8f39f123",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_flexible_roles.py": {
+    "mtime": 1792681349.0339103,
+    "seen": 1792814400.8864346,
+    "ast_hash": "d70fe7830165642f9e1d8375da3c364b",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_forum.py": {
+    "mtime": 1792375039.2913077,
+    "seen": 1792814400.8864355,
+    "ast_hash": "e9939ffb29b1279bff8a9e20e39edd0b",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_guest_cqrs_crud.py": {
+    "mtime": 1792064731.4627812,
+    "seen": 1792814400.8864367,
+    "ast_hash": "eb27c268cdf0606389d53241135d7deb",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_help_plugin.py": {
+    "mtime": 1792687737.5545156,
+    "seen": 1792814400.8864377,
+    "ast_hash": "fab2f8cb579791789461cbe936ba1c4f",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_http_utils.py": {
+    "mtime": 1791565362.8293211,
+    "seen": 1792814400.8864386,
+    "ast_hash": "5382dc3a07f08180901cd332d033ff2a",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_load.py": {
+    "mtime": 1792375039.2917788,
+    "seen": 1792814400.8864396,
+    "ast_hash": "fa61e8b4d2be22181ffa1d91fabd1fdd",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_migrations.py": {
+    "mtime": 1792651162.0853665,
+    "seen": 1792814400.8864408,
+    "ast_hash": "22630e3bbfc7fcc899ef582a8d950505",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_raw_ws.py": {
+    "mtime": 1791784284.2010856,
+    "seen": 1792814400.8864415,
+    "ast_hash": "34b42753440995fd85c441293ceae0e1",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_rpc_permissions.py": {
+    "mtime": 1792648293.6403751,
+    "seen": 1792814400.8864424,
+    "ast_hash": "74d6917d149e8e688eca76c175d3a93d",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_seo.py": {
+    "mtime": 1792767753.2527692,
+    "seen": 1792814400.8864436,
+    "ast_hash": "2b49a52f5a95867f3f3a2e475cdbee18",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_session_features.py": {
+    "mtime": 1792375518.1985693,
+    "seen": 1792814400.8864446,
+    "ast_hash": "65c2a629b881f75bf7bfdf49e7030797",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_smart_cache.py": {
+    "mtime": 1792375039.292149,
+    "seen": 1792814400.8864455,
+    "ast_hash": "9ad3d2c1bf05c1cb950ad03bd55eccb4",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_table_prefix.py": {
+    "mtime": 1792072350.0483043,
+    "seen": 1792814400.8864465,
+    "ast_hash": "b542783d91822d13b1407c2dd426f5ee",
+    "semantic_hash": ""
+  },
+  "tests/suites/test_tabular.py": {
+    "mtime": 1792375039.292429,
+    "seen": 1792814400.886448,
+    "ast_hash": "679d07f2ed0d5d1f76494f4737d0ef45",
+    "semantic_hash": ""
+  },
+  ".agents/rules/ask_when_uncertain.md": {
+    "mtime": 1791290532.4856539,
+    "seen": 1792814400.8864489,
+    "ast_hash": "87111275981ab1ec1a8169a42805c1b5",
+    "semantic_hash": ""
+  },
+  ".agents/rules/core_integrity.md": {
+    "mtime": 1790239577.9658537,
+    "seen": 1792814400.8864498,
+    "ast_hash": "7cafa081a81db44a8f19c7b26a5aa8c3",
+    "semantic_hash": ""
+  },
+  ".agents/rules/documentation_standards.md": {
+    "mtime": 1791893939.1837587,
+    "seen": 1792814400.886451,
+    "ast_hash": "743edbae125a4d7f885ed1770ee44c14",
+    "semantic_hash": ""
+  },
+  ".agents/rules/framework_docs_twins.md": {
+    "mtime": 1790239578.021855,
+    "seen": 1792814400.886452,
+    "ast_hash": "3f84cb34027f4dea187611433a58b9e8",
+    "semantic_hash": ""
+  },
+  ".agents/rules/network_proxy.md": {
+    "mtime": 1790239578.1213663,
+    "seen": 1792814400.886453,
+    "ast_hash": "440b9e2e296be6ae3f82b1b5938c6c8a",
+    "semantic_hash": ""
+  },
+  ".agents/rules/no_arbitrary_library_edits.md": {
+    "mtime": 1791290223.9467263,
+    "seen": 1792814400.886454,
+    "ast_hash": "cfc5c80036381318ffd4aaf06e082512",
+    "semantic_hash": ""
+  },
+  ".agents/rules/no_crutches.md": {
+    "mtime": 1791220678.3921008,
+    "seen": 1792814400.886455,
+    "ast_hash": "16fae25919c13481e149b15c058ec913",
+    "semantic_hash": ""
+  },
+  ".agents/rules/pypi_release.md": {
+    "mtime": 1791287178.4522989,
+    "seen": 1792814400.8864558,
+    "ast_hash": "8ef041a6f0f820e65a33269538d4a8ae",
+    "semantic_hash": ""
+  },
+  ".agents/rules/showcase_completeness.md": {
+    "mtime": 1791284146.1092358,
+    "seen": 1792814400.8864567,
+    "ast_hash": "8793c2070b67c9bdc822a41b582612a9",
+    "semantic_hash": ""
+  },
+  "AGENTS.md": {
+    "mtime": 1792774993.6396308,
+    "seen": 1792814400.886458,
+    "ast_hash": "4978a43a894eba9521061f8e0c4f7393",
+    "semantic_hash": ""
+  },
+  "AUDIT_REPORT.md": {
+    "mtime": 1792375039.2893865,
+    "seen": 1792814400.8864589,
+    "ast_hash": "a12ee958b33dda65e43996910d0ea67b",
+    "semantic_hash": ""
+  },
+  "NEXT_RELEASE.md": {
+    "mtime": 1792775367.8826694,
+    "seen": 1792814400.8864613,
+    "ast_hash": "700ebb5aa9795682c8bd9329310eb029",
+    "semantic_hash": ""
+  },
+  "PROJECT_STATE.md": {
+    "mtime": 1792409354.8770535,
+    "seen": 1792814400.8864622,
+    "ast_hash": "eff5d10736c3b164ddac4fca560ed7ca",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1792775038.2487981,
+    "seen": 1792814400.8864632,
+    "ast_hash": "54fc195d4fb8ec2838cb7987aa4ba5cd",
+    "semantic_hash": ""
+  },
+  "docs/README.md": {
+    "mtime": 1791901522.8522456,
+    "seen": 1792814400.8864644,
+    "ast_hash": "f3b0da24a70fc88c576ebea581859e1b",
+    "semantic_hash": ""
+  },
+  "docs/architecture_for_beginners.md": {
+    "mtime": 1791565571.8362186,
+    "seen": 1792814400.8864653,
+    "ast_hash": "5bc3247a2d0e8e8080fa3f59c46b7edb",
+    "semantic_hash": ""
+  },
+  "docs/auth_guide.md": {
+    "mtime": 1791927089.495542,
+    "seen": 1792814400.8864663,
+    "ast_hash": "8f2bc77f31d59cca8cfbb0de57055739",
+    "semantic_hash": ""
+  },
+  "docs/client_guide.md": {
+    "mtime": 1791900228.7941575,
+    "seen": 1792814400.8864672,
+    "ast_hash": "1c60f0e8ce611e10b11ab70bf0fa08d5",
+    "semantic_hash": ""
+  },
+  "docs/core.md": {
+    "mtime": 1791927024.5396397,
+    "seen": 1792814400.8864684,
+    "ast_hash": "b3b4a7ee07aa6bd81532b50a94e19854",
+    "semantic_hash": ""
+  },
+  "docs/crud.md": {
+    "mtime": 1791565571.8327148,
+    "seen": 1792814400.8864691,
+    "ast_hash": "42362c9f1f5bd6dee7c152013b363d60",
+    "semantic_hash": ""
+  },
+  "docs/crud_panel_guide.md": {
+    "mtime": 1791565571.834006,
+    "seen": 1792814400.88647,
+    "ast_hash": "dc8cea9b7817a95cce6d84628441850d",
+    "semantic_hash": ""
+  },
+  "docs/crud_permissions_plan.md": {
+    "mtime": 1791784334.0644941,
+    "seen": 1792814400.8864713,
+    "ast_hash": "85a1d8f995631881a42edc7031c16c04",
+    "semantic_hash": ""
+  },
+  "docs/files.md": {
+    "mtime": 1791565571.834494,
+    "seen": 1792814400.8864722,
+    "ast_hash": "3fab2ad61a9782344ef4dc0c8f17ae4f",
+    "semantic_hash": ""
+  },
+  "docs/improvements.md": {
+    "mtime": 1791565571.8292773,
+    "seen": 1792814400.8864732,
+    "ast_hash": "0af4c040ef3de04fe8434a8523c31444",
+    "semantic_hash": ""
+  },
+  "docs/plugins.md": {
+    "mtime": 1791895559.8156505,
+    "seen": 1792814400.8864741,
+    "ast_hash": "199b11338af8498f73fed9cbf18f096f",
+    "semantic_hash": ""
+  },
+  "docs/roadmap_future_architecture.md": {
+    "mtime": 1791901423.9833238,
+    "seen": 1792814400.8864753,
+    "ast_hash": "02227bbc6ce8abd107c01fb516b900c5",
+    "semantic_hash": ""
+  },
+  "docs/safe_evolution_guide.md": {
+    "mtime": 1791919829.1010275,
+    "seen": 1792814400.8864763,
+    "ast_hash": "20641484911df7cba686735e8503422e",
+    "semantic_hash": ""
+  },
+  "docs/security_and_performance.md": {
+    "mtime": 1791784313.311908,
+    "seen": 1792814400.886477,
+    "ast_hash": "ba7856fef88a259740285e0988655787",
+    "semantic_hash": ""
+  },
+  "docs/showcase_guide.md": {
+    "mtime": 1791565571.834928,
+    "seen": 1792814400.8864782,
+    "ast_hash": "748a49cc27181e264ca4669b39b85b8a",
+    "semantic_hash": ""
+  },
+  "docs/smart_cache.md": {
+    "mtime": 1791565571.8315344,
+    "seen": 1792814400.8864791,
+    "ast_hash": "93a470c926fcf70ad0147f6f51ca13fc",
+    "semantic_hash": ""
+  },
+  "docs/tabular_compression.md": {
+    "mtime": 1791565571.8310947,
+    "seen": 1792814400.88648,
+    "ast_hash": "c74b89bbcf0ca3b94cad3f6be0a0011b",
+    "semantic_hash": ""
+  },
+  "docs/testing.md": {
+    "mtime": 1791565571.8367085,
+    "seen": 1792814400.886481,
+    "ast_hash": "c016ecaa855a76551ab0e753b377b707",
+    "semantic_hash": ""
+  },
+  "docs/upgrades/upgrade_v0.5.13_to_v0.5.14.md": {
+    "mtime": 1792008035.3093626,
+    "seen": 1792814400.8864822,
+    "ast_hash": "ee0193ab9422811196cb3044a2205749",
+    "semantic_hash": ""
+  },
+  "docs_ru/README.md": {
+    "mtime": 1791901468.9446526,
+    "seen": 1792814400.8864832,
+    "ast_hash": "4b5ae08130faa580ed5f959fc085be33",
+    "semantic_hash": ""
+  },
+  "docs_ru/architecture_for_beginners.md": {
+    "mtime": 1791565571.8470078,
+    "seen": 1792814400.8864841,
+    "ast_hash": "f61305beebd531559289da330bcc2617",
+    "semantic_hash": ""
+  },
+  "docs_ru/auth_guide.md": {
+    "mtime": 1791927063.9407938,
+    "seen": 1792814400.8864853,
+    "ast_hash": "f876d3021fafcbb51388bf2286ba6ba8",
+    "semantic_hash": ""
+  },
+  "docs_ru/client_guide.md": {
+    "mtime": 1791900186.3144913,
+    "seen": 1792814400.8864863,
+    "ast_hash": "17014b851a0823e8c5f89a47e04a3cdb",
+    "semantic_hash": ""
+  },
+  "docs_ru/core.md": {
+    "mtime": 1791926995.9368021,
+    "seen": 1792814400.8864872,
+    "ast_hash": "5370a550d2e02de00134089e54fa1b21",
+    "semantic_hash": ""
+  },
+  "docs_ru/crud.md": {
+    "mtime": 1791565571.8447435,
+    "seen": 1792814400.886488,
+    "ast_hash": "2f98cb4b600d07c6c7419dc63b2b9b44",
+    "semantic_hash": ""
+  },
+  "docs_ru/files.md": {
+    "mtime": 1791565571.8461268,
+    "seen": 1792814400.8864892,
+    "ast_hash": "4f412dd0e460417daad753eb808c649d",
+    "semantic_hash": ""
+  },
+  "docs_ru/plugins.md": {
+    "mtime": 1791895632.7181306,
+    "seen": 1792814400.88649,
+    "ast_hash": "4505b642a195794824b0c1d5a549f888",
+    "semantic_hash": ""
+  },
+  "docs_ru/roadmap_future_architecture.md": {
+    "mtime": 1791901387.2902396,
+    "seen": 1792814400.886491,
+    "ast_hash": "88b0f930d57288aec1ddcd48036adc38",
+    "semantic_hash": ""
+  },
+  "docs_ru/safe_evolution_guide.md": {
+    "mtime": 1791919813.5545678,
+    "seen": 1792814400.8864923,
+    "ast_hash": "58d151da6d13e541263ab3b44eb7591e",
+    "semantic_hash": ""
+  },
+  "docs_ru/showcase_guide.md": {
+    "mtime": 1791565571.8466117,
+    "seen": 1792814400.8864932,
+    "ast_hash": "31510ac9ba981215a4e1fa35b44f98d5",
+    "semantic_hash": ""
+  },
+  "docs_ru/smart_cache.md": {
+    "mtime": 1791565571.8437924,
+    "seen": 1792814400.8864942,
+    "ast_hash": "d5ae688fb839755c6aaeb9462d018dd6",
+    "semantic_hash": ""
+  },
+  "docs_ru/tabular_compression.md": {
+    "mtime": 1791565571.843361,
+    "seen": 1792814400.8864949,
+    "ast_hash": "6fce9c46b7fef9774831fd3484823be3",
+    "semantic_hash": ""
+  },
+  "docs_ru/testing.md": {
+    "mtime": 1791565571.8474677,
+    "seen": 1792814400.886496,
+    "ast_hash": "6200b58df03f92a8fed1858b38b1c87c",
+    "semantic_hash": ""
+  },
+  "docs_ru/upgrades/upgrade_v0.5.13_to_v0.5.14.md": {
+    "mtime": 1792008018.0281923,
+    "seen": 1792814400.886497,
+    "ast_hash": "54ec0d1745b3af3a43e89c3fae5e8638",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/index.html": {
+    "mtime": 1792676004.5122197,
+    "seen": 1792814400.886498,
+    "ast_hash": "0cfcd905cd464c7a101306073a3b4bfd",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/public/index.html": {
+    "mtime": 1792747184.4389627,
+    "seen": 1792814400.8864992,
+    "ast_hash": "b484f24eda7ef260b9e36785c1e7a29c",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/requirements.txt": {
+    "mtime": 1792676004.5068464,
+    "seen": 1792814400.8865001,
+    "ast_hash": "a135f5822d54aabcd1a76f22debc56c2",
+    "semantic_hash": ""
+  },
+  "pyferro/core/changed.md": {
+    "mtime": 1792047746.9564865,
+    "seen": 1792814400.886501,
+    "ast_hash": "b9d8914148a771020c90b13af515ad0c",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/index.html": {
+    "mtime": 1791628877.7990963,
+    "seen": 1792814400.886502,
+    "ast_hash": "cd37515bc79370b85b2929c8faede917",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/static/index.html": {
+    "mtime": 1792765654.0004025,
+    "seen": 1792814400.8865032,
+    "ast_hash": "ae7f6490f1a0227f224225dc86744fc9",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/help/static/index.html": {
+    "mtime": 1792747184.4389627,
+    "seen": 1792814400.8865042,
+    "ast_hash": "b484f24eda7ef260b9e36785c1e7a29c",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/components/logo-dark.png": {
+    "mtime": 1792676004.5127158,
+    "seen": 1792814400.886505,
+    "ast_hash": "353ba31f1979e4da3cb333a1b0b2990b",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/components/logo-light.png": {
+    "mtime": 1792676004.51266,
+    "seen": 1792814400.886506,
+    "ast_hash": "689561266b29de805c6d81410b78afd2",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/public/logo-dark.png": {
+    "mtime": 1792676004.8695743,
+    "seen": 1792814400.886507,
+    "ast_hash": "353ba31f1979e4da3cb333a1b0b2990b",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/frontend/public/logo-light.png": {
+    "mtime": 1792676004.8696198,
+    "seen": 1792814400.886508,
+    "ast_hash": "689561266b29de805c6d81410b78afd2",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/public/logo-dark.png": {
+    "mtime": 1792747184.3187106,
+    "seen": 1792814400.886509,
+    "ast_hash": "353ba31f1979e4da3cb333a1b0b2990b",
+    "semantic_hash": ""
+  },
+  "examples/admin_help/public/logo-light.png": {
+    "mtime": 1792747184.319089,
+    "seen": 1792814400.8865101,
+    "ast_hash": "689561266b29de805c6d81410b78afd2",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/logo-dark.png": {
+    "mtime": 1791631079.3106608,
+    "seen": 1792814400.886511,
+    "ast_hash": "353ba31f1979e4da3cb333a1b0b2990b",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/components/logo-light.png": {
+    "mtime": 1791631079.3090403,
+    "seen": 1792814400.886512,
+    "ast_hash": "689561266b29de805c6d81410b78afd2",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/public/favicon.svg": {
+    "mtime": 1791628850.94433,
+    "seen": 1792814400.8865132,
+    "ast_hash": "3b0a83ca3e7895f2856da3659c79048f",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/public/logo-dark.png": {
+    "mtime": 1791631031.305984,
+    "seen": 1792814400.8865142,
+    "ast_hash": "353ba31f1979e4da3cb333a1b0b2990b",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/frontend/public/logo-light.png": {
+    "mtime": 1791631031.3038921,
+    "seen": 1792814400.886515,
+    "ast_hash": "689561266b29de805c6d81410b78afd2",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/static/assets/logo-dark-BK_ZoGBf.png": {
+    "mtime": 1792765653.9994023,
+    "seen": 1792814400.8865159,
+    "ast_hash": "353ba31f1979e4da3cb333a1b0b2990b",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/static/assets/logo-light-4XHqfcIh.png": {
+    "mtime": 1792765653.9994023,
+    "seen": 1792814400.886517,
+    "ast_hash": "689561266b29de805c6d81410b78afd2",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/static/favicon.svg": {
+    "mtime": 1792765653.6920495,
+    "seen": 1792814400.886518,
+    "ast_hash": "3b0a83ca3e7895f2856da3659c79048f",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/static/logo-dark.png": {
+    "mtime": 1792765653.692394,
+    "seen": 1792814400.886519,
+    "ast_hash": "353ba31f1979e4da3cb333a1b0b2990b",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/crud/static/logo-light.png": {
+    "mtime": 1792765653.6930256,
+    "seen": 1792814400.8865201,
+    "ast_hash": "689561266b29de805c6d81410b78afd2",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/help/static/logo-dark.png": {
+    "mtime": 1792747184.3187106,
+    "seen": 1792814400.886521,
+    "ast_hash": "353ba31f1979e4da3cb333a1b0b2990b",
+    "semantic_hash": ""
+  },
+  "pyferro/plugins/help/static/logo-light.png": {
+    "mtime": 1792747184.319089,
+    "seen": 1792814400.886522,
+    "ast_hash": "689561266b29de805c6d81410b78afd2",
+    "semantic_hash": ""
+  }
+}

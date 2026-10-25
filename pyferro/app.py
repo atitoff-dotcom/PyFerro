@@ -334,11 +334,13 @@ class FerroApp:
                 from pyferro.core.security import decode_access_token
                 payload = decode_access_token(token)
                 if payload:
+                    raw_sub = payload.get("sub")
+                    if raw_sub is None or not str(raw_sub).isdigit() or int(raw_sub) <= 0:
+                        continue
+                    uid = int(raw_sub)
                     roles = payload.get("roles", [])
                     role = payload.get("role") or (roles[0] if roles else "user")
                     is_admin = bool("admin" in roles or "ADMIN" in roles or "superadmin" in roles or payload.get("is_superadmin") or role in ("admin", "ADMIN", "superadmin"))
-                    raw_sub = payload.get("sub", "1")
-                    uid = int(raw_sub) if str(raw_sub).isdigit() else 1
                     user_info = {
                         "uid": uid,
                         "user_id": uid,
@@ -354,41 +356,33 @@ class FerroApp:
                 pass
 
         if user_info:
-            uid = user_info.get("uid") or user_info.get("user_id", 1)
-            role = user_info.get("role", "user")
-            roles = user_info.get("roles") or [role]
-            is_superadmin = bool(
-                role in ("admin", "ADMIN", "superadmin")
-                or "admin" in roles
-                or "ADMIN" in roles
-                or "superadmin" in roles
-                or user_info.get("is_superadmin")
-            )
-            user_ctx = type("UserCtx", (), {
-                "is_superadmin": is_superadmin,
-                "user_id": uid,
-                "team_ids": user_info.get("team_ids", []),
-                "delegated_user_ids": user_info.get("delegated_user_ids", []),
-                "perms_dict": user_info.get("perms_dict", {}),
-                "allowed_rpc_methods": {"*"} if is_superadmin else set(user_info.get("allowed_rpc_methods", [])),
-            })()
+            from pyferro.core.identity import get_session_identity
+            ident = get_session_identity(user_info)
+            if ident:
+                user_ctx = type("UserCtx", (), {
+                    "is_superadmin": ident.is_superadmin,
+                    "user_id": ident.user_id,
+                    "team_ids": user_info.get("team_ids", []),
+                    "delegated_user_ids": user_info.get("delegated_user_ids", []),
+                    "perms_dict": user_info.get("perms_dict", {}),
+                    "allowed_rpc_methods": {"*"} if ident.is_superadmin else set(user_info.get("allowed_rpc_methods", [])),
+                })()
 
-            from pyferro.auth import AuthSession
-            session.data = AuthSession(
-                uid=uid,
-                user=None,
-                user_name=user_info.get("username", "user"),
-                user_role=role,
-                user_roles=roles,
-                session_db_id=0,
-                user_ctx=user_ctx,
-                allowed_rpc_methods={"*"} if is_superadmin else set(user_info.get("allowed_rpc_methods", [])),
-                send_request_cb=getattr(session, "send_request", None),
-                send_stream_cb=getattr(session, "send_stream_chunk", None),
-                close_cb=getattr(session, "close", None),
-            )
-            logger.info(f"[AutoAuth] WebSocket #{session.session_id} автоматически авторизован по Cookie как {user_info.get('username')} ({role})")
-
+                from pyferro.auth import AuthSession
+                session.data = AuthSession(
+                    user_id=ident.user_id,
+                    user=None,
+                    username=ident.username,
+                    roles=list(ident.roles),
+                    is_superadmin=ident.is_superadmin,
+                    session_db_id=0,
+                    user_ctx=user_ctx,
+                    allowed_rpc_methods={"*"} if ident.is_superadmin else set(user_info.get("allowed_rpc_methods", [])),
+                    send_request_cb=getattr(session, "send_request", None),
+                    send_stream_cb=getattr(session, "send_stream_chunk", None),
+                    close_cb=getattr(session, "close", None),
+                )
+                logger.info(f"[AutoAuth] WebSocket #{session.session_id} автоматически авторизован по Cookie как {ident.username} ({ident.role})")
     async def _hydrate_ws_auth_from_db(self, session: JsonRpcSession) -> None:
         """
         Дозагружает актуальные права пользователя (роли, RPC, CRUD, замещения) из БД при авто-авторизации по Cookie,
@@ -447,11 +441,11 @@ class FerroApp:
                 role_name = role_names[0] if role_names else "user"
 
                 session.data = AuthSession(
-                    uid=user.id,
+                    user_id=user.id,
                     user=user,
-                    user_name=user.login or user.name,
-                    user_role=role_name,
-                    user_roles=role_names,
+                    username=user.login or user.name,
+                    roles=role_names,
+                    is_superadmin=getattr(user, "is_superadmin", False),
                     session_db_id=getattr(session.data, "session_db_id", 0) if session.data else 0,
                     user_ctx=user_ctx,
                     allowed_rpc_methods=getattr(user_ctx, "allowed_rpc_methods", set()),
@@ -459,13 +453,34 @@ class FerroApp:
                     send_stream_cb=getattr(session, "send_stream_chunk", None),
                     close_cb=getattr(session, "close", None),
                 )
+
+                # Синхронизация прав администратора в кэш CRUD-панели
+                from pyferro.core.identity import get_session_identity
+                ident = get_session_identity(session.data)
+                is_admin_user = ident.is_admin if ident else False
+                if is_admin_user:
+                    try:
+                        from pyferro.plugins.crud.auth import create_crud_session
+                        crud_info = {
+                            "user_id": user.id,
+                            "username": user.login,
+                            "role": role_name,
+                            "roles": role_names,
+                            "is_superadmin": getattr(user, "is_superadmin", False),
+                            "perms_dict": user._get_permissions_dict() if hasattr(user, "_get_permissions_dict") else {},
+                            "allowed_rpc_methods": getattr(user_ctx, "allowed_rpc_methods", {"*"}),
+                        }
+                        if token_val:
+                            create_crud_session(crud_info, token=token_val)
+                    except Exception:
+                        pass
         except Exception as e:
             logger.debug(f"[AutoAuth] Не удалось дозагрузить права из БД для сессии #{session.session_id}: {e}")
     # --- ДЕКОРАТОРЫ ---
 
-    def rpc(self, name: str, description: Optional[str] = None, http: bool = False):
+    def rpc(self, name: str, description: Optional[str] = None, scope: Any = None, http: bool = False):
         """Декоратор для регистрации JSON-RPC 2.0 метода."""
-        return rpc_method(name=name, description=description, http=http)
+        return rpc_method(name=name, description=description, scope=scope, http=http)
 
     def route(self, path: str, methods: Optional[List[str]] = None):
         """Декоратор для регистрации HTTP-обработчика."""

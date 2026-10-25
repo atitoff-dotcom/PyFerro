@@ -41,6 +41,7 @@ from .auth import (
     get_crud_session_validator,
     create_crud_session,
     get_crud_session,
+    get_crud_session_async,
     revoke_crud_session,
 )
 # Регистрация HTTP-роутов для статики и системных RPC-методов
@@ -84,5 +85,6 @@ __all__ = [
     "get_crud_session_validator",
     "create_crud_session",
     "get_crud_session",
+    "get_crud_session_async",
     "revoke_crud_session",
 ]

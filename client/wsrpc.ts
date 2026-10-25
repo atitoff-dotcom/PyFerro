@@ -285,6 +285,9 @@ export class AuthStore<TUser extends AuthUser = AuthUser> {
                 if (whoami && (whoami.authenticated || whoami.user_id)) {
                     const userObj = this.normalizeUser(whoami);
                     this.userStore.set(userObj);
+                    if (whoami.token) {
+                        this.applyAuthSuccess(whoami);
+                    }
                     return true;
                 }
             } catch {
@@ -427,11 +430,16 @@ export class AuthStore<TUser extends AuthUser = AuthUser> {
 
         const token = res.token;
         const jwt = res.jwt_token || res.jwt;
-        if (token) {
-            this.tokenStore.set(token);
-            setAuthCookie('ferro_session', token, 2592000);      // 30 дней для сокета и HTTP
-            setAuthCookie('ferro_crud_session', jwt || token, 2592000); // 30 дней для панели /crud (JWT гарантирует Zero-Leakage 404 валидацию)
-            if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+        const sessionToken = token || jwt;
+
+        if (sessionToken) {
+            this.tokenStore.set(sessionToken);
+            // Единая каноническая кука сессии для сокетов, админки и HTTP
+            setAuthCookie('ferro_session', sessionToken, 2592000);
+            // Для совместимости с легаси-клиентами
+            setAuthCookie('ferro_crud_session', sessionToken, 2592000);
+
+            if (token && typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
                 localStorage.setItem('refresh_token', token);
             }
         }
@@ -439,11 +447,7 @@ export class AuthStore<TUser extends AuthUser = AuthUser> {
         if (jwt) {
             this.jwtTokenStore.set(jwt);
             setAuthCookie('rpc_jwt', jwt, 86400); // 24 часа для REST / uploads
-            if (!token) {
-                setAuthCookie('ferro_crud_session', jwt, 86400);
-            }
         }
-
         return userObj;
     }
 }

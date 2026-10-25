@@ -53,18 +53,8 @@ async def list_active_sessions(session) -> List[Dict[str, Any]]:
     for s in list(ACTIVE_SESSIONS_SET):
         s_id = getattr(s, "session_id", None)
         ip = getattr(s, "ip", "0.0.0.0")
-        username = _extract_username_safe(s)
-        role = "guest"
-        if getattr(s, "data", None):
-            if isinstance(s.data, dict):
-                role = s.data.get("role") or s.data.get("user_role") or s.data.get("role_name") or "user"
-            else:
-                role = (
-                    getattr(s.data, "role", None)
-                    or getattr(s.data, "user_role", None)
-                    or getattr(s.data, "role_name", None)
-                    or "user"
-                )
+        username = getattr(s, "username", "guest")
+        role = getattr(s, "role", "guest")
         last_act = getattr(s, "last_activity", now)
         idle_sec = max(0, int(now - last_act))
         sessions.append({
@@ -590,7 +580,7 @@ async def delegation_options_admin(session) -> Dict[str, Any]:
     }
 
 
-@rpc_method("admin.seo_get_config")
+@rpc_method("admin.seo_get_config", scope="adm_seo")
 async def seo_get_config_admin(session) -> Dict[str, Any]:
     """Возвращает текущие настройки поисковой оптимизации, превью ссылок и карты сайта с учетом прав роли seo."""
     require_admin_section(session, "seo")
@@ -621,6 +611,9 @@ async def seo_get_config_admin(session) -> Dict[str, Any]:
 
     if not seo_allowed_keys:
         seo_allowed_keys = {"ForumCategory", "ForumTopic", "ForumPost"}
+
+    from pyferro.plugins.seo.jinja_engine import set_seo_allowed_models
+    set_seo_allowed_models(seo_allowed_keys)
 
     models_list = []
     system_blacklist = {
@@ -726,7 +719,7 @@ async def seo_get_config_admin(session) -> Dict[str, Any]:
         "bot_routes_count": len(BOT_ROUTES),
     }
 
-@rpc_method("admin.seo_update_config")
+@rpc_method("admin.seo_update_config", scope="adm_seo")
 async def seo_update_config_admin(
     session,
     site_url: Optional[str] = None,
@@ -783,7 +776,7 @@ async def seo_update_config_admin(
     }
 
 
-@rpc_method("admin.seo_ping_indexnow")
+@rpc_method("admin.seo_ping_indexnow", scope="adm_seo")
 async def seo_ping_indexnow_admin(session, urls: Optional[List[str]] = None) -> Dict[str, Any]:
     """Отправляет ручной push-запрос в поисковые системы (IndexNow)."""
     require_admin_section(session, "seo")
@@ -804,7 +797,7 @@ async def seo_ping_indexnow_admin(session, urls: Optional[List[str]] = None) -> 
     }
 
 
-@rpc_method("admin.seo_preview_model_rule")
+@rpc_method("admin.seo_preview_model_rule", scope="adm_seo")
 async def seo_preview_model_rule_admin(
     session,
     model_key: str,
@@ -813,11 +806,17 @@ async def seo_preview_model_rule_admin(
 ) -> Dict[str, Any]:
     """Генерирует живое превью SEO-карточки для конкретной модели и правила."""
     require_admin_section(session, "seo")
+    from pyferro.plugins.seo.jinja_engine import is_model_allowed_for_seo
+    meta = ModelRegistry.get(model_key)
+    if not meta:
+        raise RPCError(-32004, f"Модель '{model_key}' не найдена")
+    if not is_model_allowed_for_seo(meta):
+        raise RPCError(-32003, f"Модель '{model_key}' запрещена для использования в SEO.")
     from pyferro.plugins.seo.dynamic_rules import preview_model_rule
     return await preview_model_rule(model_key, rule, sample_id=sample_id)
 
 
-@rpc_method("admin.seo_get_model_records")
+@rpc_method("admin.seo_get_model_records", scope="adm_seo")
 async def seo_get_model_records_admin(
     session,
     model_key: str,
@@ -828,6 +827,9 @@ async def seo_get_model_records_admin(
     meta = ModelRegistry.get(model_key)
     if not meta:
         return []
+    from pyferro.plugins.seo.jinja_engine import is_model_allowed_for_seo
+    if not is_model_allowed_for_seo(meta):
+        raise RPCError(-32003, f"Модель '{model_key}' запрещена для использования в SEO.")
 
     from pyferro.db import async_session
     from sqlalchemy import select
@@ -853,7 +855,7 @@ async def seo_get_model_records_admin(
     return records
 
 
-@rpc_method("admin.seo_toggle_model_permission")
+@rpc_method("admin.seo_toggle_model_permission", scope="adm_seo")
 async def seo_toggle_model_permission_admin(
     session,
     model_key: str,
@@ -864,7 +866,13 @@ async def seo_toggle_model_permission_admin(
     from pyferro.core.constants import SEO_ROLE
     from pyferro.db import system_db_session
     from pyferro.auth.models import Role, RolePermission
+    from pyferro.plugins.seo.jinja_engine import SYSTEM_SECURITY_MODELS, SYSTEM_SECURITY_PREFIXES, set_seo_allowed_models
     from sqlalchemy import select
+
+    if allowed:
+        meta = ModelRegistry.get(model_key)
+        if model_key in SYSTEM_SECURITY_MODELS or (meta and meta.table_name.startswith(SYSTEM_SECURITY_PREFIXES)):
+            raise RPCError(-32003, f"Предоставление прав SEO для системной модели '{model_key}' запрещено.")
 
     async with system_db_session() as db:
         role = (await db.execute(select(Role).where(Role.name == SEO_ROLE))).scalar_one_or_none()
@@ -895,11 +903,19 @@ async def seo_toggle_model_permission_admin(
             perm.read_global = allowed
         await db.commit()
 
+        # Синхронизируем кэш разрешенных SEO-моделей
+        stmt_all = select(RolePermission.model_name).where(
+            RolePermission.role_id == role.id,
+            RolePermission.can_read == True
+        )
+        active_models = set((await db.execute(stmt_all)).scalars().all())
+        set_seo_allowed_models(active_models)
+
     return {"status": "ok", "model_key": model_key, "seo_allowed": allowed}
 
 
 
-@rpc_method("admin.seo_get_tree")
+@rpc_method("admin.seo_get_tree", scope="adm_seo")
 async def seo_get_tree_admin(session) -> Dict[str, Any]:
     """Возвращает актуальное дерево сайта, доступные модели, пресеты и конфигурацию."""
     require_admin_section(session, "seo")
@@ -948,7 +964,7 @@ async def seo_get_tree_admin(session) -> Dict[str, Any]:
     }
 
 
-@rpc_method("admin.seo_apply_preset")
+@rpc_method("admin.seo_apply_preset", scope="adm_seo")
 async def seo_apply_preset_admin(session, preset_key: str) -> Dict[str, Any]:
     """Применяет универсальный шаблон структуры сайта (ecommerce, blog, clean, forum)."""
     require_admin_section(session, "seo")
@@ -972,10 +988,26 @@ async def seo_apply_preset_admin(session, preset_key: str) -> Dict[str, Any]:
     }
 
 
-@rpc_method("admin.seo_save_tree")
+@rpc_method("admin.seo_save_tree", scope="adm_seo")
 async def seo_save_tree_admin(session, tree: Dict[str, Any], site_url: Optional[str] = None, site_name: Optional[str] = None, indexnow_key: Optional[str] = None) -> Dict[str, Any]:
     """Сохраняет структуру дерева сайта и обновляет общие настройки проекта."""
     require_admin_section(session, "seo")
+    from pyferro.plugins.seo.jinja_engine import is_model_allowed_for_seo, SYSTEM_SECURITY_MODELS
+
+    def _validate_tree_node(n: Dict[str, Any]) -> None:
+        m_key = n.get("model_key")
+        if m_key:
+            if m_key in SYSTEM_SECURITY_MODELS:
+                raise RPCError(-32003, f"Модель '{m_key}' запрещена для использования в SEO.")
+            meta = ModelRegistry.get(m_key)
+            if meta and not is_model_allowed_for_seo(meta):
+                raise RPCError(-32003, f"Модель '{m_key}' запрещена для использования в SEO.")
+        for child in n.get("children", []):
+            _validate_tree_node(child)
+
+    if tree:
+        _validate_tree_node(tree)
+
     from pyferro.plugins.seo.site_tree import save_site_tree
     from pyferro.plugins.seo.config import configure_seo
 
@@ -1002,7 +1034,7 @@ async def seo_save_tree_admin(session, tree: Dict[str, Any], site_url: Optional[
     }
 
 
-@rpc_method("admin.seo_validate_template")
+@rpc_method("admin.seo_validate_template", scope="adm_seo")
 async def seo_validate_template_admin(session, template: str) -> Dict[str, Any]:
     """Проверяет синтаксис Jinja2 шаблона перед сохранением или в реальном времени."""
     require_admin_section(session, "seo")
@@ -1010,7 +1042,7 @@ async def seo_validate_template_admin(session, template: str) -> Dict[str, Any]:
     return validate_jinja_template(template)
 
 
-@rpc_method("admin.seo_preview_tree_node")
+@rpc_method("admin.seo_preview_tree_node", scope="adm_seo")
 async def seo_preview_tree_node_admin(
     session,
     node: Dict[str, Any],
@@ -1019,6 +1051,26 @@ async def seo_preview_tree_node_admin(
 ) -> Dict[str, Any]:
     """Генерирует живое превью того, что увидит бот (карточка, HTML, ссылки) для узла дерева."""
     require_admin_section(session, "seo")
+    from pyferro.plugins.seo.jinja_engine import is_model_allowed_for_seo, SYSTEM_SECURITY_MODELS
+
+    m_key = node.get("model_key")
+    if m_key:
+        if m_key in SYSTEM_SECURITY_MODELS:
+            raise RPCError(-32003, f"Модель '{m_key}' запрещена для использования в SEO.")
+        meta = ModelRegistry.get(m_key)
+        if meta and not is_model_allowed_for_seo(meta):
+            raise RPCError(-32003, f"Модель '{m_key}' запрещена для использования в SEO.")
+
+    if parents:
+        for p in parents:
+            p_key = p.get("model_key")
+            if p_key:
+                if p_key in SYSTEM_SECURITY_MODELS:
+                    raise RPCError(-32003, f"Модель '{p_key}' запрещена для использования в SEO.")
+                p_meta = ModelRegistry.get(p_key)
+                if p_meta and not is_model_allowed_for_seo(p_meta):
+                    raise RPCError(-32003, f"Модель '{p_key}' запрещена для использования в SEO.")
+
     from pyferro.plugins.seo.site_tree import (
         _render_static_node,
         _render_collection_node,

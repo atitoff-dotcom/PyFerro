@@ -126,11 +126,22 @@ def extract_cookies(scope: Any) -> Dict[str, str]:
     return cookies
 
 
+def extract_bearer_token(scope: Any) -> Optional[str]:
+    """
+    Извлекает Bearer-токен из HTTP заголовка Authorization.
+    """
+    auth_hdr = extract_header(scope, "authorization")
+    if auth_hdr and auth_hdr.lower().startswith("bearer "):
+        token = auth_hdr[7:].strip()
+        return token if token else None
+    return None
+
+
 def get_session_cookie_names(prefix: Optional[str] = None) -> List[str]:
     """
     Возвращает упорядоченный список имён cookie для поиска сессионного токена:
-    1. Настроенный префикс ({prefix}_crud_session, {prefix}_session, {prefix}_jwt)
-    2. Исторические и универсальные fallbacks (ferro_, rsgi_, rpc_jwt, token)
+    1. Канонический {prefix}_session (или ferro_session)
+    2. Fallbacks ({prefix}_crud_session, ferro_crud_session, {prefix}_jwt, ferro_jwt)
     """
     if not prefix:
         try:
@@ -141,47 +152,69 @@ def get_session_cookie_names(prefix: Optional[str] = None) -> List[str]:
     prefix = (prefix or "ferro").strip()
 
     names = [
-        f"{prefix}_crud_session",
         f"{prefix}_session",
-        f"{prefix}_jwt",
-    ]
-    fallbacks = [
-        "ferro_crud_session",
         "ferro_session",
+        f"{prefix}_crud_session",
+        "ferro_crud_session",
+        f"{prefix}_jwt",
         "ferro_jwt",
-        "rsgi_crud_session",
-        "rsgi_session",
-        "rsgi_jwt",
         "rpc_jwt",
         "token",
+        "rsgi_session",
+        "rsgi_crud_session",
+        "rsgi_jwt",
     ]
-    for fb in fallbacks:
-        if fb not in names:
-            names.append(fb)
-    return names
+    seen = set()
+    result = []
+    for n in names:
+        if n not in seen:
+            seen.add(n)
+            result.append(n)
+    return result
 
 
-def extract_session_token(scope_or_cookies: Any, session_prefix: Optional[str] = None) -> str:
+def extract_session_tokens(scope_or_cookies: Any, session_prefix: Optional[str] = None) -> List[str]:
     """
-    Универсальное извлечение токена сессии / JWT из scope или словаря cookies.
+    Извлекает все сессионные токены из запроса (Bearer заголовок и Cookie) в строгом порядке приоритета.
     """
-    if isinstance(scope_or_cookies, dict):
+    tokens: List[str] = []
+
+    # Если передан scope с заголовками
+    if hasattr(scope_or_cookies, "headers") or (isinstance(scope_or_cookies, dict) and "headers" in scope_or_cookies):
+        bearer = extract_bearer_token(scope_or_cookies)
+        if bearer and bearer not in tokens:
+            tokens.append(bearer)
+        cookies = extract_cookies(scope_or_cookies)
+    elif isinstance(scope_or_cookies, dict):
+        # Передан чистый словарь {cookie_name: cookie_val}
         cookies = scope_or_cookies
     else:
+        bearer = extract_bearer_token(scope_or_cookies)
+        if bearer and bearer not in tokens:
+            tokens.append(bearer)
         cookies = extract_cookies(scope_or_cookies)
 
     for name in get_session_cookie_names(session_prefix):
         val = cookies.get(name)
-        if val:
-            return val
-    return ""
+        if val and val not in tokens:
+            tokens.append(val)
+    return tokens
+
+def extract_session_token(scope_or_cookies: Any, session_prefix: Optional[str] = None) -> str:
+    """
+    Универсальное извлечение основного токена сессии / JWT из Bearer заголовка или Cookie.
+    """
+    tokens = extract_session_tokens(scope_or_cookies, session_prefix)
+    return tokens[0] if tokens else ""
 
 
 __all__ = [
     "extract_header",
+    "extract_bearer_token",
     "extract_query_params",
     "extract_cookies",
     "get_session_cookie_names",
     "extract_session_token",
+    "extract_session_tokens",
     "read_request_body",
 ]

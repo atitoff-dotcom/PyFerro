@@ -13,11 +13,13 @@ from pyferro.core.http import (
     extract_header,
     extract_cookies,
     extract_session_token,
+    extract_session_tokens,
     get_session_cookie_names,
 )
 from pyferro.core.logger import logger
 from .auth import (
     get_crud_session,
+    get_crud_session_async,
     revoke_crud_session,
 )
 
@@ -36,7 +38,7 @@ async def serve_crud_static(scope, proto) -> None:
     Для гостей и не-администраторов возвращает строгий 404 Not Found (Zero-Leakage).
     Поддерживает канонические подмаршруты /admin/crud, /admin/seo, /admin/users и т.д.
     """
-    path = getattr(scope, "path", "/admin")
+    path = getattr(scope, "path", None) or (scope.get("path", "/admin") if isinstance(scope, dict) else "/admin")
 
     if path == "/admin":
         proto.response_str(
@@ -51,17 +53,21 @@ async def serve_crud_static(scope, proto) -> None:
 
     prefix = "/admin/"
     subpath = path[len(prefix):] if path.startswith(prefix) else ""
-    token = _extract_crud_token(scope)
-    session_data = get_crud_session(token) if token else None
-    roles = session_data.get("roles", []) if session_data else []
-    is_admin = bool(
-        session_data and (
-            session_data.get("is_superadmin")
-            or str(session_data.get("role") or "").lower() == "admin"
-            or "admin" in roles
-            or any(isinstance(r, str) and (r == "admin" or r.startswith("adm-")) for r in roles)
-        )
-    )
+
+    # Проверка сессии администратора: перебираем токены из cookies с асинхронным fallback на DB
+    candidate_tokens = extract_session_tokens(scope)
+    session_data = None
+    token = ""
+    for cand in candidate_tokens:
+        session_data = await get_crud_session_async(cand)
+        if session_data:
+            token = cand
+            break
+
+    from pyferro.core.identity import get_session_identity
+    identity = get_session_identity(session_data)
+    is_admin = identity.has_admin_access if identity else False
+    roles = identity.roles if identity else []
 
     # Безопасность (Zero-Leakage): скрываем существование панели от не-администраторов
     if not is_admin:

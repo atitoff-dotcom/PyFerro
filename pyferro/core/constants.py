@@ -14,19 +14,34 @@ WS_CLOSE_CODES = {
     1011: "Internal Error (Критическая ошибка на стороне сервера)",
 }
 
-# Системные роли безопасности
-ADMIN_ROLE = "admin"
-GUEST_ROLE = "guest"
-SEO_ROLE = "seo"
 
-# Постоянные роли доступа к подразделам панели управления (adm-*)
-ADM_CRUD_ROLE = "adm-crud"
-ADM_SEO_ROLE = "adm-seo"
-ADM_USERS_ROLE = "adm-users"
-ADM_ROLES_ROLE = "adm-roles"
-ADM_RPC_ROLE = "adm-rpc"
-ADM_SETTINGS_ROLE = "adm-settings"
-ADM_HELP_ROLE = "adm-help"
+class admRole(str, Enum):
+    """Единое типизированное перечисление системных и административных ролей."""
+    admin = "admin"
+    guest = "guest"
+    seo = "seo"
+    adm_crud = "adm_crud"
+    adm_seo = "adm_seo"
+    adm_users = "adm_users"
+    adm_roles = "adm_roles"
+    adm_rpc = "adm_rpc"
+    adm_settings = "adm_settings"
+    adm_help = "adm_help"
+
+
+# Системные роли безопасности
+ADMIN_ROLE = admRole.admin.value
+GUEST_ROLE = admRole.guest.value
+SEO_ROLE = admRole.seo.value
+
+# Постоянные роли доступа к подразделам панели управления (adm_*)
+ADM_CRUD_ROLE = admRole.adm_crud.value
+ADM_SEO_ROLE = admRole.adm_seo.value
+ADM_USERS_ROLE = admRole.adm_users.value
+ADM_ROLES_ROLE = admRole.adm_roles.value
+ADM_RPC_ROLE = admRole.adm_rpc.value
+ADM_SETTINGS_ROLE = admRole.adm_settings.value
+ADM_HELP_ROLE = admRole.adm_help.value
 
 ADM_SECTION_ROLES = frozenset({
     ADM_CRUD_ROLE,
@@ -50,3 +65,24 @@ SYSTEM_ROLES = frozenset({
     ADM_SETTINGS_ROLE,
     ADM_HELP_ROLE,
 })
+
+SYSTEM_PUBLIC_EXEMPT_RPCS = frozenset({
+    "system.ping",
+    "system.status",
+    "system.ws_status",
+})
+
+
+def is_system_rpc_name(method_name: str) -> bool:
+    """Определяет, относится ли RPC-метод к системным/административным операциям платформы."""
+    if not method_name or not isinstance(method_name, str):
+        return False
+    if method_name in SYSTEM_PUBLIC_EXEMPT_RPCS:
+        return False
+    parts = method_name.split(".")
+    group = parts[0]
+    if group in ("admin", "system", "permissions", "crud", "login", "auth"):
+        return True
+    if method_name.endswith("_admin") or ".admin_" in method_name or group == "delegations":
+        return True
+    return False

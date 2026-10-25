@@ -81,18 +81,9 @@ broadcast = broadcast_notification
 
 def get_session_uid(session: Any) -> Optional[int]:
     """Извлекает ID пользователя из сессии."""
-    if session is None:
-        return None
-    uid = getattr(session, "user_id", None)
-    if uid is None and isinstance(session, dict):
-        uid = session.get("user_id")
-    if uid is None or isinstance(uid, bool):
-        return None
-    try:
-        return int(uid)
-    except (ValueError, TypeError):
-        return None
-
+    from pyferro.core.identity import get_session_identity
+    ident = get_session_identity(session)
+    return ident.user_id if ident else None
 
 async def send_to_user(
     user_id: int,

@@ -117,7 +117,7 @@ async def collect_all_sitemap_urls() -> List[Dict[str, Any]]:
                     for r in rows:
                         rec = r.to_dict() if hasattr(r, "to_dict") else {c.name: getattr(r, c.name, None) for c in model_cls.__table__.columns}
                         loc = resolve_template(pattern, rec, {})
-                        if loc and not loc.startswith("{"):
+                        if loc and "{" not in loc and "}" not in loc:
                             urls.append({
                                 "loc": loc,
                                 "priority": float(rule.get("sitemap_priority", 0.8)),
@@ -141,7 +141,7 @@ def _render_urlset_xml(base_url: str, urls: List[Dict[str, Any]]) -> str:
             continue
 
         raw_loc = item.get("loc", "")
-        if not raw_loc:
+        if not raw_loc or "{" in raw_loc or "}" in raw_loc:
             continue
 
         if raw_loc.startswith("http://") or raw_loc.startswith("https://"):

@@ -21,10 +21,10 @@
 
   function isNavAllowed(nav: string): boolean {
     if (!isRolesLoaded) return true;
-    if (isSuperadmin || userRoles.includes("admin") || userRoles.includes("adm-all")) return true;
+    if (isSuperadmin || userRoles.includes("admin") || userRoles.includes("adm_all")) return true;
     if (nav === "help") return true;
-    if (nav === "database" && (userRoles.includes("adm-crud") || userRoles.includes("adm-database"))) return true;
-    return userRoles.includes(`adm-${nav}`);
+    if (nav === "database" && (userRoles.includes("adm_crud") || userRoles.includes("adm_database"))) return true;
+    return userRoles.includes(`adm_${nav}`);
   }
 
   function getNavFromPathname(): MainNav | null {

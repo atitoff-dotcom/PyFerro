@@ -35,7 +35,7 @@ async def help_ping(session: JsonRpcSession, params: Optional[Dict[str, Any]] = 
         "client_session_id": client_session_id,
         "user_id": getattr(session, "user_id", None),
         "username": getattr(session, "username", "anonymous"),
-        "user_roles": getattr(session, "user_roles", ["adm-help"]),
+        "user_roles": getattr(session, "user_roles", ["adm_help"]),
     }
 
 

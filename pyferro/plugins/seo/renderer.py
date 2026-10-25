@@ -24,7 +24,8 @@ def _format_datetime(dt: Optional[datetime]) -> Optional[str]:
 def render_seo_page(
     page: SeoPageData,
     current_path: str = "/",
-    host: Optional[str] = None
+    host: Optional[str] = None,
+    is_emulation: bool = False
 ) -> str:
     """
     Генерирует полный валидный HTML-документ для отдачи краулерам и ботам.
@@ -134,6 +135,29 @@ def render_seo_page(
     # 5. Сборка Body
     body_elements: List[str] = []
 
+    # Плашка эмуляции бота для браузера (DevBar)
+    if is_emulation:
+        body_elements.append(
+            '    <div id="pf-bot-emulation-bar" style="position:sticky;top:0;left:0;right:0;z-index:999999;'
+            'background:#0f172a;color:#f8fafc;padding:12px 20px;font-family:system-ui,-apple-system,sans-serif;'
+            'font-size:13px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;'
+            'border-bottom:2px solid #3b82f6;box-shadow:0 4px 12px rgba(0,0,0,0.3);">\n'
+            '      <div style="display:flex;align-items:center;gap:10px;">\n'
+            '        <span style="font-size:20px;">🤖</span>\n'
+            '        <div>\n'
+            '          <div style="font-weight:700;color:#60a5fa;letter-spacing:0.3px;">Режим эмуляции поискового робота (SSR)</div>\n'
+            '          <div style="font-size:11px;opacity:0.8;margin-top:1px;">Вы видите сайт точно так, как его читают Яндекс и Google. Кликайте по любым ссылкам для проверки обхода.</div>\n'
+            '        </div>\n'
+            '      </div>\n'
+            '      <div style="display:flex;align-items:center;gap:12px;">\n'
+            '        <span style="font-size:11px;opacity:0.55;font-family:monospace;">Сессия завершится при закрытии вкладки</span>\n'
+            '        <a href="?bot=0" style="background:#ef4444;color:#ffffff;text-decoration:none;padding:6px 14px;'
+            'border-radius:6px;font-weight:600;font-size:12px;display:inline-flex;align-items:center;gap:4px;'
+            'box-shadow:0 1px 3px rgba(0,0,0,0.2);transition:background 0.2s;">✕ Выйти в обычный режим</a>\n'
+            '      </div>\n'
+            '    </div>'
+        )
+
     # Хлебные крошки визуальные (для краулеров)
     if page.breadcrumbs:
         links = []
@@ -163,9 +187,26 @@ def render_seo_page(
     )
 
 
-def render_404_html(site_name: Optional[str] = None) -> str:
+def render_404_html(site_name: Optional[str] = None, is_emulation: bool = False) -> str:
     """Генерирует чистый 404 HTML для краулеров."""
     name = site_name or get_seo_config().site_name
+    banner = ""
+    if is_emulation:
+        banner = (
+            '    <div id="pf-bot-emulation-bar" style="position:sticky;top:0;left:0;right:0;z-index:999999;'
+            'background:#0f172a;color:#f8fafc;padding:12px 20px;font-family:system-ui,-apple-system,sans-serif;'
+            'font-size:13px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;'
+            'border-bottom:2px solid #ef4444;box-shadow:0 4px 12px rgba(0,0,0,0.3);">\n'
+            '      <div style="display:flex;align-items:center;gap:10px;">\n'
+            '        <span style="font-size:20px;">🤖</span>\n'
+            '        <div>\n'
+            '          <strong style="color:#f87171;">Режим эмуляции бота (Страница 404)</strong>\n'
+            '        </div>\n'
+            '      </div>\n'
+            '      <a href="?bot=0" style="background:#ef4444;color:#ffffff;text-decoration:none;padding:6px 14px;'
+            'border-radius:6px;font-weight:600;font-size:12px;">✕ Выйти</a>\n'
+            '    </div>\n'
+        )
     return (
         f'<!DOCTYPE html>\n'
         f'<html lang="ru">\n'
@@ -175,12 +216,12 @@ def render_404_html(site_name: Optional[str] = None) -> str:
         f'    <meta name="robots" content="noindex, nofollow">\n'
         f'  </head>\n'
         f'  <body>\n'
+        f'{banner}'
         f'    <h1>404 Not Found</h1>\n'
         f'    <p>Запрошенная страница не найдена.</p>\n'
         f'  </body>\n'
         f'</html>'
     )
-
 
 class HtmlBuilder:
     """

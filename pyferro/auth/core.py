@@ -12,6 +12,7 @@ from sqlalchemy import Integer, DateTime, func
 
 from pyferro.db import Base
 from pyferro.core.session import current_user_ctx
+from pyferro.core.identity import UserIdentity
 
 # Контекстная переменная для обхода проверок прав системными операциями (Bypass)
 system_bypass_ctx: ContextVar[bool] = ContextVar("system_bypass", default=False)
@@ -51,30 +52,39 @@ class RowSecureModel(BasicSecureModel):
     )
 
 
-
 class AuthSession:
     """
-    Стандартный объект сессии пользователя, привязанный к WebSocket-соединению.
+    Канонический объект сессии пользователя, привязанный к WebSocket-соединению.
     """
     def __init__(
         self,
-        uid: int,
-        user: Any,
-        user_name: str,
-        user_role: Any,
-        user_roles: list,
-        session_db_id: int,
+        user_id: Optional[int] = None,
+        username: Optional[str] = None,
+        roles: Optional[list] = None,
+        user: Any = None,
+        session_db_id: int = 0,
         user_ctx: Any = None,
         allowed_rpc_methods: Any = None,
         send_request_cb: Any = None,
         send_stream_cb: Any = None,
         close_cb: Any = None,
+        is_superadmin: Optional[bool] = None,
+        uid: Optional[int] = None,
+        user_name: Optional[str] = None,
+        user_role: Optional[str] = None,
+        user_roles: Optional[list] = None,
     ):
-        self.uid = uid
+        raw_uid = user_id if user_id is not None else uid
+        self.user_id = int(raw_uid) if raw_uid is not None else 0
+        self.username = str(username or user_name or (f"user_{self.user_id}" if self.user_id else "guest"))
+        effective_roles = roles if roles is not None else (user_roles if user_roles is not None else None)
+        if effective_roles:
+            self.roles = list(effective_roles)
+        else:
+            r = user_role or "user"
+            self.roles = [r]
+        self.role = self.roles[0] if self.roles else "user"
         self.user = user
-        self.user_name = user_name
-        self.user_role = user_role
-        self.user_roles = user_roles
         self.session_db_id = session_db_id
         self.user_ctx = user_ctx
         self.allowed_rpc_methods = set(allowed_rpc_methods) if allowed_rpc_methods else set()
@@ -82,49 +92,65 @@ class AuthSession:
         self._send_stream_cb = send_stream_cb
         self._close_cb = close_cb
 
-    @property
-    def user_id(self) -> int:
-        return self.uid
+        if is_superadmin is not None:
+            self._is_superadmin = bool(is_superadmin)
+        elif self.user_ctx and getattr(self.user_ctx, 'is_superadmin', False):
+            self._is_superadmin = True
+        else:
+            self._is_superadmin = (
+                "admin" in self.roles
+                or "ADMIN" in self.roles
+                or self.role in ("admin", "ADMIN", "superadmin")
+            )
 
     @property
-    def username(self) -> str:
-        return self.user_name
+    def identity(self) -> UserIdentity:
+        return UserIdentity(
+            user_id=self.user_id,
+            username=self.username,
+            roles=tuple(self.roles),
+            is_superadmin=self.is_superadmin,
+            session_db_id=self.session_db_id,
+        )
+
+    # Синонимы для обратной совместимости
+    @property
+    def uid(self) -> int:
+        return self.user_id
 
     @property
-    def role(self) -> Any:
-        return self.user_role
+    def user_name(self) -> str:
+        return self.username
 
     @property
-    def roles(self) -> list:
-        return self.user_roles
+    def user_role(self) -> str:
+        return self.role
+
+    @property
+    def user_roles(self) -> list:
+        return self.roles
 
     @property
     def authenticated(self) -> bool:
         return True
 
     @property
-    def role_name(self) -> Any:
-        return self.user_role
+    def role_name(self) -> str:
+        return self.role
 
     @property
     def is_superadmin(self) -> bool:
-        if self.user_ctx and getattr(self.user_ctx, 'is_superadmin', False):
-            return True
-        if self.user_role in ('admin', 'ADMIN', 'superadmin'):
-            return True
-        if any(r in ('admin', 'ADMIN', 'superadmin') for r in (self.user_roles or [])):
-            return True
-        return False
+        return self._is_superadmin
 
     @property
     def is_admin(self) -> bool:
-        return self.is_superadmin
+        return self._is_superadmin or any(r in ("admin", "ADMIN") or r.startswith("adm_") for r in self.roles)
 
     def has_rpc_permission(self, method_name: str) -> bool:
         """Проверяет право на вызов RPC-метода (O(1) in-memory)."""
-        if self.user_ctx and getattr(self.user_ctx, "is_superadmin", False):
+        if self.is_superadmin:
             return True
-        if "admin" in self.user_roles or self.user_role == "admin":
+        if "admin" in self.roles or self.role == "admin":
             return True
         if "*" in self.allowed_rpc_methods or method_name in self.allowed_rpc_methods:
             return True

@@ -173,6 +173,7 @@ class FileStorageService:
         cfg = get_config()
         sec = secret_key or (getattr(cfg.security, "secret_key", None) if hasattr(cfg, "security") else None) or "file-secret-key"
         payload = {
+            "typ": "file_download",
             "sub": "file_download",
             "file_id": file_id,
             "exp": int(time.time()) + expires_in,
@@ -188,7 +189,7 @@ class FileStorageService:
         sec = secret_key or (getattr(cfg.security, "secret_key", None) if hasattr(cfg, "security") else None) or "file-secret-key"
         try:
             payload = jwt.decode(token, sec, algorithms=["HS256"])
-            if payload.get("sub") == "file_download":
+            if payload.get("sub") == "file_download" and payload.get("typ") in (None, "file_download"):
                 return payload.get("file_id")
         except Exception:
             pass

@@ -14,13 +14,13 @@ from pyferro.core.logger import logger
 from pyferro.core.constants import ADMIN_ROLE, GUEST_ROLE, SEO_ROLE, ADM_SECTION_ROLES, ADM_HELP_ROLE, SYSTEM_ROLES
 
 ADM_ROLE_DESCRIPTIONS = {
-    "adm-crud": "Администратор базы данных (CRUD)",
-    "adm-seo": "Администратор соцсетей и SEO (Search & Social Previews)",
-    "adm-users": "Администратор пользователей (User Management)",
-    "adm-roles": "Администратор прав и ролей (RBAC Management)",
-    "adm-rpc": "Администратор RPC API (API Explorer)",
-    "adm-settings": "Администратор настроек платформы (System Settings)",
-    "adm-help": "Администратор раздела Справки и API (Help & API Explorer)",
+    "adm_crud": "Администратор базы данных (CRUD)",
+    "adm_seo": "Администратор соцсетей и SEO (Search & Social Previews)",
+    "adm_users": "Администратор пользователей (User Management)",
+    "adm_roles": "Администратор прав и ролей (RBAC Management)",
+    "adm_rpc": "Администратор RPC API (API Explorer)",
+    "adm_settings": "Администратор настроек платформы (System Settings)",
+    "adm_help": "Администратор раздела Справки и API (Help & API Explorer)",
 }
 from pyferro.core.session import (
     RPC_REGISTRY,
@@ -89,63 +89,26 @@ async def reload_guest_permissions_cache() -> None:
 
 
 async def ensure_system_roles(db) -> tuple[Role, Role]:
-    """Гарантирует наличие обязательных системных ролей admin и guest в БД."""
-    try:
-        from pyferro.db import engine
-        async with engine.begin() as conn:
-            def _sync_col(connection):
-                try:
-                    res = connection.exec_driver_sql("PRAGMA table_info(pf_auth_rpc_permission)").fetchall()
-                    existing_cols = {row[1] for row in res}
-                    if existing_cols and "is_framework" not in existing_cols:
-                        connection.exec_driver_sql("ALTER TABLE pf_auth_rpc_permission ADD COLUMN is_framework BOOLEAN DEFAULT 0")
-                except Exception:
-                    pass
-            await conn.run_sync(_sync_col)
-    except Exception:
-        pass
-
+    """Гарантирует наличие обязательной встроенной роли guest в БД."""
     stmt_roles = select(Role).options(selectinload(Role.rpc_permissions))
     existing = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
-
-    if ADMIN_ROLE not in existing:
-        admin_role = Role(name=ADMIN_ROLE, description="Системный администратор (Superadmin)")
-        db.add(admin_role)
-        existing[ADMIN_ROLE] = admin_role
 
     if GUEST_ROLE not in existing:
         guest_role = Role(name=GUEST_ROLE, description="Гость / Неавторизованный посетитель")
         db.add(guest_role)
+        await db.commit()
+        await db.refresh(guest_role, ["rpc_permissions"])
         existing[GUEST_ROLE] = guest_role
 
-    roles_added = False
-    if SEO_ROLE not in existing:
-        seo_role = Role(name=SEO_ROLE, description="Поисковая оптимизация и индексация (SEO Bot / Crawler)")
-        db.add(seo_role)
-        existing[SEO_ROLE] = seo_role
-        roles_added = True
-
-    for adm_r in ADM_SECTION_ROLES:
-        if adm_r not in existing:
-            desc = ADM_ROLE_DESCRIPTIONS.get(adm_r, f"Администратор подраздела {adm_r}")
-            r_obj = Role(name=adm_r, description=desc)
-            db.add(r_obj)
-            existing[adm_r] = r_obj
-            roles_added = True
-
-    if roles_added or ADMIN_ROLE not in existing or GUEST_ROLE not in existing:
-        await db.commit()
-        stmt_roles = select(Role).options(selectinload(Role.rpc_permissions))
-        existing = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
-    return existing[ADMIN_ROLE], existing[GUEST_ROLE]
+    return existing[GUEST_ROLE], existing[GUEST_ROLE]
 
 
 async def sync_rpc_permissions() -> None:
     """
     Синхронизирует зарегистрированные в коде RPC-методы с базой данных.
-    1. Проверяет наличие обязательных системных ролей (admin, guest); если отсутствуют - падает.
-    2. Сканирует RPC_REGISTRY и добавляет новые методы в auth_rpc_permission.
-    3. Привязывает к роли guest только методы логина (Default Deny).
+    1. Применяет DDL-миграции схемы pf_auth_user и pf_auth_rpc_permission.
+    2. Гарантирует наличие роли guest для неавторизованных прав.
+    3. Сканирует RPC_REGISTRY и добавляет новые методы в auth_rpc_permission.
     4. Загружает права гостя в O(1) in-memory кэш (GUEST_ALLOWED_RPC_METHODS / GUEST_ALLOWED_CRUD_MODELS).
     """
     try:
@@ -159,48 +122,60 @@ async def sync_rpc_permissions() -> None:
                     existing_cols = {row[1] for row in res}
                     if existing_cols and "is_framework" not in existing_cols:
                         connection.exec_driver_sql("ALTER TABLE pf_auth_rpc_permission ADD COLUMN is_framework BOOLEAN DEFAULT 0")
-                except Exception:
-                    pass
 
+                    # Миграция pf_auth_user для системных ролей
+                    user_cols = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(pf_auth_user)").fetchall()}
+                    if user_cols:
+                        if "is_superadmin" not in user_cols:
+                            connection.exec_driver_sql("ALTER TABLE pf_auth_user ADD COLUMN is_superadmin BOOLEAN DEFAULT 0")
+                        if "admin_roles" not in user_cols:
+                            connection.exec_driver_sql("ALTER TABLE pf_auth_user ADD COLUMN admin_roles TEXT DEFAULT ''")
+
+                    # Миграция существующих данных: перенос admin из pf_auth_role в pf_auth_user.is_superadmin
+                    connection.exec_driver_sql("""
+                        UPDATE pf_auth_user
+                        SET is_superadmin = 1
+                        WHERE id IN (
+                            SELECT ur.user_id FROM pf_auth_user_auth_role ur
+                            JOIN pf_auth_role r ON ur.role_id = r.id
+                            WHERE r.name = 'admin'
+                        )
+                    """)
+                    # Удаление связанных записей и системных ролей admin / adm_* из pf_auth_role
+                    connection.exec_driver_sql("""
+                        DELETE FROM pf_auth_user_auth_role
+                        WHERE role_id IN (SELECT id FROM pf_auth_role WHERE name = 'admin' OR name LIKE 'adm_%' OR name LIKE 'adm-%')
+                    """)
+                    connection.exec_driver_sql("""
+                        DELETE FROM pf_auth_role_permission
+                        WHERE role_id IN (SELECT id FROM pf_auth_role WHERE name = 'admin' OR name LIKE 'adm_%' OR name LIKE 'adm-%')
+                    """)
+                    try:
+                        connection.exec_driver_sql("""
+                            DELETE FROM pf_auth_role_auth_rpc_permission
+                            WHERE role_id IN (SELECT id FROM pf_auth_role WHERE name = 'admin' OR name LIKE 'adm_%' OR name LIKE 'adm-%')
+                        """)
+                    except Exception:
+                        pass
+                    connection.exec_driver_sql("DELETE FROM pf_auth_role WHERE name = 'admin' OR name LIKE 'adm_%' OR name LIKE 'adm-%'")
+                except Exception as e:
+                    logger.warning(f"[Discovery] Ошибка миграции колонок pf_auth_user / pf_auth_role: {e}")
             await conn.run_sync(_sync_rpc_perm_columns)
 
         async with system_db_session() as db:
-            # 1. Проверяем обязательные системные роли (admin, guest)
-            stmt_roles = select(Role).options(selectinload(Role.rpc_permissions))
-            existing_roles = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
-
-            missing_roles = [r for r in (ADMIN_ROLE, GUEST_ROLE) if r not in existing_roles]
-            if missing_roles:
-                error_msg = (
-                    f"CRITICAL: В базе данных отсутствуют обязательные системные роли {missing_roles}! "
-                    f"Запуск сервера невозможен. Инициализируйте базу через CLI ('createsuperuser')."
+            # Гарантируем наличие роли guest в БД
+            stmt_guest = select(Role).options(selectinload(Role.rpc_permissions)).where(Role.name == GUEST_ROLE)
+            guest_role = (await db.execute(stmt_guest)).scalar_one_or_none()
+            if not guest_role:
+                guest_role = Role(
+                    name=GUEST_ROLE,
+                    description="Гость / Неавторизованный посетитель",
                 )
-                logger.critical(f"[Discovery] {error_msg}")
-                raise RuntimeError(error_msg)
-
-            # Гарантируем наличие системной роли seo и ролей подразделов в существующей БД
-            roles_created = False
-            if SEO_ROLE not in existing_roles:
-                seo_role = Role(
-                    name=SEO_ROLE,
-                    description="Поисковая оптимизация и индексация (SEO Bot / Crawler)",
-                )
-                db.add(seo_role)
-                roles_created = True
-
-            for adm_r in ADM_SECTION_ROLES:
-                if adm_r not in existing_roles:
-                    desc = ADM_ROLE_DESCRIPTIONS.get(adm_r, f"Администратор подраздела {adm_r}")
-                    r_obj = Role(name=adm_r, description=desc)
-                    db.add(r_obj)
-                    roles_created = True
-
-            if roles_created:
+                db.add(guest_role)
                 await db.commit()
-                stmt_roles = select(Role).options(selectinload(Role.rpc_permissions))
-                existing_roles = {r.name: r for r in (await db.execute(stmt_roles)).scalars().all()}
+                stmt_guest = select(Role).options(selectinload(Role.rpc_permissions)).where(Role.name == GUEST_ROLE)
+                guest_role = (await db.execute(stmt_guest)).scalar_one()
 
-            guest_role = existing_roles[GUEST_ROLE]
             guest_rpc_ids = {rp.id for rp in guest_role.rpc_permissions}
             # 2. Сканируем зарегистрированные методы
             stmt_perms = select(RpcPermission)
@@ -273,37 +248,42 @@ async def sync_rpc_permissions() -> None:
                     guest_rpc_ids.add(perm.id)
                     guest_role_updated = True
 
-            # 5. Привязываем help.* методы к роли adm-help
-            help_updated = False
-            if ADM_HELP_ROLE in existing_roles:
-                help_role = existing_roles[ADM_HELP_ROLE]
-                help_rpc_ids = {rp.id for rp in help_role.rpc_permissions}
-                for method_name, perm in existing_perms.items():
-                    if method_name.startswith("help.") and perm.id not in help_rpc_ids:
-                        help_role.rpc_permissions.append(perm)
-                        help_rpc_ids.add(perm.id)
-                        help_updated = True
-
-            # 6. Инициализируем CRUD-разрешения по умолчанию для роли seo (тестовые модели форума)
+            # 5. Инициализируем CRUD-разрешения по умолчанию для роли seo (тестовые модели форума)
             seo_updated = False
-            if SEO_ROLE in existing_roles:
-                seo_role = existing_roles[SEO_ROLE]
-                stmt_seo_perms = select(RolePermission).where(RolePermission.role_id == seo_role.id)
-                existing_seo_models = {p.model_name for p in (await db.execute(stmt_seo_perms)).scalars().all()}
-                for m_key in ["ForumCategory", "ForumTopic", "ForumPost"]:
-                    if m_key not in existing_seo_models:
-                        db.add(RolePermission(
-                            role_id=seo_role.id,
-                            model_name=m_key,
-                            can_read=True,
-                            can_create=False,
-                            can_update=False,
-                            can_delete=False,
-                            read_global=True,
-                        ))
-                        seo_updated = True
+            stmt_seo = select(Role).options(selectinload(Role.permissions)).where(Role.name == SEO_ROLE)
+            seo_role = (await db.execute(stmt_seo)).scalar_one_or_none()
+            if not seo_role:
+                seo_role = Role(name=SEO_ROLE, description="Поисковая оптимизация и индексация (SEO Bot / Crawler)")
+                db.add(seo_role)
+                await db.commit()
+                stmt_seo = select(Role).options(selectinload(Role.permissions)).where(Role.name == SEO_ROLE)
+                seo_role = (await db.execute(stmt_seo)).scalar_one()
 
-            if added_count > 0 or updated_count > 0 or deleted_count > 0 or guest_role_updated or help_updated or seo_updated:
+            stmt_seo_perms = select(RolePermission).where(RolePermission.role_id == seo_role.id)
+            existing_seo_models = {p.model_name for p in (await db.execute(stmt_seo_perms)).scalars().all()}
+            for m_key in ["ForumCategory", "ForumTopic", "ForumPost"]:
+                if m_key not in existing_seo_models:
+                    db.add(RolePermission(
+                        role_id=seo_role.id,
+                        model_name=m_key,
+                        can_read=True,
+                        can_create=False,
+                        can_update=False,
+                        can_delete=False,
+                        read_global=True,
+                    ))
+                    seo_updated = True
+
+            # 6. Гарантируем наличие базовой роли пользователя 'user'
+            stmt_user_role = select(Role).where(Role.name == "user")
+            user_role = (await db.execute(stmt_user_role)).scalar_one_or_none()
+            user_role_created = False
+            if not user_role:
+                user_role = Role(name="user", description="Обычный зарегистрированный пользователь")
+                db.add(user_role)
+                user_role_created = True
+
+            if added_count > 0 or updated_count > 0 or deleted_count > 0 or guest_role_updated or seo_updated or user_role_created:
                 await db.commit()
                 if added_count > 0:
                     logger.info(f"[Discovery] Зарегистрировано {added_count} новых RPC-методов в базе данных")

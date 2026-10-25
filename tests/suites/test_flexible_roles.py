@@ -31,33 +31,22 @@ from pyferro.auth.core import system_bypass_ctx
 
 @pytest.mark.asyncio
 async def test_system_roles_startup_and_fail_fast():
-    """Проверяет, что при отсутствии admin или guest sync_rpc_permissions падает с RuntimeError."""
+    """Проверяет, что системные роли admin и adm_* не присутствуют в pf_auth_role после синхронизации."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # 1. Если база пуста без ролей - sync_rpc_permissions обязан упасть!
-    async with system_db_session() as db:
-        roles = (await db.execute(select(Role))).scalars().all()
-        for r in roles:
-            await db.delete(r)
-        await db.commit()
-
-    with pytest.raises(RuntimeError) as exc_info:
-        await sync_rpc_permissions()
-    assert "CRITICAL" in str(exc_info.value)
-    assert "отсутствуют обязательные системные роли" in str(exc_info.value)
-
-    # 2. Восстанавливаем обязательные системные роли
-    async with system_db_session() as db:
-        await ensure_system_roles(db)
-
-    # Теперь sync_rpc_permissions должен успешно пройти
     await sync_rpc_permissions()
 
-
+    async with system_db_session() as db:
+        roles = (await db.execute(select(Role))).scalars().all()
+        role_names = {r.name for r in roles}
+        assert "admin" not in role_names
+        assert not any(name.startswith("adm_") for name in role_names)
+        assert GUEST_ROLE in role_names
 @pytest.mark.asyncio
-async def test_user_without_roles_cannot_login():
-    """Пользователь без ролей не может успешно авторизоваться (login.submit / login.refresh)."""
+@pytest.mark.asyncio
+async def test_registered_user_gets_default_role_and_can_login():
+    """Новый пользователь при регистрации получает роль 'user' и успешно входит в систему."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -69,7 +58,7 @@ async def test_user_without_roles_cannot_login():
 
     # 1. Регистрируем пользователя
     import secrets
-    username = f"no_role_{secrets.token_hex(4)}"
+    username = f"user_{secrets.token_hex(4)}"
     email = f"{username}@example.com"
     reg_res = await handle_register(mock_sess, {
         "username": username,
@@ -78,31 +67,31 @@ async def test_user_without_roles_cannot_login():
     })
     assert reg_res["success"] is True
 
-    # Проверяем, что у него действительно нет ролей (роль 'user' не назначается!)
+    # Проверяем, что ему автоматически назначена роль 'user'
     async with system_db_session() as db:
         stmt = select(User).options(selectinload(User.roles)).where(User.login == username)
         u = (await db.execute(stmt)).scalar_one()
-        assert len(u.roles) == 0
+        assert len(u.roles) == 1
+        assert u.roles[0].name == "user"
 
-    # 2. Попытка входа через login.submit -> отказ
-    with pytest.raises(RPCError) as exc_login:
-        await handle_login(mock_sess, {
-            "username": username,
-            "password": "Password123!",
-        })
-    assert "не имеет назначенных ролей" in str(exc_login.value)
+    # 2. Вход через login.submit -> успешно
+    login_res = await handle_login(mock_sess, {
+        "username": username,
+        "password": "Password123!",
+    })
+    assert login_res["authenticated"] is True
+    assert "user" in login_res["roles"]
 
-    # 3. Попытка входа через login.refresh для пользователя без ролей -> отказ
+    # 3. Вход через login.refresh -> успешно
     async with system_db_session() as db:
         rt = await issue_refresh_token(db, u.id)
         await db.commit()
         rt_token = rt.token
-    with pytest.raises(RPCError) as exc_refresh:
-        await handle_refresh_token(mock_sess, {
-            "token": rt_token,
-        })
-    assert "не имеет назначенных ролей" in str(exc_refresh.value)
-
+    refresh_res = await handle_refresh_token(mock_sess, {
+        "token": rt_token,
+    })
+    assert refresh_res["authenticated"] is True
+    assert "user" in refresh_res["roles"]
 
 @pytest.mark.asyncio
 async def test_admin_is_admin_and_only_admin():
@@ -127,11 +116,10 @@ async def test_admin_is_admin_and_only_admin():
             db.add(reader_role)
 
         await db.commit()
-        await db.refresh(admin_role)
         await db.refresh(editor_role)
         await db.refresh(reader_role)
 
-        # Создаем пользователя, у которого есть И admin, И editor, И reader
+        # Создаем пользователя, у которого есть И admin (is_superadmin=True), И прикладные роли editor, reader
         stmt_u = select(User).options(selectinload(User.roles)).where(User.login == "super_combo_admin")
         combo_user = (await db.execute(stmt_u)).scalar_one_or_none()
         if not combo_user:
@@ -139,11 +127,13 @@ async def test_admin_is_admin_and_only_admin():
                 login="super_combo_admin",
                 name="Combo Admin",
                 password_hash=User._hash_password("AdminPass123!"),
-                roles=[admin_role, editor_role, reader_role],
+                is_superadmin=True,
+                roles=[editor_role, reader_role],
             )
             db.add(combo_user)
         else:
-            combo_user.roles = [admin_role, editor_role, reader_role]
+            combo_user.is_superadmin = True
+            combo_user.roles = [editor_role, reader_role]
         await db.commit()
 
     mock_sess = MagicMock()
@@ -240,12 +230,12 @@ async def test_cli_set_admin_password_ensures_admin_role():
     new_pwd = await async_set_password(login="dormant_admin", password="NewAdminPass123!")
     assert new_pwd == "NewAdminPass123!"
 
-    # Проверяем, что в БД пользователю теперь жестко назначена роль admin
+    # Проверяем, что в БД пользователю теперь установлены права суперадминистратора
     async with system_db_session() as db:
-        stmt_u = select(User).options(selectinload(User.roles)).where(User.login == "dormant_admin")
+        stmt_u = select(User).where(User.login == "dormant_admin")
         updated_user = (await db.execute(stmt_u)).scalar_one()
-        role_names = [r.name for r in updated_user.roles]
-        assert "admin" in role_names
+        assert updated_user.is_superadmin is True
+        assert "admin" in updated_user.get_admin_roles()
 
     # Проверяем, что теперь этот пользователь может успешно войти и является admin
     mock_sess = MagicMock()
@@ -256,28 +246,20 @@ async def test_cli_set_admin_password_ensures_admin_role():
     })
     assert login_res["role"] == "admin"
     assert login_res["roles"] == ["admin"]
+    assert login_res["is_superadmin"] is True
 
 @pytest.mark.asyncio
 async def test_sync_rpc_permissions_when_adm_help_missing():
-    """Проверяет, что при отсутствии adm-help роли авто-синк создает её и привязывает help.* методы без MissingGreenlet."""
+    """Проверяет, что adm_help не загрязняет pf_auth_role, а методы help.* защищены в коде через scope."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    async with system_db_session() as db:
-        await ensure_system_roles(db)
-        help_role = (await db.execute(select(Role).where(Role.name == ADM_HELP_ROLE))).scalar_one_or_none()
-        if help_role:
-            await db.delete(help_role)
-            await db.commit()
-
-    # Запускаем авто-синк - он не должен падать или вызывать MissingGreenlet
     await sync_rpc_permissions()
 
     async with system_db_session() as db:
-        stmt = select(Role).options(selectinload(Role.rpc_permissions)).where(Role.name == ADM_HELP_ROLE)
-        new_help_role = (await db.execute(stmt)).scalar_one_or_none()
-        assert new_help_role is not None
-        help_methods = {rp.name for rp in new_help_role.rpc_permissions}
-        for rpc_name in RPC_REGISTRY.keys():
-            if rpc_name.startswith("help."):
-                assert rpc_name in help_methods
+        stmt = select(Role).where(Role.name == ADM_HELP_ROLE)
+        assert (await db.execute(stmt)).scalar_one_or_none() is None
+
+        # Системных ролей adm_* не должно быть в таблице pf_auth_role
+        roles = (await db.execute(select(Role))).scalars().all()
+        assert not any(r.name.startswith("adm_") for r in roles)

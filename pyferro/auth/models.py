@@ -299,7 +299,9 @@ class User(RowSecureModel):
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     login: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, unique=True)
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    
+    is_superadmin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", comment="Суперадминистратор системы")
+    admin_roles: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="", comment="Административные скоупы (adm_*) через запятую")
+
     primary_team_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     roles: Mapped[List["Role"]] = relationship(
@@ -314,11 +316,11 @@ class User(RowSecureModel):
     rpc_permissions: Mapped[List["RpcPermission"]] = relationship(
         "RpcPermission", secondary=user_rpc_permission_association, back_populates="users"
     )
-    
+
     refresh_tokens: Mapped[List["RefreshToken"]] = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     active_sessions: Mapped[List["ActiveSession"]] = relationship("ActiveSession", back_populates="user", cascade="all, delete-orphan")
     oauth_accounts: Mapped[List["OAuthAccount"]] = relationship("OAuthAccount", back_populates="user", cascade="all, delete-orphan")
-    
+
     delegations_given: Mapped[List["UserDelegation"]] = relationship(
         "UserDelegation", foreign_keys="UserDelegation.from_user_id", back_populates="from_user", cascade="all, delete-orphan"
     )
@@ -330,8 +332,7 @@ class User(RowSecureModel):
         verbose_name = "Пользователь"
         verbose_name_plural = "Пользователи"
         hidden = {"password_hash", "creator_id", "owner_id", "team_id"}
-        protected = {"roles", "rpc_permissions", "permissions", "delegations_given", "delegations_received"}
-        search_fields = ["name", "login", "email"]
+        protected = {"roles", "rpc_permissions", "permissions", "delegations_given", "delegations_received", "is_superadmin", "admin_roles"}
 
     def __str__(self):
         return f"Пользователь {self.login or self.name} [{self.id}]"
@@ -404,13 +405,21 @@ class User(RowSecureModel):
             self._apply_perm_to_dict(merged_perms, p)
         return merged_perms
 
-    @property
-    def is_superadmin(self) -> bool:
-        return any(role.name == "admin" for role in getattr(self, "roles", []))
+    def get_admin_roles(self) -> set[str]:
+        """Возвращает набор системных административных скоупов пользователя."""
+        roles = set()
+        if getattr(self, "is_superadmin", False):
+            roles.add("admin")
+        raw = getattr(self, "admin_roles", "") or ""
+        if isinstance(raw, (list, set, tuple)):
+            roles.update(str(r).strip() for r in raw if str(r).strip())
+        elif isinstance(raw, str):
+            roles.update(r.strip() for r in raw.split(",") if r.strip())
+        return roles
 
     def get_allowed_rpc_methods(self) -> set[str]:
         """Возвращает набор разрешенных RPC-методов для пользователя (ролевые + персональные)."""
-        if self.is_superadmin:
+        if getattr(self, "is_superadmin", False):
             return {"*"}
         methods: set[str] = set()
         for role in getattr(self, "roles", []):
@@ -429,9 +438,9 @@ class User(RowSecureModel):
             "delegated_user_ids": self.get_delegated_user_ids(),
             "perms_dict": self._get_permissions_dict(),
             "allowed_rpc_methods": self.get_allowed_rpc_methods(),
-            "is_superadmin": self.is_superadmin
+            "is_superadmin": bool(getattr(self, "is_superadmin", False)),
+            "admin_roles": self.get_admin_roles(),
         })()
-
 
     def check_permission(self, model_name: str, perm_name: str = None) -> tuple[bool, bool]:
         perm_dict = self._get_permissions_dict()

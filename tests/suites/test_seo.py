@@ -691,6 +691,7 @@ def test_site_tree_engine_navigation_and_crawling(monkeypatch):
 
     async def _test_flow():
         from pyferro.db import engine, Base
+        import pyferro.plugins.help.models
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
@@ -741,7 +742,41 @@ def test_site_tree_engine_navigation_and_crawling(monkeypatch):
         assert "/" in locs
         assert "/forum" in locs
         assert "/about" in locs
+        # Убеждаемся, что сырые шаблоны роутинга никогда не попадают в sitemap:
+        assert "/forum/{slug}" not in locs
+        assert "/forum/{parent.slug}/{slug}" not in locs
+        for loc in locs:
+            assert "{" not in loc and "}" not in loc
 
+        # 5. Добавляем тестовые записи в БД и проверяем динамическую генерацию URL
+        from pyferro.db import async_session
+        from pyferro.plugins.help.models import ForumCategory, ForumTopic
+        from sqlalchemy import select
+        async with async_session() as session:
+            cat = (await session.execute(select(ForumCategory).where(ForumCategory.slug == "test-sitemap-cat"))).scalar_one_or_none()
+            if not cat:
+                cat = ForumCategory(name="Тестовый раздел", slug="test-sitemap-cat", description="Все темы")
+                session.add(cat)
+                await session.commit()
+                await session.refresh(cat)
+
+            topic = (await session.execute(select(ForumTopic).where(ForumTopic.slug == "test-sitemap-topic"))).scalar_one_or_none()
+            if not topic:
+                topic = ForumTopic(
+                    category_id=cat.id,
+                    title="Тестовая тема",
+                    slug="test-sitemap-topic",
+                    first_post_text="Привет мир!",
+                )
+                session.add(topic)
+                await session.commit()
+
+        sitemap_urls_dynamic = await collect_site_tree_sitemap_urls()
+        dyn_locs = [u["loc"] for u in sitemap_urls_dynamic]
+        assert "/forum/test-sitemap-cat" in dyn_locs
+        assert "/forum/test-sitemap-cat/test-sitemap-topic" in dyn_locs
+        for u in sitemap_urls_dynamic:
+            assert "{" not in u["loc"] and "}" not in u["loc"]
     asyncio.run(_test_flow())
 
 
@@ -851,5 +886,255 @@ def test_jinja_seo_engine():
         prev = await seo_preview_tree_node_admin(session, node=custom_node)
         assert prev["title"] == "SEO Заголовок"
         assert "<h1>Кастомная страница: SEO Заголовок</h1>" in prev["body_html"]
+
+    asyncio.run(_test())
+
+
+def test_sitemap_xml_generation_never_contains_placeholders():
+    """Проверяет, что итоговый XML sitemap никогда не содержит {slug} или {parent.slug}."""
+    import asyncio
+    from pyferro.plugins.seo.sitemap import build_sitemap_xml
+
+    async def _test():
+        xml = await build_sitemap_xml("https://example.com")
+        assert '<?xml version="1.0" encoding="UTF-8"?>' in xml
+        assert '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' in xml
+        assert "<loc>https://example.com/</loc>" in xml
+        assert "<loc>https://example.com/forum</loc>" in xml
+        assert "<loc>https://example.com/about</loc>" in xml
+        assert "{slug}" not in xml
+        assert "{parent.slug}" not in xml
+        assert "{" not in xml
+        assert "}" not in xml
+
+    asyncio.run(_test())
+
+
+def test_bot_emulation_session_and_cookie_flow():
+    """Проверяет жизненный цикл эмуляции бота: активацию ?bot=1, сессионную куку при навигации и выход ?bot=0."""
+    import asyncio
+    from pyferro.plugins.seo.router import handle_bot_http
+
+    class MockProto:
+        def __init__(self):
+            self.status = None
+            self.headers = {}
+            self.body = ""
+
+        def response_str(self, status=200, headers=None, body=""):
+            self.status = status
+            self.headers = dict(headers or [])
+            self.body = body
+
+    async def _test():
+        # 1. Обычный браузер Chrome без параметров -> бот-рендер НЕ срабатывает
+        chrome_scope = {
+            "method": "GET",
+            "path": "/about",
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+                (b"host", b"localhost:8080"),
+            ],
+            "query_string": b"",
+        }
+        p1 = MockProto()
+        assert await handle_bot_http(chrome_scope, p1) is False
+
+        # 2. Браузер переходит по ссылке из админки с ?bot=1
+        chrome_scope_bot1 = {
+            "method": "GET",
+            "path": "/about",
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+                (b"host", b"localhost:8080"),
+            ],
+            "query_string": b"bot=1",
+        }
+        p2 = MockProto()
+        handled = await handle_bot_http(chrome_scope_bot1, p2)
+        assert handled is True
+        assert p2.status == 200
+        assert p2.headers.get("set-cookie") == "pf_bot_mode=1; Path=/; SameSite=Lax"
+        assert 'id="pf-bot-emulation-bar"' in p2.body
+        assert 'href="?bot=0"' in p2.body
+
+        # 3. Пользователь кликает по ссылкам на сайте (параметра bot=1 в URL уже нет, но кука шлется)
+        chrome_scope_nav = {
+            "method": "GET",
+            "path": "/forum",
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+                (b"host", b"localhost:8080"),
+                (b"cookie", b"pf_bot_mode=1"),
+            ],
+            "query_string": b"",
+        }
+        p3 = MockProto()
+        handled3 = await handle_bot_http(chrome_scope_nav, p3)
+        assert handled3 is True
+        assert p3.status == 200
+        assert 'id="pf-bot-emulation-bar"' in p3.body
+
+        # 4. Реальный бот (Googlebot) получает чистый HTML без панели эмулятора
+        google_scope = {
+            "method": "GET",
+            "path": "/about",
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"),
+                (b"host", b"example.com"),
+            ],
+            "query_string": b"",
+        }
+        p4 = MockProto()
+        handled4 = await handle_bot_http(google_scope, p4)
+        assert handled4 is True
+        assert p4.status == 200
+        assert 'id="pf-bot-emulation-bar"' not in p4.body
+        assert "set-cookie" not in p4.headers
+
+        # 5. Пользователь нажимает "Выйти" (?bot=0) -> 302 редирект со сбросом куки
+        chrome_scope_exit = {
+            "method": "GET",
+            "path": "/forum",
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0"),
+                (b"cookie", b"pf_bot_mode=1"),
+            ],
+            "query_string": b"bot=0",
+        }
+        p5 = MockProto()
+        handled5 = await handle_bot_http(chrome_scope_exit, p5)
+        assert handled5 is True
+        assert p5.status == 302
+        assert p5.headers.get("location") == "/forum"
+        assert "Max-Age=0" in p5.headers.get("set-cookie", "")
+
+    asyncio.run(_test())
+
+
+def test_nested_subcategory_routing_and_fallback():
+    """Проверяет разрешение коллизий URL: когда /forum/{parent.slug}/{slug} может быть и подразделом, и темой."""
+    import asyncio
+    from pyferro.db import engine, Base, async_session
+    import pyferro.plugins.help.models
+    from pyferro.plugins.help.models import ForumCategory, ForumTopic
+    from pyferro.plugins.seo.router import handle_bot_http
+    from sqlalchemy import select
+
+    class MockProto:
+        def __init__(self):
+            self.status = None
+            self.headers = {}
+            self.body = ""
+
+        def response_str(self, status=200, headers=None, body=""):
+            self.status = status
+            self.headers = dict(headers or [])
+            self.body = body
+
+    async def _test():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with async_session() as session:
+            # 1. Корневой раздел 'development'
+            c_dev = (await session.execute(select(ForumCategory).where(ForumCategory.slug == "development"))).scalar_one_or_none()
+            if not c_dev:
+                c_dev = ForumCategory(name="Разработка", slug="development", description="Раздел разработки")
+                session.add(c_dev)
+                await session.commit()
+                await session.refresh(c_dev)
+
+            # 2. Подраздел 'architecture' (parent_id = c_dev.id)
+            c_arch = (await session.execute(select(ForumCategory).where(ForumCategory.slug == "architecture"))).scalar_one_or_none()
+            if not c_arch:
+                c_arch = ForumCategory(parent_id=c_dev.id, name="Архитектура и WebSockets", slug="architecture", description="Обсуждение RSGI и WSRPC")
+                session.add(c_arch)
+                await session.commit()
+                await session.refresh(c_arch)
+            else:
+                c_arch.parent_id = c_dev.id
+                c_arch.name = "Архитектура и WebSockets"
+                await session.commit()
+                await session.refresh(c_arch)
+            # 3. Тема форума 'my-topic' в корневом разделе
+            topic = (await session.execute(select(ForumTopic).where(ForumTopic.slug == "my-topic"))).scalar_one_or_none()
+            if not topic:
+                topic = ForumTopic(
+                    category_id=c_dev.id,
+                    title="Тема в разработке",
+                    slug="my-topic",
+                    first_post_text="Обсуждаем код",
+                )
+                session.add(topic)
+                await session.commit()
+
+        # Запрос 1: Подраздел /forum/development/architecture (ForumCategory)
+        scope_subcat = {
+            "method": "GET",
+            "path": "/forum/development/architecture",
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0 (compatible; YandexBot/3.0)"),
+                (b"host", b"localhost:8080"),
+            ],
+            "query_string": b"",
+        }
+        p_sub = MockProto()
+        handled_sub = await handle_bot_http(scope_subcat, p_sub)
+        assert handled_sub is True
+        assert p_sub.status == 200
+        assert "Архитектура" in p_sub.body
+        assert "/forum/development" in p_sub.body
+
+        # Запрос 2: Тема форума /forum/development/my-topic (ForumTopic)
+        scope_topic = {
+            "method": "GET",
+            "path": "/forum/development/my-topic",
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0 (compatible; Googlebot/2.1)"),
+                (b"host", b"localhost:8080"),
+            ],
+            "query_string": b"",
+        }
+        p_top = MockProto()
+        handled_top = await handle_bot_http(scope_topic, p_top)
+        assert handled_top is True
+        assert "Тема в разработке" in p_top.body
+
+        # Запрос 3: Тема в подразделе /forum/development/architecture/wsrpc-vs-rest
+        async with async_session() as session:
+            t_sub = (await session.execute(select(ForumTopic).where(ForumTopic.slug == "wsrpc-vs-rest"))).scalar_one_or_none()
+            if not t_sub:
+                t_sub = ForumTopic(
+                    category_id=c_arch.id,
+                    title="WSRPC vs REST",
+                    slug="wsrpc-vs-rest",
+                    first_post_text="Сравнение протоколов",
+                )
+                session.add(t_sub)
+                await session.commit()
+            else:
+                t_sub.category_id = c_arch.id
+                await session.commit()
+
+        scope_subtopic = {
+            "method": "GET",
+            "path": "/forum/development/architecture/wsrpc-vs-rest",
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0 (compatible; Googlebot/2.1)"),
+                (b"host", b"localhost:8080"),
+            ],
+            "query_string": b"",
+        }
+        p_subtop = MockProto()
+        handled_subtop = await handle_bot_http(scope_subtopic, p_subtop)
+        assert handled_subtop is True
+        assert p_subtop.status == 200
+        # Проверяем реальные названия категорий в хлебных крошках вместо "Раздел форума":
+        assert 'href="/forum/development"' in p_subtop.body
+        assert 'href="/forum/development/architecture"' in p_subtop.body
+        assert "architecture/architecture" not in p_subtop.body
+        assert "Раздел форума" not in p_subtop.body
+        assert "Подраздел форума" not in p_subtop.body
 
     asyncio.run(_test())

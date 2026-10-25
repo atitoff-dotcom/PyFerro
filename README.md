@@ -340,6 +340,9 @@ Or directly using Granian CLI (recommended for production):
 granian --rsgi main:app --host 127.0.0.1 --port 8080 --workers 1
 ```
 
+> ℹ️ **Scalability & Single-Worker Note:**  
+> PyFerro uses an in-process `MemoryBackplane` by default. Real-time broadcasts (`broadcast`, `send_to_user`, `send_to_role`) and SmartCache events operate within the current process instance. For single-server deployments, run with `--workers 1` (or `app.run(workers=1)`). Distributed `RedisBackplane` support is targeted for multi-node clusters.
+
 ### 3. Invoke from Client (JavaScript / TypeScript)
 ```javascript
 import { BinaryWSRPC } from './wsrpc.js';
@@ -448,7 +451,24 @@ The framework includes pre-built and tested system batteries in `app/system/`:
 
 ---
 
-### 5. Modular Backend Test Framework (`tests/`)
+### 5. Reactive CRUD & Admin Cockpit (`plugins/crud`)
+* **Features**:
+  * Declarative model configuration via inner `class Crud:`.
+  * **Row-Level Security (RLS)** with custom owner columns: `owner_columns = {"user_id"}`.
+  * Zero-Leakage 404 admin panel with Svelte 5 frontend.
+  * Automatic spoofing protection: ownership columns are protected against manipulation on creation/update.
+
+---
+
+### 6. SEO & Dynamic Rendering (`plugins/seo`)
+* **Features**:
+  * Automated crawler detection and SSR HTML generation for search bots.
+  * **Bounded LRU TTL-Cache**: caches generated pages and negative 404 hits to shield the database from botnet crawls.
+  * Environment configuration: `SEO_CACHE_TTL` (default 60s, `0` disables cache), `SEO_CACHE_NEGATIVE_TTL` (default 30s), and `SEO_CACHE_MAX_ENTRIES` (default 5000).
+
+---
+
+### 7. Modular Backend Test Framework (`tests/`)
 * Comprehensive guide: see **[docs/testing.md](docs/testing.md)**.
 * **Client-Perspective Black-Box Testing**:
   * Validates the backend exactly as a real frontend client interacts with it (over WebSocket WSRPC and HTTP).
@@ -458,7 +478,7 @@ The framework includes pre-built and tested system batteries in `app/system/`:
 
 ---
 
-### 6. Industrial Reliability, Security Audit & High-Load Benchmarks
+### 8. Industrial Reliability, Security Audit & High-Load Benchmarks
 * Full Security Whitepaper: see **[docs/security_and_performance.md](docs/security_and_performance.md)**.
 * Complete Testing & Benchmarking Manual: see **[docs/testing.md](docs/testing.md)**.
 * **Autonomous External Security Auditor (`scripts/security_audit.py`)**:

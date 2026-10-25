@@ -20,6 +20,12 @@ async def notify_crud_change(
     Безопасная рассылка уведомления об изменении данных (cache.patch).
     Передает только факт события и идентификаторы, без раскрытия значений колонок.
     """
+    try:
+        from pyferro.plugins.seo.page_cache import clear_seo_cache
+        clear_seo_cache()
+    except ImportError:
+        pass
+
     params: dict[str, Any] = {
         "model": model,
         "kind": kind,
