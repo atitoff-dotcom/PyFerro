@@ -3,6 +3,8 @@
  * Поддерживает:
  * - WebSocket /ws (с поддержкой мультиретурна yield и авто-переподключением при смене прав)
  * - HTTP POST /rpc (резервный синхронный вызов)
+ * - Сжатие Tabular Data ($tabular)
+ * - Реактивный контроллер пагинации createPaginator
  */
 
 const TOKEN_STORAGE_KEY = "pyferro2_token";
@@ -137,3 +139,171 @@ class RpcClient {
 }
 
 export const rpc = new RpcClient();
+
+/**
+ * Реактивный контроллер пагинации таблиц для RPC-методов PyFerro 2.0.
+ *
+ * @param {string} method - имя RPC-метода (например, "Book.read")
+ * @param {object} [options] - параметры инициализации (limit, search, filters, sortBy, sortOrder)
+ */
+export function createPaginator(method, options = {}) {
+  let searchTimer = null;
+  const listeners = new Set();
+
+  const state = {
+    method,
+    limit: options.limit || 20,
+    page: 1,
+    pages: 1,
+    total: 0,
+    items: [],
+    loading: false,
+    error: null,
+    hasNext: false,
+    hasPrev: false,
+    nextCursor: null,
+    prevCursor: null,
+    searchQuery: options.search || "",
+    filters: options.filters || {},
+    sortBy: options.sortBy || null,
+    sortOrder: options.sortOrder || "desc",
+    extraParams: options.params || {},
+
+    /** Подписка на обновление состояния (для React, Vue, Svelte store или Vanilla JS) */
+    subscribe(fn) {
+      listeners.add(fn);
+      fn(state);
+      return () => listeners.delete(fn);
+    },
+
+    notify() {
+      for (const fn of listeners) fn(state);
+    },
+
+    /** Список номеров страниц и многоточий для вывода в UI: [1, '...', 4, 5, 6, '...', 25] */
+    get pageNumbers() {
+      const current = state.page;
+      const totalPages = Math.max(1, state.pages);
+      if (totalPages <= 7) {
+        return Array.from({ length: totalPages }, (_, i) => i + 1);
+      }
+      const pages = [];
+      pages.push(1);
+      if (current > 3) pages.push("...");
+
+      const start = Math.max(2, current - 1);
+      const end = Math.min(totalPages - 1, current + 1);
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+
+      if (current < totalPages - 2) pages.push("...");
+      pages.push(totalPages);
+      return pages;
+    },
+
+    /** Загрузка данных текущей страницы */
+    async load() {
+      state.loading = true;
+      state.error = null;
+      state.notify();
+
+      const params = {
+        ...state.extraParams,
+        limit: state.limit,
+        page: state.page,
+        ...(state.searchQuery ? { search: state.searchQuery } : {}),
+        ...(Object.keys(state.filters).length > 0 ? { filters: state.filters } : {}),
+        ...(state.sortBy ? { sort_by: state.sortBy, order: state.sortOrder } : {}),
+      };
+
+      try {
+        const res = await rpc.call(state.method, params);
+        state.items = res.items || [];
+        state.total = res.total ?? 0;
+        state.pages = res.pages ?? (state.total ? Math.ceil(state.total / state.limit) : 1);
+        state.page = res.page ?? state.page;
+        state.hasNext = Boolean(res.has_next);
+        state.hasPrev = Boolean(res.has_prev);
+        state.nextCursor = res.next_cursor || null;
+        state.prevCursor = res.prev_cursor || null;
+      } catch (err) {
+        state.error = err.message || "Ошибка загрузки";
+      } finally {
+        state.loading = false;
+        state.notify();
+      }
+      return state;
+    },
+
+    /** Переход на следующую страницу */
+    async next() {
+      if (!state.hasNext || state.loading) return;
+      state.page++;
+      return state.load();
+    },
+
+    /** Переход на предыдущую страницу */
+    async prev() {
+      if (!state.hasPrev || state.loading) return;
+      state.page = Math.max(1, state.page - 1);
+      return state.load();
+    },
+
+    /** Переход на конкретный номер страницы */
+    async goTo(pageNumber) {
+      if (typeof pageNumber !== "number" || pageNumber === state.page || state.loading) return;
+      if (pageNumber < 1 || pageNumber > state.pages) return;
+      state.page = pageNumber;
+      return state.load();
+    },
+
+    /** Живой поиск с автоматическим debounce и сбросом на страницу 1 */
+    search(query, debounceMs = 250) {
+      state.searchQuery = query;
+      state.page = 1;
+      if (searchTimer) clearTimeout(searchTimer);
+      if (debounceMs <= 0) {
+        return state.load();
+      }
+      return new Promise((resolve) => {
+        searchTimer = setTimeout(() => {
+          resolve(state.load());
+        }, debounceMs);
+      });
+    },
+
+    /** Установка точного фильтра по полю */
+    setFilter(key, val) {
+      if (val === undefined || val === null || val === "") {
+        delete state.filters[key];
+      } else {
+        state.filters[key] = val;
+      }
+      state.page = 1;
+      return state.load();
+    },
+
+    /** Установка сортировки */
+    setSorting(sortBy, sortOrder = "desc") {
+      state.sortBy = sortBy;
+      state.sortOrder = sortOrder;
+      state.page = 1;
+      return state.load();
+    },
+
+    /** Изменение лимита строк на страницу */
+    setLimit(newLimit) {
+      state.limit = Number(newLimit);
+      state.page = 1;
+      return state.load();
+    },
+
+    /** Перезагрузка текущей страницы */
+    refresh() {
+      return state.load();
+    },
+  };
+
+  return state;
+}

@@ -160,6 +160,26 @@ def build_frontend() -> None:
         print("  ✓ Фронтенд успешно собран!")
 
 
+def update_graphify() -> None:
+    print("\n🕸️  Обновление графа знаний архитектуры (graphify)...")
+    graphify_bin = ROOT_DIR / ".venv" / "bin" / "graphify"
+    if graphify_bin.exists():
+        cmd = [str(graphify_bin), "update", ".", "--force"]
+    elif shutil.which("graphify"):
+        cmd = ["graphify", "update", ".", "--force"]
+    else:
+        python_bin = ROOT_DIR / ".venv" / "bin" / "python"
+        py = str(python_bin) if python_bin.exists() else sys.executable
+        cmd = [py, "-m", "graphify", "update", ".", "--force"]
+
+    res = run_cmd(cmd, check=False)
+    if res.returncode == 0:
+        print("  ✓ Граф знаний graphify успешно актуализирован!")
+    else:
+        print("  ⚠️ Не удалось обновить graphify (пропущено).")
+
+
+
 def git_commit_and_push(version: str | None, message: str, dry_run: bool = False) -> None:
     print("\n🐙 Выполнение Git-операций...")
     run_cmd(["git", "add", "."])
@@ -270,6 +290,11 @@ def main() -> None:
         help="Пропустить сборку фронтенда npm run build.",
     )
     parser.add_argument(
+        "--skip-graphify",
+        action="store_true",
+        help="Пропустить обновление графа знаний graphify.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Выполнить проверки и сборку, но не пушить в GitHub и не публиковать в PyPI.",
@@ -296,7 +321,11 @@ def main() -> None:
     if not args.skip_build:
         build_frontend()
 
-    # 3. Версионирование и миграции
+    # 3. Обновление графа знаний архитектуры (graphify)
+    if not args.skip_graphify:
+        update_graphify()
+
+    # 4. Версионирование и миграции
     if args.version:
         if is_minor_release(args.version):
             ensure_migration_for_release(args.version)

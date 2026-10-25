@@ -12,11 +12,12 @@ from typing import Any
 
 
 def pack_tabular(
-    items: Sequence[dict[str, Any] | tuple[Any, ...] | list[Any]],
+    items: Sequence[Any],
     fields: Sequence[str] | None = None,
 ) -> dict[str, Any] | Any:
     """
-    Упаковывает список словарей или кортежей в табличный пакет `{"$tabular": True, "fields": [...], "rows": [...]}`.
+    Упаковывает список словарей, кортежей или SQLAlchemy Row в табличный пакет
+    `{"$tabular": True, "fields": [...], "rows": [...]}`.
     """
     if not items:
         return {
@@ -26,6 +27,17 @@ def pack_tabular(
         }
 
     first = items[0]
+
+    # Поддержка SQLAlchemy Row / RowMapping (объектов с атрибутом _mapping)
+    if hasattr(first, "_mapping"):
+        field_list = list(fields) if fields is not None else list(first._mapping.keys())
+        rows = [[getattr(item, "_mapping").get(f) for f in field_list] for item in items]
+        return {
+            "$tabular": True,
+            "fields": field_list,
+            "rows": rows,
+        }
+
     if isinstance(first, dict):
         field_list = list(fields) if fields is not None else list(first.keys())
         rows = [[item.get(f) for f in field_list] for item in items]  # type: ignore[union-attr]
@@ -86,9 +98,12 @@ def is_tabular(data: Any) -> bool:
 def apply_tabular_result(result: Any, fields: Sequence[str] | None = None) -> Any:
     """
     Автоматически упаковывает результат RPC-метода (если включен `@rpc_method(tabular=True)`):
+    - Если уже передан готовый `$tabular` пакет -> возвращает как есть.
     - Если возвращен `list[dict]` -> упаковывает сам список.
     - Если возвращен `dict` с ключом `"items"` (или `"rows"`, `"records"`, `"data"`) -> упаковывает вложенный список.
     """
+    if is_tabular(result):
+        return result
     if isinstance(result, list):
         return pack_tabular(result, fields=fields)
     if isinstance(result, dict) and not is_tabular(result):
