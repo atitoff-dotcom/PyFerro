@@ -1,0 +1,42 @@
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+    "actionButtons": {
+        "defaultColor": "#58a6ff",
+        "commands": [
+            {
+                "name": "▶ Run Server (0.0.0.0:8000)",
+                "command": "${workspaceFolder}/.venv/bin/granian --interface rsgi --host 0.0.0.0 --port 8000 main:app",
+                "color": "#3fb950",
+                "singleInstance": true,
+                "focus": true,
+                "terminalName": "pyferro-rsgi",
+                "tooltip": "Запустить RSGI-сервер PyFerro 2.0 на 0.0.0.0:8000 через Granian"
+            },
+            {
+                "name": "👤 Add Admin (admin/admin)",
+                "command": "${workspaceFolder}/.venv/bin/python ${workspaceFolder}/main.py --add-admin",
+                "color": "#a371f7",
+                "singleInstance": true,
+                "focus": true,
+                "terminalName": "add-admin",
+                "tooltip": "Создать администратора admin/admin в БД"
+            },
+            {
+                "name": "🔨 Build Admin UI",
+                "command": "cd ${workspaceFolder}/frontend && npm run build",
+                "color": "#e3b341",
+                "singleInstance": true,
+                "focus": true,
+                "terminalName": "build-admin",
+                "tooltip": "Собрать фронтенд-бандл панели /pyferro_admin (Svelte + Vite) в frontend/dist"
+            },
+            {
+                "name": "💀 Granian",
+                "terminalName": "Kill Granian",
+                "command": "killall -9 granian",
+                "color": "#FFFF84",
+                "singleInstance": true
+            }
+        ]
+    }
+}

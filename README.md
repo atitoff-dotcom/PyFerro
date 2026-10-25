@@ -1,625 +1,232 @@
-# PyFerro: Reactive Full-Featured Python Framework
+# PyFerro 2.0 — Руководство разработчика и Архитектура
 
-> **"Everything Django should have been, and everything FastAPI forgot."**  
-> High-performance asynchronous web framework built on **Rust (Granian RSGI)** with bidirectional **WSRPC (JSON-RPC 2.0)**, built-in async database ORM, modern authentication, and transactional two-phase file uploading.
-
----
-
-## 🧭 Table of Contents
-1. [Core Philosophy & Manifesto](#-core-philosophy--manifesto)
-2. [Architecture: Core + Plugins + Application](#-architecture-core--plugins--application)
-   * [Architecture for Beginners with Diagrams (docs/architecture_for_beginners.md)](docs/architecture_for_beginners.md)
-   * [Recommended Project Structure (Directory Tree)](#-recommended-project-structure-directory-tree)
-3. [Comparison: PyFerro vs Django vs FastAPI](#-comparison-PyFerro-vs-django-vs-fastapi)
-4. [🤖 AI-Native: Token-Efficient & Purpose-Built for LLMs](#-ai-native-token-efficient--purpose-built-for-llms)
-5. [Quickstart in 60 Seconds](#-quickstart-in-60-seconds)
-6. [Core Network Engine](#-core-network-engine)
-   * [Complete Core Developer Guide (docs/core.md)](docs/core.md)
-7. [Official System Plugins](#-official-system-plugins)
-   * [Database Plugin (db)](#1-database-plugin-pluginsdb)
-   * [Authentication & User Plugin (auth)](#2-authentication--user-plugin-pluginsauth)
-   * [Two-Phase File Upload Plugin (files)](#3-two-phase-file-upload-plugin-pluginsfiles)
-   * [Smart Event-Driven Cache Plugin (smart_cache)](#4-smart-event-driven-cache-plugin-pluginssmart_cache)
-   * [Modular Backend Test Framework (tests/)](#5-modular-backend-test-framework-tests)
-   * [🛡️ Security Whitepaper & Benchmarks (docs/security_and_performance.md)](docs/security_and_performance.md)
-8. [Creating Custom Plugins & Modules in the app Directory](#-creating-custom-plugins--modules-in-the-app-directory)
-
-9. [Client Library (TypeScript/JavaScript)](#-client-library-typescriptjavascript)
-10. [🌟 What's New in v0.3.3](#-whats-new-in-v033)
-11. [License](#-license)
+**PyFerro 2.0** — сверхбыстрый асинхронный RPC/CRUD веб-фреймворк на базе чистого RSGI (Rust Server-Gateway Interface), SQLAlchemy 2.0 и JSON-RPC 2.0 поверх WebSocket/HTTP.
 
 ---
 
-## 💡 Core Philosophy & Manifesto
+## 1. Ключевые принципы архитектуры
 
-The modern web has changed: users no longer tolerate static web pages reloading for hundreds of milliseconds. Users expect instant interactions (1–5 ms), reactive real-time state synchronization, and live progress streaming.
-
-Yet Python developers were forced to choose between two extremes:
-1. **Django** — a 20-year-old monolithic design from the Web 2.0 era. Adding websockets and reactivity requires bundling `Django + DRF + Channels + Redis + Celery + Daphne`, consuming hundreds of megabytes of RAM per worker.
-2. **FastAPI** — performant, but trapped in the flat HTTP/1.1 REST paradigm (Request-Response). Every user action opens a new TCP connection, exchanges kilobytes of redundant HTTP headers, and lacks built-in batteries (auth, sessions, file transactions) — forcing developers to stitch together 50 disparate third-party libraries.
-
-**`PyFerro` combines the best of both worlds:**
-* **From Rust and Granian** — blistering RSGI runtime performance without Python GIL overhead.
-* **From WSRPC (JSON-RPC 2.0)** — a single persistent, multiplexed channel for all operations, symmetric RPC invocation (server can call client), and native multi-return streaming.
-* **From Django** — production-grade batteries (Auth, DB, Two-Phase File uploads) delivered as decoupled, lightweight plugins.
-
----
-
-## 🏛 Architecture: Core + Plugins + Application
-
-The architecture enforces a strict unidirectional dependency hierarchy (Clean Architecture):
-
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                       1. YOUR APPLICATION (Application)                 │
-│                                                                         │
-│ Knows about all components: configures application in code (Code-First),│
-│ activates necessary system plugins, and executes domain business logic  │
-│ Examples: Social Network, CRM, Forum, Customer Portal, IoT Server.      │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │ consumes and aggregates
-┌────────────────────────────────────▼────────────────────────────────────┐
-│                    2. SYSTEM & APPLICATION PLUGINS                      │
-│                                                                         │
-│   [ Plugin: DB ]        [ Plugin: Auth ]       [ Plugin: Files ]        │
-│   Async SQLAlchemy 2.0  Users, JWT,            2PC file streaming,      │
-│   SQLite / PostgreSQL   roles and permissions  registry & Nginx offload │
-│                                                                         │
-│   [ Plugin: CRUD ]      [ Plugin: SEO ]        [ Plugin: Smart Cache ]  │
-│   Reactive CRUD, RLS,   Dynamic Rendering,     Reactive event-driven    │
-│   Svelte 5 SPA Admin    Search engine crawlers feedback cache (0 ms)    │
-│                                                                         │
-│   [ Domain Plugins: Forum, Billing, Notifications, Analytics... ]       │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │ registers into
-┌────────────────────────────────────▼────────────────────────────────────┐
-│                        3. NETWORK CORE (Core)                           │
-│                                                                         │
-│   Pure high-performance socket and RSGI runtime (Granian in Rust).      │
-│   ZERO knowledge of databases or application domain models.             │
-│   Responsible for: WSRPC (JSON-RPC 2.0), multi-return, sessions, 2PC.   │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### Core Architectural Rules:
-1. **The Core is Autonomous**: `core/` contains zero imports from application domains or database models.
-2. **Plugins are Modular**: Each plugin tackles one concern and registers its handlers via core APIs (`@rpc_method`, `@on_startup`, `session.register_on_close`).
-3. **Application Governs Composition**: Need a lightweight microservice without a database? Simply omit the `db` plugin. Need a full-stack portal? Import the complete battery bundle.
+1. **Минимум сущностей — ноль дублирования**:
+   - В системе существует **единое понятие метода `Плашка.метод`** (например `Book.create`, `Book.read`, `Book.transfer`).
+   - Имя метода всегда берется напрямую из объявления класса/модуля и функции Python (`class Book: async def transfer`) — никаких ручных строк `name="..."`.
+2. **Нулевая рефлексия в рантайме**:
+   - `inspect.signature` и `sqlalchemy.inspect` вызываются **строго 1 раз при старте сервера**.
+   - Все проверки ролей и разрешений выполняются в оперативной памяти за **O(1) (~15 нс)** через `frozenset`.
+3. **Ленивая база данных (Lazy DB)**:
+   - Сессия `db: AsyncSession` открывается из пула **только** для тех методов, которые явно объявили аргумент `db` в своей сигнатуре.
+4. **Два чекбокса на любой метод в админке (`/pyferro_admin`)**:
+   - В панели управления все прикладные методы группируются по точке в карточки-плашки (`Book`, `Article`, `files`), а напротив каждого метода доступны две галочки: **«Разрешено»** (`Плашка.метод`) и **«Только свои»** (`Плашка.метод_own`).
 
 ---
 
-### 📁 Recommended Project Structure (Directory Tree)
-
-Below is the production-tested repository layout, clearly demarcating the network engine (`core/`), official batteries (`app/system/`), and custom application modules (`app/<modules>/`):
-
-```text
-my_project/
-├── core/                           # ⚡ NETWORK CORE (RSGI + WSRPC)
-│   ├── lib/
-│   │   └── config.py               # Code-First configuration & configure()
-│   ├── constants.py                # System constants (ADMIN_ROLE, DEFAULT_USER_ROLE)
-│   ├── lifecycle.py                # Async hooks @on_startup and @on_shutdown
-│   ├── logger.py                   # High-performance structured logging
-│   ├── router.py                   # HTTP routing on top of RSGI (@http_route)
-│   ├── security.py                 # Argon2id, JWT tokens, RSA cryptography
-│   ├── session.py                  # JsonRpcSession, @rpc_method, ContextVars, Rate-Limiter
-│   └── tabular.py                  # Deterministic tabular payload compression (RFC 0002, pack_tabular)
-│
-├── app/                            # 📦 APPLICATION & PLUGIN LAYER
-│   ├── system/                     # 🔌 System Plugins (Official Batteries)
-│   │   ├── db.py                   # Async SQLAlchemy 2.0 engine (async_session, Base)
-│   │   ├── broadcast.py            # Event broadcaster across active sockets
-│   │   ├── auth/                   # Users, scopes, and Row-Level Security (RLS)
-│   │   │   ├── models.py           # Models: User, Role, Permit
-│   │   │   ├── handlers.py         # RPC methods: auth.*
-│   │   │   ├── permissions.py      # Scope and role verification logic
-│   │   │   └── security.py         # Hashing & authorization rules
-│   │   ├── login/                  # Authentication, RSA handshake, RefreshToken
-│   │   │   ├── handlers.py         # RPC methods: login.submit, login.refresh, login.whoami
-│   │   │   └── db.py               # Active sessions and token persistence
-│   │   ├── files/                  # File metadata registry & storage service
-│   │   │   ├── models.py           # FileMetadata ORM model
-│   │   │   ├── service.py          # FileStorageService (quota, schema migration, deletion)
-│   │   │   └── handlers.py         # HTTP route /upload and RPC methods: files.*
-│   │   ├── admin/                  # Administration control plane (sessions, cache, users)
-│   │   │   └── handlers.py
-│   │   └── internal_api/           # Interactive RPC documentation generator
-│   │       ├── api.html            # Built-in UI sandbox
-│   │       ├── handlers.py         # API inspection endpoints
-│   │       └── generate_docs.py    # Docstring and signature parser
-│   │
-│   └── <business_modules>/         # 🚀 Your application business domains
-│       ├── forum/                  # Example: Community discussion module
-│       │   ├── models.py           # Topic, Message, Tag models
-│       │   └── handlers.py         # RPC methods: forum.get_topics, forum.create_topic
-│       ├── billing/                # Example: Billing and invoicing module
-│       │   ├── models.py           # Invoice, Transaction models
-│       │   └── handlers.py         # RPC methods: billing.create_invoice, billing.pay
-│       └── notifications/          # Example: Real-time notification service
-│           └── handlers.py         # Push dispatching via broadcast
-│
-├── client/                         # 💻 CLIENT LIBRARIES
-│   └── wsrpc.ts                    # Official TypeScript/JavaScript WSRPC client
-│
-├── docs/                           # 📚 Framework Documentation (EN)
-│   ├── readme.md
-│   ├── core.md                     # Comprehensive Core developer guide
-│   └── files.md                    # Two-phase file upload guide (2PC)
-│
-├── docs_ru/                        # 📚 Framework Documentation (RU Twin)
-│   ├── readme.md
-│   ├── core.md                     # Comprehensive Core developer guide
-│   └── files.md                    # Two-phase file upload guide (2PC)
-│
-├── main.py                         # 🚀 Entrypoint: plugin composition, RSGI application
-└── pyproject.toml                  # 📦 Dependencies and package manifest
-```
-
----
-
-## ⚡ Comparison: PyFerro vs Django vs FastAPI
-
-### 1. Client-Server Interaction Model
-
-#### Traditional REST (FastAPI / Django):
-Every operation re-initiates a TCP/TLS handshake, transfers cookies/headers, and terminates:
-```text
-[ Client ] ──── TCP + TLS Handshake (50-100 ms) ────► [ Server ]
-[ Client ] ──── POST /api/items (Headers + Body) ───► [ Server ]
-[ Client ] ◄─── 200 OK (Headers + Body) ──────────── [ Server ]  (connection closed)
-
-[ Client ] ──── TCP + TLS Handshake (50-100 ms) ────► [ Server ]
-[ Client ] ──── GET /api/user/profile ──────────────► [ Server ]
-[ Client ] ◄─── 200 OK ───────────────────────────── [ Server ]
-```
-
-#### Reactive WSRPC (`PyFerro`):
-A single persistent, multiplexed WebSocket channel. Zero handshake latency, instant 1–3 ms roundtrips:
-```text
-[ Client ] ═════════════════════════════════════════► [ Server ]
-           (Persistent secure WSRPC socket)
-           
-           ─── id: 1, method: "items.create" ───────► (1 ms)
-           ◄── id: 1, result: { id: 42 } ──────────── (1 ms)
-           
-           ─── id: 2, method: "user.get_profile" ───► (1 ms)
-           ◄── id: 2, result: { name: "Alex" } ────── (1 ms)
-           
-           ◄── SERVER PUSH: method: "notify" ──────── (Server initiates RPC on client!)
-```
-
-### 2. Feature Matrix
-
-| Feature | Django | FastAPI | `PyFerro` |
-| :--- | :--- | :--- | :--- |
-| **Network Engine** | Python WSGI / slow ASGI | Uvicorn (ASGI) | **Granian (Rust RSGI)** 🚀 |
-| **Response Latency** | 80–250 ms | 30–120 ms | **1–5 ms** |
-| **Symmetry** | ❌ Client ➔ Server only | ❌ Client ➔ Server only | ✅ **Client ⇄ Server (Bidirectional)** |
-| **Progress Streaming** | ❌ Requires Redis + Channels | ❌ Heavy websocket boilerplate | ✅ **Native multi-return (`stream: true`)** |
-| **RAM Footprint** | ~150–250 MB per worker | ~80–120 MB per worker | **~25–40 MB per worker** |
-| **File Transfers** | Buffered in worker RAM | Buffered in RAM / SpooledFile | **Streaming O(1) RAM + 2PC + Nginx Offload** |
-| **Built-in Auth** | ✅ Included (Synchronous) | ❌ None (Roll your own) | ✅ **Included (JWT + Refresh + Argon2)** |
-| **Infrastructure** | Python + Postgres + Redis + Celery | Python + Postgres + ... | **Single Granian binary + SQLite/Postgres** |
-| **AI-Native Engineering** | ❌ Highly Inefficient | ⚠️ Moderate (heavy boilerplate) | 🚀 **Maximum (AI-Native Architecture)** |
-| **LLM Token Consumption** | ~3,000 – 5,000 tokens / feature | ~2,000 – 3,500 tokens / feature | **~300 – 600 tokens (5–10x savings!)** |
-| **Files Touched per Feature** | 5–7 files | 4–6 files | **1–2 files (`handlers.py` + `rpc.call`)** |
-| **Code Boilerplate** | Extreme (DTOs, URLs, views, redux) | High (Pydantic schemas, Depends) | **Minimal (clean `@rpc_method`)** |
-
-### 3. Server CPU Processing Time per Operation
-
-Why is `PyFerro` **20–30x more CPU-efficient** than Django (DRF / Channels)?
-
-| Processing Phase | Django (DRF / Channels) | PyFerro (Rust + WSRPC) | Efficiency Gain |
-| :--- | :--- | :--- | :--- |
-| **Network & Frame Intake** | **1,500 – 3,000 µs** (TCP/TLS cycle, ASGI bridge, Python HTTP header parsing) | **50 – 80 µs** (Persistent socket, Rust Tokio/Hyper zero-copy frame reader) | **~30x faster** |
-| **Auth & Session Lookup** | **2,000 – 4,000 µs** (Re-parse cookies, DB/cache user query, CSRF checks on every request) | **10 – 20 µs** (Session cached in socket memory, zero redundant queries) | **~150x faster** |
-| **Routing & Middleware** | **800 – 1,500 µs** (7–10 Python middlewares, Regex URL routing) | **15 – 30 µs** (O(1) hash table lookup `RPC_REGISTRY[method]`) | **~50x faster** |
-| **Parsing & Dispatch** | **1,500 – 3,500 µs** (Heavy DRF serializers, field instantiation) | **80 – 150 µs** (Async kwargs auto-unpacking directly to handler) | **~20x faster** |
-| **Response Serialization** | **1,500 – 3,000 µs** (DRF JSON render, HTTP headers, middleware return) | **100 – 200 µs** (JSON-RPC 2.0 or RFC 0002 Tabular zero-overhead framing) | **~15x faster** |
-| **TOTAL Server CPU Time:** | **7,000 – 15,000 µs (7–15 ms)** | **300 – 500 µs (0.3–0.5 ms)** | 🚀 **20–30x less CPU time!** |
-
-> **Key takeaway:** Django suffers from "stateless amnesia" — re-authenticating and parsing HTTP on every click. `PyFerro` stays persistent and warm, routing RPCs directly to Python functions without HTTP bureaucracy.
-
----
-
-## 🤖 AI-Native: Token-Efficient & Purpose-Built for LLMs
-
-`PyFerro` is engineered from the ground up for modern AI-assisted engineering: **code authored, reviewed, and refactored by LLMs and Autonomous AI Agents (Claude, Cursor, Gemini, GPT-4o, GitHub Copilot)**.
-
-In conventional frameworks (FastAPI / Django), up to 80% of generated tokens are squandered on glue code, serialization boilerplate, and redundant plumbing. In `PyFerro`, the unified contract yields **massive savings on LLM context windows and developer token budgets**.
-
-```text
-TOKEN CONSUMPTION FOR IMPLEMENTING A FEATURE (E.G. ADD COMMENT WITH REAL-TIME PUSH)
-
-Django REST:  ████████████████████████████████████████ (~4,200 tokens)
-FastAPI:      █████████████████████████ (~2,600 tokens)
-PyFerro:      ███ (~350 tokens)  ──► UP TO 85% TOKEN REDUCTION!
-```
-
-### Why AI Writes `PyFerro` Code Faster, More Accurately, and Cheaper:
-
-#### 1. Zero-Boilerplate Simplicity
-You no longer need to burn context asking models to generate Pydantic request DTOs, response DTOs, HTTP error handlers, route registration boilerplate, and mirrored frontend `fetch()` wrappers.
-* **Backend**: One decorator `@rpc_method("domain.action")`. User (`current_user_ctx`) and session context are accessible natively without intricate `Depends()` dependency graphs.
-* **Frontend**: One line: `await rpc.call("domain.action", { ... })`.
-
-#### 2. Unified Protocol vs Stack Sprawl
-In traditional systems, developers must explain multiple disparate transport layers to the AI: REST for CRUD, WebSockets/SSE for notifications, Redis Pub/Sub for worker tasks, and Multipart for file uploads. Models exhaust their attention budgets and hallucinate.
-With `PyFerro`, **all communication adheres to one symmetrical protocol WSRPC (JSON-RPC 2.0)**: queries, mutations, progress streams (`stream: true`), server push notifications (`rpc.on`), and interactive server-to-client dialogs (`rpc.registerMethod`).
-
-#### 3. High Context Locality
-Modules in `app/<module>/` are strictly decoupled. When assigning an AI agent a feature or bug fix, you only need to provide **1 single file** (`handlers.py`), rather than sprawling architectural files.
-* **Fewer Input Tokens**: Instant, near-zero latency generation from AI agents.
-* **Higher Precision**: Eliminates hallucinations caused by oversized, noisy context windows.
-* **Direct Cost Reduction**: Lowers operational API billing on commercial models.
-
-#### 4. Built-in AI Guide (`AGENTS.md`)
-The repository root includes a dedicated instruction file [AGENTS.md](AGENTS.md) tailored for AI coding assistants (Cursor, Antigravity, Claude Code, Windsurf, ChatGPT). It codifies framework architecture, `@rpc_method` contracts, keyword argument auto-mapping, Tabular compression (RFC 0002), and anti-hallucination guardrails. This document is updated with every release.
-
----
-
-## 🚀 Installation & Quickstart
-
-### 📦 Installation via PIP
-
-Install the minimal core (Granian RSGI, Orjson, WSRPC, Cryptography):
-```bash
-pip install PyFerro
-```
-
-Or install with database support and drivers depending on your target stack:
-```bash
-pip install "PyFerro[sqlite]"      # Async SQLite (aiosqlite + SQLAlchemy 2.0)
-pip install "PyFerro[postgres]"    # Async PostgreSQL (asyncpg + SQLAlchemy 2.0)
-pip install "PyFerro[mysql]"       # Async MySQL (asyncmy + SQLAlchemy 2.0)
-pip install "PyFerro[full]"        # All drivers and plugins included
-```
-
----
-
-### ⚡ Option A: Interactive Showcase Demo (1-Click)
-
-The repository includes a ready-to-run interactive showcase (`examples/showcase/`):
-
-```bash
-# Linux / macOS:
-./examples/showcase/run.sh
-
-# macOS (without terminal):
-# Double-click examples/showcase/run_mac.command directly in Finder!
-
-# Windows (cmd):
-examples\showcase\run.bat
-
-# Windows (PowerShell):
-.\examples\showcase\run.ps1
-```
-The launcher automatically provisions a `.venv`, installs dependencies, and boots the Granian server. Open `http://127.0.0.1:8080` in your browser to inspect real-time WSRPC operations, the reactive database, Tabular payload compression, and streaming progress.
-
----
-
-### 🛠 Option B: Minimal Server (`main.py`)
-```python
-import os
-from pyferro import FerroApp, rpc_method, tabular_response, RPCError
-
-# 1. Code-First application entrypoint
-app = FerroApp(
-    secret_key=os.getenv("SECRET_KEY", "dev-secret-key-change-in-production"),
-    database_url=os.getenv("DATABASE_URL", "sqlite+aiosqlite:///app.db"),
-    static_dir="./public",     # Zero-Copy static files via Rust RSGI
-    index_file="index.html",   # Auto-served on GET /
-    cors=True
-)
-
-# 2. Public RPC method with auto-unpacked kwargs
-@app.rpc("math.add", public=True)
-async def add_numbers(a: int = 0, b: int = 0):
-    return {"result": a + b}
-
-# 3. Multi-return streaming progress method
-@app.rpc("task.run_long")
-async def run_task(session, rpc_id: int = 0):
-    for step in range(1, 4):
-        # Transmit intermediate progress chunk to the socket
-        await session.send_stream_chunk(rpc_id, {"progress": step * 33})
-    return {"status": "completed"}
-
-# 4. Run server (or via granian CLI)
-if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8080, workers=1)
-```
-
-### 2. Launch Server
-Via Python:
-```bash
-python main.py
-```
-Or directly using Granian CLI (recommended for production):
-```bash
-granian --rsgi main:app --host 127.0.0.1 --port 8080 --workers 1
-```
-
-> ℹ️ **Scalability & Single-Worker Note:**  
-> PyFerro uses an in-process `MemoryBackplane` by default. Real-time broadcasts (`broadcast`, `send_to_user`, `send_to_role`) and SmartCache events operate within the current process instance. For single-server deployments, run with `--workers 1` (or `app.run(workers=1)`). Distributed `RedisBackplane` support is targeted for multi-node clusters.
-
-### 3. Invoke from Client (JavaScript / TypeScript)
-```javascript
-import { BinaryWSRPC } from './wsrpc.js';
-
-const client = new BinaryWSRPC('ws://127.0.0.1:8080');
-await client.connect();
-
-// Regular RPC call
-const sum = await client.call('math.add', { a: 10, b: 25 });
-console.log(sum.result); // 35
-
-// Multi-return streaming call
-await client.callStream('task.run_long', {}, (chunk) => {
-    console.log(`Progress: ${chunk.progress}%`);
-});
-```
-
----
-
-## ⚙️ Core Network Engine
-
-> 📖 **For the complete technical manual with code examples, see: [docs/core.md](docs/core.md)**.
-
-The network core resides in the `core/` directory and exposes the following building blocks:
-
-* **[core/session.py](core/session.py)**:
-  * `JsonRpcSession`: Manages persistent client sockets.
-  * Multiplexes incoming and outgoing RPC requests by numeric `id`.
-  * Built-in **Rate-Limiter (Token Bucket)** for protection against flooding (30 req/s) with zero runtime overhead.
-  * Isolated Python `ContextVar` instances (`current_user_ctx`, `current_session_ctx`, `current_rpc_id_ctx`, `current_transport_ctx`), accessible anywhere in the async execution context.
-  * Session termination hooks: `session.register_on_close(callback)` for clean resource teardown.
-  * Symmetric client invocation from server: `await session.send_request("client_method", params)`.
-
-* **[core/router.py](core/router.py)**:
-  * `@http_route(path, methods)` decorator to register raw RSGI HTTP handlers.
-  * High-throughput file streams, webhooks, and health checks.
-
-* **[core/tabular.py](docs/tabular_compression.md)**:
-  * Deterministic tabular payload compression (RFC 0002, `pack_tabular`, `@tabular_response`).
-  * Cuts 50–70% of network traffic by transmitting property schemas once and packing records into a 2D matrix.
-  * Direct SQL tuple optimization bypasses dictionary allocations, minimizing Python GC overhead.
-
-* **[core/security.py](core/security.py)**:
-  * Password hashing using **Argon2id**.
-  * JWT access token issuance and validation.
-  * Asymmetric RSA encryption for secure credential exchange.
-
-* **[core/lifecycle.py](core/lifecycle.py)**:
-  * Application startup dispatcher `@on_startup` (runs migrations, cache warming, and background daemons before opening sockets).
-
-* **[core/lib/config.py](core/lib/config.py)**:
-  * Settings parser for `settings.yaml` supporting environment variable overrides.
-
----
-
-## 🔌 Official System Plugins
-
-The framework includes pre-built and tested system batteries in `app/system/`:
-
-### 1. Database Plugin (`plugins/db`)
-* **Stack**: Async SQLAlchemy 2.0 + `orjson` for ultra-fast JSON serialization.
-* **Engines**: SQLite out-of-the-box (zero configuration). Seamless switch to PostgreSQL via `settings.yaml`.
-* **Usage**:
-  ```python
-  from app.system.db import async_session, Base
-  from sqlalchemy import select
-
-  async with async_session() as db:
-      users = (await db.execute(select(User))).scalars().all()
-  ```
-
----
-
-### 2. Authentication & User Plugin (`plugins/auth`)
-* **Features**:
-  * `User` model, database-driven role architecture (dynamic roles in `auth_role`, `auth_rpc_permission`, superadmin bypass).
-  * **Row-Level Security (RLS)**: base classes `BasicSecureModel` and `RowSecureModel` for tenant/owner scoping.
-  * Reliable session extension via `RefreshToken` and multi-device tracking in `ActiveSession`.
-  * Context-based user retrieval anywhere without passing parameters:
-    ```python
-    from core.session import current_user_ctx
-    user = current_user_ctx.get()
-    ```
-
----
-
-### 3. Two-Phase File Upload Plugin (`plugins/files`)
-* Comprehensive architecture: see **[docs/files.md](docs/files.md)**.
-* **Two-Phase Commit Workflow**:
-  1. Client initiates upload transaction: server provisions isolated `/tmp/app_uploads/<folder_hash>/`.
-  2. Client streams files via `POST /upload`. Bytes stream directly to disk without memory buffering.
-  3. If client disconnects — core triggers `session.on_close` and erases the temp folder immediately.
-  4. On completion — folder moves atomically to production storage `/files/<folder_hash>/` in 0 milliseconds.
-  5. Files are indexed in unified `file_metadata` database table (quotas, original names, MIME types).
-  6. Downloads are served directly by **Nginx** with zero Python overhead.
-
----
-
-### 4. Smart Reactive Cache Plugin (`plugins/smart_cache`)
-* Comprehensive architecture: see **[docs/smart_cache.md](docs/smart_cache.md)**.
-* **0 ms Latency Principle & Push Invalidation**:
-  * Instant screen rendering from L1 RAM (or L2 IndexedDB/localStorage) with zero network wait.
-  * Server automatically tracks mutations and pushes `cache.invalidate` impulses or targeted `cache.patch` via `@invalidates(tags=...)`.
-  * Zero blind polling — the WebSocket stays completely silent until data actually changes.
-  * Version handshake (`cache.sync_check`) on reconnect syncs only tags that changed during offline state.
-
----
-
-### 5. Reactive CRUD & Admin Cockpit (`plugins/crud`)
-* **Features**:
-  * Declarative model configuration via inner `class Crud:`.
-  * **Row-Level Security (RLS)** with custom owner columns: `owner_columns = {"user_id"}`.
-  * Zero-Leakage 404 admin panel with Svelte 5 frontend.
-  * Automatic spoofing protection: ownership columns are protected against manipulation on creation/update.
-
----
-
-### 6. SEO & Dynamic Rendering (`plugins/seo`)
-* **Features**:
-  * Automated crawler detection and SSR HTML generation for search bots.
-  * **Bounded LRU TTL-Cache**: caches generated pages and negative 404 hits to shield the database from botnet crawls.
-  * Environment configuration: `SEO_CACHE_TTL` (default 60s, `0` disables cache), `SEO_CACHE_NEGATIVE_TTL` (default 30s), and `SEO_CACHE_MAX_ENTRIES` (default 5000).
-
----
-
-### 7. Modular Backend Test Framework (`tests/`)
-* Comprehensive guide: see **[docs/testing.md](docs/testing.md)**.
-* **Client-Perspective Black-Box Testing**:
-  * Validates the backend exactly as a real frontend client interacts with it (over WebSocket WSRPC and HTTP).
-  * `PersonaManager`: pre-authenticated sessions (`admin`, `user`, `guest`) with automatic local database seeding and RLS bypass.
-  * Native verification of streaming (`stream: true`), push notification interception (`cache.invalidate`, `cache.patch`), and two-phase uploads.
-  * Built-in stress & load testing (`tests/suites/test_load.py`): benchmarks RPS, latency percentiles (p50/p95/p99), and broadcast fan-out reliability.
-
----
-
-### 8. Industrial Reliability, Security Audit & High-Load Benchmarks
-* Full Security Whitepaper: see **[docs/security_and_performance.md](docs/security_and_performance.md)**.
-* Complete Testing & Benchmarking Manual: see **[docs/testing.md](docs/testing.md)**.
-* **Autonomous External Security Auditor (`scripts/security_audit.py`)**:
-  * Automated black-box penetration tester covering **9 critical attack vectors**: Zero-Leakage 404, Header Leakage, CSWSH, 12MB DoS Bombs, JSON-RPC Compliance, Prototype Pollution, RBAC Privilege Isolation, CRUD RLS, and `alg:none` JWT Forgery.
-  ```bash
-  # Run 9/9 pentest suite (auto-detects port 8080 or 8000)
-  python scripts/security_audit.py --target http://127.0.0.1:8080
-  ```
-* **High-Throughput Open Stress Benchmark (`scripts/benchmark.py`)**:
-  * Standalone tool with real-time ASCII progress bar, measuring true WebSocket throughput (>11,000 RPS single-worker), sub-millisecond latencies (p50: 0.9–1.6 ms), and wire bandwidth.
-  * Honors kernel Token-Bucket DoS rate limiting (30 req/sec per socket).
-  ```bash
-  # Run stress test (500 concurrent sockets, 12,500 requests)
-  python scripts/benchmark.py --target http://127.0.0.1:8080 --concurrency 500 --requests 12500
-  ```
-
----
-
-## 🛠 Creating Custom Plugins & Modules in the app Directory
-
-
-Creating a custom feature module (e.g. support ticket system `app/tickets/`) is straightforward:
+## 2. Быстрый старт (приложение в 30 строк)
 
 ```python
-# app/tickets/handlers.py
-from core.session import rpc_method, RPCError, current_user_ctx
-from app.system.db import async_session
-from app.system.files.service import FileStorageService
+from sqlalchemy import String
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column
 
-@rpc_method("tickets.create")
-async def create_ticket(session, params):
-    user = current_user_ctx.get()
-    if not user:
-        raise RPCError("Authentication required")
+from pyferro2.core import SessionData
+from pyferro2.db import Database, RowSecureModel
+from pyferro2.rpc import ForbiddenError, rpc_method
+from pyferro2.server import PyFerroApp
 
-    title = params.get("title")
-    text = params.get("text")
-    folder_hash = params.get("folder_hash") # If files were attached
 
-    # Persist ticket in database
-    async with async_session() as db:
-        async with db.begin():
-            ticket = Ticket(title=title, text=text, author_id=user.id, folder=folder_hash)
-            db.add(ticket)
+class Book(RowSecureModel):
+    """Таблица книг. Наследование от RowSecureModel автоматически добавляет id и creator_id."""
 
-    return {"status": "ok", "ticket_id": ticket.id}
+    __tablename__ = "books"
 
-@rpc_method("tickets.delete")
-async def delete_ticket(session, params):
-    ticket_id = params.get("ticket_id")
-    
-    async with async_session() as db:
-        ticket = await db.get(Ticket, ticket_id)
-        if ticket and ticket.folder:
-            # Atomically delete all bundled files from disk and registry
-            await FileStorageService.delete_bundle(ticket.folder)
-        await db.delete(ticket)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    author: Mapped[str] = mapped_column(String(120), nullable=False)
+
+    class Crud:
+        title = "Книги"
+        searchable = ("title", "author")
+        readonly = ()
+        hidden = ()
+
+    @rpc_method
+    async def transfer(
+        book_id: int,
+        new_owner_id: int,
+        session_data: SessionData,
+        db: AsyncSession,
+    ) -> dict:
+        """Кастомный метод Book.transfer (автоматически появится в плашке Book в /pyferro_admin)."""
+        book = await db.get(Book, book_id)
+        if not book:
+            raise ForbiddenError("Книга не найдена")
+
+        # Если в админке включена галочка «Только свои» (Book.transfer_own):
+        if session_data.is_own_only("Book.transfer") and book.creator_id != session_data.user_id:
+            raise ForbiddenError("Можно передавать только свои книги")
+
+        book.creator_id = new_owner_id
         await db.commit()
+        return {"id": book.id, "creator_id": book.creator_id}
 
-    return {"deleted": True}
+
+db = Database("sqlite+aiosqlite:///./app.db")
+app = PyFerroApp(db=db, secret_key="replace-with-32-byte-production-secret-key!")
+
+# Регистрирует Book.create, Book.read, Book.update, Book.delete и кастомный Book.transfer:
+app.crud.register(Book)
+
+if __name__ == "__main__":
+    # Прямой запуск на Rust-сервере Granian:
+    app.run(host="0.0.0.0", port=8000)
 ```
 
-To enable the module, import its handlers in `main.py`:
+Или запуск через CLI **Granian**:
+```bash
+granian --interface rsgi --host 0.0.0.0 --port 8000 main:app
+```
+
+---
+
+## 3. Виды RPC-методов и Smart DI
+
+Декоратор `@rpc_method` поддерживает 3 режима:
+
 ```python
-# main.py
-import app.tickets.handlers  # noqa: F401
+from pyferro2.core import Session, SessionData, admRole
+from pyferro2.rpc import rpc_method
+
+class catalog:
+    # 1. Публичный метод (доступен всем без настройки в БД)
+    @rpc_method(public=True)
+    async def status() -> str:
+        return "ok"
+
+    # 2. Прикладной метод (catalog.export) — настраивается чекбоксами в /pyferro_admin
+    @rpc_method
+    async def export(session_data: SessionData) -> dict:
+        return {"user": session_data.username}
+
+    # 3. Системный метод (доступен только указанным административным ролям admRole)
+    @rpc_method(role=[admRole.adm_settings])
+    async def rebuild_index() -> bool:
+        return True
+```
+
+### Мультиретурн (`async def ... yield`) и уведомления (`session.notify`)
+Если функция использует `yield`, роутер автоматически отправляет каждый элемент клиенту с тем же `id` запроса. При смене прав пользователя сервер мгновенно закрывает активные `yield`-генераторы и переподключает клиента:
+
+```python
+class feed:
+    @rpc_method
+    async def subscribe(session: Session):
+        await session.notify("feed.started", {"ok": True})
+        for tick in range(1, 4):
+            yield {"tick": tick}
 ```
 
 ---
 
-## 💻 Client Library (TypeScript/JavaScript)
+## 4. Файловая подсистема (2PC) и конфиги прокси (Nginx / Angie / Caddy)
 
-The framework includes the official zero-dependency client `client/wsrpc.ts`:
+Загрузка файлов выполняется в 2 фазы (без буферизации в RAM):
+1. Вызов RPC `files.init_upload` -> возвращает `folder_hash` и `upload_url`.
+2. Потоковая отправка `POST /upload?folder=<folder_hash>&filename=<name>`.
+3. Вызов RPC `files.commit(folder_hash=..., is_public=True)` -> атомарный перенос в постоянное хранилище (`os.replace`) и запись в `pf_file_metadata`.
 
-```typescript
-import { BinaryWSRPC, wsConnected, wsStatus } from './wsrpc';
+### Полная боевая конфигурация Nginx / Angie для Granian (`WS /ws` + `2PC Files`)
 
-const rpc = new BinaryWSRPC('wss://api.example.com/ws');
-await rpc.connect();
+Для корректной работы **Granian** за Nginx/Angie важно:
+1. Выделить `location /ws` с отключенной буферизацией (`proxy_buffering off`) и длинным `proxy_read_timeout`, чтобы Nginx не обрывал живые WebSocket-соединения и долгие мультиретурн-стримы (`yield`) каждые 60 секунд.
+2. В `location /upload` отключить буферизацию запроса (`proxy_request_buffering off`), чтобы файлы стримились чанками напрямую в Granian за `O(1)` памяти.
+3. В `location /internal_files/` включить `internal;` для прямой раздачи файлов с диска по заголовку `X-Accel-Redirect`.
 
-// 1. Standard typed RPC call
-const profile = await rpc.call<UserProfile>('user.get_profile', { user_id: 42 });
-console.log('User profile:', profile.name);
+```nginx
+# В секции http { ... } определяем корректный заголовок Connection для WebSocket и Keep-Alive:
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
 
-// 2. Multi-return: Progress streaming for long-running workloads
-const report = await rpc.callStream<ReportResult>(
-    'reports.generate', 
-    { period: '2026-Q3' }, 
-    (chunk) => {
-        console.log(`[${chunk.percent}%] Progress: ${chunk.message}`);
-        updateProgressBar(chunk.percent); // Real-time UI progress update!
+upstream granian_backend {
+    server 127.0.0.1:8000;
+    keepalive 64;
+}
+
+server {
+    listen 80;
+    server_name example.com;
+
+    # 1. WebSocket JSON-RPC 2.0 и мультиретурн (yield) для Granian
+    location /ws {
+        proxy_pass http://granian_backend/ws;
+        proxy_http_version 1.1;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Отключаем буферизацию для мгновенной доставки пакетов yield и session.notify
+        proxy_buffering off;
+        # Держим соединение для долгих подписок (24 часа; heartbeat ping/pong поддерживает активность)
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
     }
-);
-console.log('Report ready:', report.download_url);
 
-// 3. Receive unsolicited Server Push notifications
-const unsubscribe = rpc.on('chat.new_message', (msg) => {
-    console.log(`[${msg.author}]: ${msg.text}`);
-    messagesList.update(items => [...items, msg]);
-});
+    # 2. Потоковая закачка файлов напрямую в Granian без двойной буферизации на диске Nginx
+    location /upload {
+        client_max_body_size 2G;
+        proxy_request_buffering off;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_pass http://granian_backend/upload;
+    }
 
-// 4. Symmetric RPC: Server initiates an interactive prompt on the client
-rpc.registerMethod('ui.confirm', async (params) => {
-    const isApproved = await showConfirmationModal(params.title, params.message);
-    return { confirmed: isApproved }; // Transmitted back to the server!
-});
+    # 3. Внутренняя раздача файлов с диска мимо Python (по заголовку X-Accel-Redirect от PyFerroApp)
+    location /internal_files/ {
+        internal;
+        alias /var/lib/pyferro/storage/;
+    }
+
+    # 4. Остальные HTTP-маршруты (/rpc, /files/..., /pyferro_admin)
+    location / {
+        proxy_pass http://granian_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
 ```
 
-> 📖 **For in-depth UI framework integrations (Svelte, React, Vue), error handling, and unsubscription patterns, see: [docs/core.md](docs/core.md#8-typescriptjavascript-client-clientwsrpcts)**.
+### Конфигурация Caddy v2 (`Caddyfile`)
+Caddy понимает тот же самый заголовок `X-Accel-Redirect` через `handle_response`:
+
+```caddyfile
+example.com {
+    reverse_proxy 127.0.0.1:8000 {
+        @accel header X-Accel-Redirect *
+        handle_response @accel {
+            root * /var/lib/pyferro/storage
+            rewrite * {rp.header.X-Accel-Redirect}
+            uri strip_prefix /internal_files
+            file_server
+        }
+    }
+}
+```
 
 ---
 
-## 🌟 What's New in v0.3.3
+## 5. Маршруты сервера (`PyFerroApp`)
 
-* 🚀 **Unified `FerroApp` Application Class**:
-  * Single-call Code-First initialization configuring secrets, database, CORS, and static file hosting.
-  * Native Zero-Copy static file serving via Rust Granian `proto.response_file`.
-  * Path traversal protection when serving files from `static_dir`.
-  * Automatic CORS preflight (`OPTIONS`) and `Access-Control-Allow-*` header handling.
-  * Integrated `app.run(host, port, workers)` for clean programmatic startups without shell scripts.
-* ⚡ **Kwargs Auto-Unpacking in `@rpc_method` / `@app.rpc`**:
-  * Handlers can define clean signatures with type hints and defaults: `async def fn(session, a: int, b: str = "default")`.
-  * JSON-RPC `params` dictionaries are mapped directly into keyword arguments.
-* 🛡 **Access Control & `public=True`**:
-  * Guest connections are restricted to `login.*` methods by default.
-  * Public endpoints for unauthenticated users are declared explicitly with `@rpc_method("name", public=True)`.
-* 🔒 **Enhanced Security & Cryptography**:
-  * Default PBKDF2 iterations increased from 100,000 to **600,000** following OWASP standards.
-  * Side-channel timing attack protection: password verification hardened using `hmac.compare_digest`.
-  * RSA key generation offloaded to threadpool with cache rotation to eliminate event-loop starvation.
-* 📦 **Streaming File Uploads (Granian RSGI)**:
-  * Chunked request body ingestion via `proto.read()` directly to disk ensuring constant $O(1)$ memory usage.
-  * Upload authorization verification via `/auth-check-upload` supporting `Authorization: Bearer <token>`.
-* 🌐 **Scalability Backplane**:
-  * Added `pyferro.core.backplane` module with `BaseBackplane` contract and `MemoryBackplane`.
-  * Multi-worker startup warning logged when `workers > 1` is configured with in-memory state.
-* 🤖 **AI-Native Guide `AGENTS.md`**:
-  * Included a dedicated LLM instruction file in the repository root to guarantee zero-hallucination agentic development.
-
----
-
-## 📄 License
-This project is licensed under the **MIT License**.  
-Free for commercial use, modification, and distribution.
+| Маршрут | Назначение |
+| :--- | :--- |
+| `WS /ws` | Полнодуплексный JSON-RPC 2.0, мультиретурн (`yield`), серверные уведомления `session.notify` |
+| `POST /rpc` | Синхронный вызов JSON-RPC 2.0 поверх HTTP |
+| `POST /upload` | Потоковая закачка файлов во временную транзакцию (`O(1)` RAM) |
+| `GET /files/<folder>/<name>` | Защищенная раздача файлов (поддержка `X-Accel-Redirect` и файловых JWT) |
+| `GET /pyferro_admin` | Встроенная панель управления RBAC и CRUD (маршрут `/admin` свободен для вашего приложения) |

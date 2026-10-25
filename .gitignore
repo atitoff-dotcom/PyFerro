@@ -3,20 +3,16 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
 build/
 develop-eggs/
 dist/
 downloads/
 eggs/
 .eggs/
-/lib/
-lib64/
 parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -27,27 +23,18 @@ MANIFEST
 venv/
 ENV/
 
-# Databases & local data
-*.sqlite3
+# Database files
 *.db
-/data/
-/files/
-/logs/
-**/logs/
-**/data/
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Frontend
+node_modules/
+frontend/node_modules/
 
 # IDE & OS
-.idea/
-.vscode/
-*.swp
-*.swo
 .DS_Store
-
-# Local overrides
-my_settings.yaml
-local_settings.yaml
-PL3_3/
-
-# Node.js
-node_modules/
-
+.idea/
+*.swp
+*.bak
