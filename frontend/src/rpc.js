@@ -138,7 +138,22 @@ class RpcClient {
   }
 }
 
-export const rpc = new RpcClient();
+const client = new RpcClient();
+function rpcFn(method, params) {
+  return client.call(method, params);
+}
+export const rpc = new Proxy(rpcFn, {
+  get(target, prop) {
+    const val = Reflect.get(client, prop);
+    if (typeof val === "function") {
+      return val.bind(client);
+    }
+    return val;
+  },
+  set(target, prop, value) {
+    return Reflect.set(client, prop, value);
+  },
+});
 
 /**
  * Реактивный контроллер пагинации таблиц для RPC-методов PyFerro 2.0.

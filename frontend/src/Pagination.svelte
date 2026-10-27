@@ -43,11 +43,27 @@
     </button>
 
     <div class="pf-page-numbers">
-      {#each paginator.pageNumbers as p}
+      {#each paginator.pageNumbers as p, idx}
         {#if p === '...'}
-          <span class="pf-ellipsis">…</span>
+          <button
+            type="button"
+            class="pf-btn pf-page-num pf-ellipsis"
+            disabled={paginator.loading}
+            onclick={() => {
+              const maxP = paginator.totalPages || paginator.pages || Math.ceil((paginator.total || 0) / (paginator.limit || 10)) || 1;
+              if (idx < paginator.pageNumbers.length / 2) {
+                paginator.goTo(Math.max(1, paginator.page - 5));
+              } else {
+                paginator.goTo(Math.min(maxP, paginator.page + 5));
+              }
+            }}
+            title="Перейти на 5 страниц {idx < paginator.pageNumbers.length / 2 ? 'назад' : 'вперед'}"
+          >
+            …
+          </button>
         {:else}
           <button
+            type="button"
             class="pf-btn pf-page-num"
             class:active={p === paginator.page}
             disabled={paginator.loading}
@@ -148,8 +164,9 @@
   }
 
   .pf-ellipsis {
-    padding: 0 0.35rem;
+    padding: 0.35rem 0.65rem;
     color: var(--muted, #94a3b8);
+    font-weight: 600;
   }
 
   .pf-limit-select {

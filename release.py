@@ -22,8 +22,8 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent
 PYPROJECT_PATH = ROOT_DIR / "pyproject.toml"
-INIT_PATH = ROOT_DIR / "__init__.py"
-MIGRATIONS_DIR = ROOT_DIR / "migrations"
+INIT_PATH = ROOT_DIR / "src" / "pyferro2" / "__init__.py"
+MIGRATIONS_DIR = ROOT_DIR / "src" / "pyferro2" / "migrations"
 
 
 def run_cmd(cmd: list[str] | str, cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
@@ -135,6 +135,15 @@ async def downgrade(session: AsyncSession) -> None:
     else:
         print(f"  ✓ Миграция {migration_file.name} уже существует.")
 
+def build_help() -> None:
+    generator = ROOT_DIR / "generate_help.py"
+    if generator.exists():
+        print("\n📚 Компиляция документации (generate_help.py)...")
+        python_bin = ROOT_DIR / ".venv" / "bin" / "python"
+        py = str(python_bin) if python_bin.exists() else sys.executable
+        run_cmd([py, str(generator), "--frontend-dist"])
+        print("  ✓ Документация успешно скомпилирована в help/help_data.json!")
+
 
 def run_tests() -> None:
     print("\n🧪 Запуск тестов бэкенда (pytest)...")
@@ -159,6 +168,14 @@ def build_frontend() -> None:
         run_cmd([npm_bin, "run", "build"], cwd=frontend_dir)
         print("  ✓ Фронтенд успешно собран!")
 
+    dist_src = ROOT_DIR / "frontend" / "dist"
+    dist_dst = ROOT_DIR / "src" / "pyferro2" / "frontend" / "dist"
+    if dist_src.exists():
+        dist_dst.parent.mkdir(parents=True, exist_ok=True)
+        if dist_dst.exists():
+            shutil.rmtree(dist_dst)
+        shutil.copytree(dist_src, dist_dst)
+        print("  ✓ frontend/dist скопирован в src/pyferro2/frontend/dist для упаковки в PyPI")
 
 def update_graphify() -> None:
     print("\n🕸️  Обновление графа знаний архитектуры (graphify)...")
@@ -312,6 +329,8 @@ def main() -> None:
     if args.dry_run:
         print(" ⚠️  РЕЖИМ:          DRY-RUN (без публикации)")
     print("=" * 65)
+    # 0. Сборка документации
+    build_help()
 
     # 1. Тесты
     if not args.skip_tests:

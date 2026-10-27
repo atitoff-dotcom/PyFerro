@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyferro"
-version = "2.0.1"
+version = "2.1.0"
 description = "High-performance reactive fullstack Python framework on Rust RSGI (Granian) with symmetric WSRPC (JSON-RPC 2.0) and Tabular Data Compression."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [
     { name = "Alex Titoff", email = "a.tit.off@gmail.com" }
 ]
-keywords = ["pyferro", "rsgi", "granian", "wsrpc", "json-rpc", "websocket", "reactive"]
+keywords = ["pyferro", "rsgi", "granian", "wsrpc", "json-rpc", "websocket", "reactive", "seo"]
 dependencies = [
     "granian>=1.6.0",
     "orjson>=3.9.0",
@@ -24,13 +24,23 @@ dependencies = [
     "greenlet>=3.0.0",
 ]
 
+[project.optional-dependencies]
+help-generator = [
+    "markdown-it-py>=3.0.0",
+    "pygments>=2.15.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/atitoff-dotcom/PyFerro"
 Repository = "https://github.com/atitoff-dotcom/PyFerro.git"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["auth*", "core*", "crud*", "db*", "files*", "rpc*", "server*", "pyferro2*"]
+where = ["src"]
+include = ["pyferro2*"]
 
 [tool.setuptools.package-data]
-"*" = ["frontend/dist/*", "frontend/dist/**/*"]
+"pyferro2" = [
+    "help/help_data.json",
+    "frontend/dist/*",
+    "frontend/dist/**/*",
+]

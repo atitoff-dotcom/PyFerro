@@ -124,100 +124,17 @@ class feed:
 
 ---
 
-## 4. Файловая подсистема (2PC) и конфиги прокси (Nginx / Angie / Caddy)
+## 4. Файловая подсистема (2PC) и проксирование (Nginx / Angie / Caddy)
 
 Загрузка файлов выполняется в 2 фазы (без буферизации в RAM):
 1. Вызов RPC `files.init_upload` -> возвращает `folder_hash` и `upload_url`.
 2. Потоковая отправка `POST /upload?folder=<folder_hash>&filename=<name>`.
 3. Вызов RPC `files.commit(folder_hash=..., is_public=True)` -> атомарный перенос в постоянное хранилище (`os.replace`) и запись в `pf_file_metadata`.
 
-### Полная боевая конфигурация Nginx / Angie для Granian (`WS /ws` + `2PC Files`)
+Раздача защищенных файлов осуществляется через заголовок `X-Accel-Redirect` без прогона байт через Python.
 
-Для корректной работы **Granian** за Nginx/Angie важно:
-1. Выделить `location /ws` с отключенной буферизацией (`proxy_buffering off`) и длинным `proxy_read_timeout`, чтобы Nginx не обрывал живые WebSocket-соединения и долгие мультиретурн-стримы (`yield`) каждые 60 секунд.
-2. В `location /upload` отключить буферизацию запроса (`proxy_request_buffering off`), чтобы файлы стримились чанками напрямую в Granian за `O(1)` памяти.
-3. В `location /internal_files/` включить `internal;` для прямой раздачи файлов с диска по заголовку `X-Accel-Redirect`.
-
-```nginx
-# В секции http { ... } определяем корректный заголовок Connection для WebSocket и Keep-Alive:
-map $http_upgrade $connection_upgrade {
-    default upgrade;
-    ''      close;
-}
-
-upstream granian_backend {
-    server 127.0.0.1:8000;
-    keepalive 64;
-}
-
-server {
-    listen 80;
-    server_name example.com;
-
-    # 1. WebSocket JSON-RPC 2.0 и мультиретурн (yield) для Granian
-    location /ws {
-        proxy_pass http://granian_backend/ws;
-        proxy_http_version 1.1;
-
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # Отключаем буферизацию для мгновенной доставки пакетов yield и session.notify
-        proxy_buffering off;
-        # Держим соединение для долгих подписок (24 часа; heartbeat ping/pong поддерживает активность)
-        proxy_read_timeout 86400s;
-        proxy_send_timeout 86400s;
-    }
-
-    # 2. Потоковая закачка файлов напрямую в Granian без двойной буферизации на диске Nginx
-    location /upload {
-        client_max_body_size 2G;
-        proxy_request_buffering off;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_pass http://granian_backend/upload;
-    }
-
-    # 3. Внутренняя раздача файлов с диска мимо Python (по заголовку X-Accel-Redirect от PyFerroApp)
-    location /internal_files/ {
-        internal;
-        alias /var/lib/pyferro/storage/;
-    }
-
-    # 4. Остальные HTTP-маршруты (/rpc, /files/..., /pyferro_admin)
-    location / {
-        proxy_pass http://granian_backend;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-### Конфигурация Caddy v2 (`Caddyfile`)
-Caddy понимает тот же самый заголовок `X-Accel-Redirect` через `handle_response`:
-
-```caddyfile
-example.com {
-    reverse_proxy 127.0.0.1:8000 {
-        @accel header X-Accel-Redirect *
-        handle_response @accel {
-            root * /var/lib/pyferro/storage
-            rewrite * {rp.header.X-Accel-Redirect}
-            uri strip_prefix /internal_files
-            file_server
-        }
-    }
-}
-```
+> [!TIP]
+> **Боевые конфигурации Nginx, Angie и Caddy v2**, архитектура потокового отсечения неавторизованных загрузок (Fail-Fast) и раздачи статики подробно описаны в [NGINX.md](NGINX.md).
 
 ---
 

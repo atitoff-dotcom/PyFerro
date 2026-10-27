@@ -15,7 +15,7 @@ import orjson
 import pytest
 
 from pyferro2.auth import User, hash_password, seed_system_roles
-from pyferro2.core import SESSION_COOKIE_NAME, Session, SessionData, USER_ROLE, admRole
+from pyferro2.core import SESSION_COOKIE_NAME, Session, SessionData, USER_ROLE, WsCloseCode, admRole
 from pyferro2.db import Database
 from pyferro2.files import FileStorage
 from pyferro2.server import (
@@ -95,6 +95,21 @@ class TestHybridTokenManager:
         # 4. Отзыв токена мгновенно блокирует и кэш, и повторный декод по jti
         tm.revoke_token(token)
         assert tm.resolve_token(token) is None
+
+    def test_revoke_user_blocks_cold_jwt_decode(self) -> None:
+        tm = TokenManager(secret_key="nginx-secret-key-for-jwt-validation")
+        sd = SessionData(user_id=42, username="bob", roles=frozenset({USER_ROLE}))
+        token = tm.issue_token(sd)
+
+        # Имитируем очистку кэша, когда токен еще не был проверен в текущем воркере, но пользователь отозван
+        tm._cache.clear()
+        tm.revoke_user(42)
+        assert tm.resolve_token(token) is None
+
+        # Новый токен, выпущенный после разблокировки/перелогина, снова валиден
+        new_token = tm.issue_token(sd)
+        tm._cache.clear()
+        assert tm.resolve_token(new_token) == sd
 
     def test_rejects_invalid_and_expired_tokens(self) -> None:
         tm = TokenManager(secret_key="test-secret-key-at-least-32-bytes-long!")
@@ -187,6 +202,9 @@ class TestHttpAndWebSocketTransport:
 
     @pytest.mark.asyncio
     async def test_websocket_live_login_notify_and_logout(self, app: PyFerroApp) -> None:
+        # Выдадим гостю право 'public.catalog', чтобы убедиться, что auth.logout сохраняет права гостя
+        app._update_guest_permissions(frozenset({"public.catalog"}))
+
         # Регистрируем бизнес-метод, который пушит уведомление клиенту и требует право 'orders.list'
         class orders:
             @app.router.rpc_method
@@ -250,10 +268,62 @@ class TestHttpAndWebSocketTransport:
         orders_frame = orjson.loads(sent_frames[4])
         assert orders_frame == {"jsonrpc": "2.0", "result": ["order_for_alex"], "id": 3}
 
-        # Ответ на шаг 5: выход вернул сессию в состояние гостя
+        # Ответ на шаг 5: выход вернул сессию в состояние гостя с сохранением прав гостя
         logout_frame = orjson.loads(sent_frames[5])
         assert logout_frame["result"]["user"]["is_guest"] is True
+        assert logout_frame["result"]["user"]["permissions"] == ["public.catalog"]
         assert scope["session_data"].is_guest is True
+        assert scope["session_data"].permissions == frozenset({"public.catalog"})
+
+    @pytest.mark.asyncio
+    async def test_websocket_invalid_path_rejected_before_accept(self, app: PyFerroApp) -> None:
+        proto = MockRSGIWebsocketProtocol([])
+        scope = MockRSGIScope(proto="websocket", path="/wrong_ws_path")
+        await app(scope, proto)
+
+        assert proto.accepted is False
+        assert proto.close_code == WsCloseCode.POLICY_VIOLATION
+
+    @pytest.mark.asyncio
+    async def test_websocket_atomic_rpc_sends_response_before_disconnect_and_stream_catches_errors(
+        self, app: PyFerroApp
+    ) -> None:
+        class stream_test:
+            @app.router.rpc_method(public=True)
+            async def boom_stream():
+                yield {"step": 1}
+                raise RuntimeError("Неожиданная авария в генераторе")
+
+            @app.router.rpc_method(public=True)
+            async def self_disconnect(session: Session) -> dict[str, str]:
+                # Имитируем ситуацию, когда прямо во время выполнения атомарного RPC запрошен дисконнект
+                await session.request_disconnect(WsCloseCode.POLICY_VIOLATION)
+                return {"status": "completed_before_close"}
+
+        incoming = [
+            make_ws_message(
+                orjson.dumps({"jsonrpc": "2.0", "method": "stream_test.boom_stream", "id": 10}).decode()
+            ),
+            make_ws_message(
+                orjson.dumps({"jsonrpc": "2.0", "method": "stream_test.self_disconnect", "id": 11}).decode()
+            ),
+        ]
+
+        proto = MockRSGIWebsocketProtocol(incoming)
+        scope = MockRSGIScope(proto="websocket", path="/ws")
+        await app(scope, proto)
+
+        frames = [orjson.loads(m) for m in proto.transport.sent_messages]
+        assert frames == [
+            {"jsonrpc": "2.0", "result": {"step": 1}, "id": 10},
+            {
+                "jsonrpc": "2.0",
+                "error": {"code": -32603, "message": "Внутренняя ошибка сервера"},
+                "id": 10,
+            },
+            {"jsonrpc": "2.0", "result": {"status": "completed_before_close"}, "id": 11},
+        ]
+        assert proto.close_code == WsCloseCode.POLICY_VIOLATION
 
 
 class TestCoreFileSubsystem:
@@ -324,12 +394,15 @@ class TestCoreFileSubsystem:
         )
         dl_token = orjson.loads(tok_body)["result"]["token"]
 
-        # 7. Гость с целевым файловым JWT-токеном успешно скачивает файл
-        dl_status_ok, _, dl_bytes, _ = await call_rsgi_http(
+        # 7. Гость с целевым файловым JWT-токеном успешно скачивает файл (с заголовками защиты от XSS)
+        dl_status_ok, dl_headers_ok, dl_bytes, _ = await call_rsgi_http(
             app, "GET", file_url, query_string=f"token={dl_token}"
         )
         assert dl_status_ok == 200
         assert dl_bytes == file_content
+        assert dl_headers_ok["x-content-type-options"] == "nosniff"
+        assert dl_headers_ok["content-security-policy"] == "default-src 'none'; sandbox"
+        assert dl_headers_ok["referrer-policy"] == "no-referrer"
 
         # 8. Проверка режима Nginx X-Accel-Redirect
         app.file_storage.nginx_internal_prefix = "/_internal_storage"
@@ -338,6 +411,9 @@ class TestCoreFileSubsystem:
         )
         assert accel_status == 200
         assert accel_headers["x-accel-redirect"] == f"/_internal_storage/{folder_hash}/report.txt"
+        assert accel_headers["x-content-type-options"] == "nosniff"
+        assert accel_headers["content-security-policy"] == "default-src 'none'; sandbox"
+        assert accel_headers["referrer-policy"] == "no-referrer"
         assert accel_body == b""
 
         # 9. Удаление файла через files.delete
@@ -351,3 +427,114 @@ class TestCoreFileSubsystem:
             app, "POST", "/rpc", headers=auth_headers, body_chunks=[del_req]
         )
         assert orjson.loads(del_body)["result"] == {"deleted": True, "id": file_id}
+
+    @pytest.mark.asyncio
+    async def test_upload_fail_fast_content_length_and_slowloris_protection(
+        self, app: PyFerroApp
+    ) -> None:
+        import asyncio
+
+        # Логинимся и создаем транзакцию загрузки
+        login_req = orjson.dumps({
+            "jsonrpc": "2.0",
+            "method": "auth.login",
+            "params": {"username": "alex", "password": "Pass123!"},
+            "id": 1,
+        })
+        _, _, login_body, _ = await call_rsgi_http(app, "POST", "/rpc", body_chunks=[login_req])
+        token = orjson.loads(login_body)["result"]["token"]
+        auth_headers = {"authorization": f"Bearer {token}"}
+
+        init_req = orjson.dumps({"jsonrpc": "2.0", "method": "files.init_upload", "id": 2})
+        _, _, init_body, _ = await call_rsgi_http(
+            app, "POST", "/rpc", headers=auth_headers, body_chunks=[init_req]
+        )
+        folder_hash = orjson.loads(init_body)["result"]["folder_hash"]
+        tx = app.file_storage.get_transaction(folder_hash)
+        assert tx is not None
+
+        # Протокол-ловушка: если сервер попытается прочитать хотя бы 1 байт тела — тест упадет
+        class PoisonHTTPProtocol:
+            def __init__(self) -> None:
+                self.status: int | None = None
+                self.body: bytes = b""
+
+            def __aiter__(self) -> Any:
+                raise AssertionError("Fail-Fast нарушен: начато чтение потока тела!")
+
+            def response_bytes(self, status: int, headers: list[tuple[str, str]], body: bytes) -> None:
+                self.status = status
+                self.body = body
+
+        # 1. Fail-Fast 401: гость отсекается ДО чтения потока тела
+        poison_guest = PoisonHTTPProtocol()
+        await app(
+            MockRSGIScope(
+                proto="http",
+                method="POST",
+                path="/upload",
+                query_string=f"folder={folder_hash}&filename=hack.bin",
+            ),
+            poison_guest,
+        )
+        assert poison_guest.status == 401
+        assert list(tx.tmp_dir.iterdir()) == []
+
+        # 2. Fail-Fast 413 по Content-Length: отсекается на стадии заголовков ДО чтения потока
+        app.file_storage.max_file_size = 100
+        poison_oversize = PoisonHTTPProtocol()
+        await app(
+            MockRSGIScope(
+                proto="http",
+                method="POST",
+                path="/upload",
+                query_string=f"folder={folder_hash}&filename=huge.bin",
+                headers={**auth_headers, "content-length": "500"},
+            ),
+            poison_oversize,
+        )
+        assert poison_oversize.status == 413
+        assert list(tx.tmp_dir.iterdir()) == []
+
+        # 3. Превышение лимита во время стриминга без Content-Length -> 413 и очистка временного файла
+        stream_status, _, _, _ = await call_rsgi_http(
+            app,
+            "POST",
+            "/upload",
+            query_string=f"folder={folder_hash}&filename=stream_too_big.bin",
+            headers=auth_headers,
+            body_chunks=[b"x" * 60, b"y" * 60],
+        )
+        assert stream_status == 413
+        assert list(tx.tmp_dir.iterdir()) == []
+
+        # 4. Защита от Slowloris: зависание между чанками дольше chunk_timeout -> 408 и очистка файла
+        app.file_storage.chunk_timeout = 0.03
+
+        class SlowlorisHTTPProtocol:
+            def __init__(self) -> None:
+                self.status: int | None = None
+                self.body: bytes = b""
+
+            async def __aiter__(self) -> Any:
+                yield b"first_chunk"
+                await asyncio.sleep(0.15)
+                yield b"second_chunk_too_late"
+
+            def response_bytes(self, status: int, headers: list[tuple[str, str]], body: bytes) -> None:
+                self.status = status
+                self.body = body
+
+        slow_proto = SlowlorisHTTPProtocol()
+        await app(
+            MockRSGIScope(
+                proto="http",
+                method="POST",
+                path="/upload",
+                query_string=f"folder={folder_hash}&filename=slow.bin",
+                headers=auth_headers,
+            ),
+            slow_proto,
+        )
+        assert slow_proto.status == 408
+        assert list(tx.tmp_dir.iterdir()) == []

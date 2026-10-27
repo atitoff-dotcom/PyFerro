@@ -1,6 +1,5 @@
 <script>
   import { onMount } from "svelte";
-  import { rpc } from "./rpc.js";
   import {
     authState,
     canAccessAdminPanel,
@@ -9,14 +8,40 @@
     logoutAdmin,
     refreshSession,
   } from "./auth.svelte.js";
-
+  import { rpc } from "./rpc.js";
+  import SeoView from "./SeoView.svelte";
+  import HelpView from "./HelpView.svelte";
+  import { initTheme, toggleTheme, isDark } from "./theme.svelte.js";
+  import {
+    Boxes,
+    Sun,
+    Moon,
+    KeyRound,
+    Users,
+    Database,
+    Network,
+    BookOpen,
+    LogOut,
+    Plus,
+    Search,
+    Trash2,
+  } from "@lucide/svelte";
   let activeTab = $state("permissions");
   let loginUser = $state("");
   let loginPass = $state("");
   let errorMsg = $state("");
   let statusMsg = $state("");
+  let helpSlug = $state("");
 
-  // --- Раздел Матрицы Прав и Ролей (adm_roles / adm_rpc) ---
+  function parseUrlRoute() {
+    if (typeof window === "undefined") return null;
+    const path = window.location.pathname;
+    if (path.startsWith("/pyferro_admin/help")) {
+      const slugPart = path.replace("/pyferro_admin/help", "").replace(/^\/+/, "");
+      return { tab: "help", slug: slugPart || "" };
+    }
+    return null;
+  }
   let rolesList = $state([]);
   let allMethods = $state([]);
   let selectedRoleName = $state("user");
@@ -38,6 +63,15 @@
   let newRecordData = $state({});
 
   onMount(async () => {
+    initTheme();
+    window.addEventListener("popstate", () => {
+      const route = parseUrlRoute();
+      if (route && route.tab === "help" && hasAdminSection("help")) {
+        activeTab = "help";
+        helpSlug = route.slug;
+      }
+    });
+
     await refreshSession();
     if (canAccessAdminPanel()) {
       pickInitialTab();
@@ -46,12 +80,22 @@
   });
 
   function pickInitialTab() {
+    const route = parseUrlRoute();
+    if (route && route.tab === "help" && hasAdminSection("help")) {
+      activeTab = "help";
+      helpSlug = route.slug;
+      return;
+    }
     if (hasAdminSection("roles") || hasAdminSection("rpc")) {
       activeTab = "permissions";
     } else if (hasAdminSection("users")) {
       activeTab = "users";
     } else if (hasAdminSection("crud")) {
       activeTab = "crud";
+    } else if (hasAdminSection("seo")) {
+      activeTab = "seo";
+    } else if (hasAdminSection("help")) {
+      activeTab = "help";
     }
   }
 
@@ -59,12 +103,35 @@
     activeTab = tab;
     errorMsg = "";
     statusMsg = "";
+    if (tab === "help") {
+      const targetUrl = helpSlug
+        ? `/pyferro_admin/help/${helpSlug}`
+        : "/pyferro_admin/help";
+      if (window.location.pathname !== targetUrl) {
+        window.history.pushState(null, "", targetUrl);
+      }
+    } else {
+      if (window.location.pathname.startsWith("/pyferro_admin/help")) {
+        window.history.pushState(null, "", "/pyferro_admin/");
+      }
+    }
     await loadActiveTab();
+  }
+
+  function handleHelpNavigate(slug) {
+    helpSlug = slug;
+    const targetUrl = `/pyferro_admin/help/${slug}`;
+    if (window.location.pathname !== targetUrl) {
+      window.history.pushState(null, "", targetUrl);
+    }
   }
 
   async function loadActiveTab() {
     try {
-      if (activeTab === "permissions" && (hasAdminSection("roles") || hasAdminSection("rpc"))) {
+      if (
+        activeTab === "permissions" &&
+        (hasAdminSection("roles") || hasAdminSection("rpc"))
+      ) {
         await loadPermissionsMatrix();
       } else if (activeTab === "users" && hasAdminSection("users")) {
         await loadUsers();
@@ -73,6 +140,16 @@
       }
     } catch (e) {
       errorMsg = e.message;
+    }
+  }
+
+  function handleSeoNotify(msg, type = "info") {
+    if (type === "error") {
+      errorMsg = msg;
+      statusMsg = "";
+    } else {
+      statusMsg = msg;
+      errorMsg = "";
     }
   }
 
@@ -95,7 +172,8 @@
     const data = await rpc.call("admin.get_permissions_matrix");
     rolesList = data.roles || [];
     allMethods = data.methods || [];
-    const current = rolesList.find((r) => r.name === selectedRoleName) || rolesList[0];
+    const current =
+      rolesList.find((r) => r.name === selectedRoleName) || rolesList[0];
     if (current) {
       selectRoleForEdit(current);
     }
@@ -107,7 +185,9 @@
   }
 
   function isMethodAllowed(fullMethod) {
-    return rolePermsSet.has(fullMethod) || rolePermsSet.has(`${fullMethod}_own`);
+    return (
+      rolePermsSet.has(fullMethod) || rolePermsSet.has(`${fullMethod}_own`)
+    );
   }
 
   function isMethodOwnOnly(fullMethod) {
@@ -182,7 +262,10 @@
   async function loadUsers() {
     const uRes = await rpc.call("User.read", { limit: 100 });
     usersList = uRes.items || [];
-    if (rolesList.length === 0 && (hasAdminSection("roles") || authState.isAdmin)) {
+    if (
+      rolesList.length === 0 &&
+      (hasAdminSection("roles") || authState.isAdmin)
+    ) {
       const rRes = await rpc.call("Role.read", { limit: 100 });
       rolesList = rRes.items || [];
     }
@@ -287,14 +370,47 @@
 {:else if !authState.userId}
   <div class="login-wrap">
     <form class="login-box" onsubmit={handleLoginSubmit}>
-      <h2 style="margin-top:0; color: var(--accent);">PyFerro 2.0 Admin</h2>
-      <p style="color: var(--muted); font-size: 0.88rem;">Вход в панель управления (/pyferro_admin)</p>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+          <Boxes size={22} style="color: var(--accent);" />
+          <h2 style="margin:0; font-size:1.25rem; color: var(--accent);">PyFerro 2.0 Admin</h2>
+        </div>
+        <button
+          type="button"
+          class="theme-toggle-btn"
+          onclick={toggleTheme}
+          title={isDark() ? "Переключить на светлую тему" : "Переключить на тёмную тему"}
+          aria-label="Переключить тему"
+        >
+          {#if isDark()}
+            <Sun size={16} />
+          {:else}
+            <Moon size={16} />
+          {/if}
+        </button>
+      </div>
+      <p style="color: var(--muted); font-size: 0.88rem; margin-top:0;">
+        Вход в панель управления (/pyferro_admin)
+      </p>
       {#if errorMsg}
         <p style="color: var(--danger); font-size: 0.88rem;">{errorMsg}</p>
       {/if}
-      <div style="display:flex; flex-direction:column; gap: 0.75rem; margin-top: 1rem;">
-        <input class="input" placeholder="Имя пользователя" bind:value={loginUser} required />
-        <input class="input" type="password" placeholder="Пароль" bind:value={loginPass} required />
+      <div
+        style="display:flex; flex-direction:column; gap: 0.75rem; margin-top: 1rem;"
+      >
+        <input
+          class="input"
+          placeholder="Имя пользователя"
+          bind:value={loginUser}
+          required
+        />
+        <input
+          class="input"
+          type="password"
+          placeholder="Пароль"
+          bind:value={loginPass}
+          required
+        />
         <button class="btn" type="submit">Войти</button>
       </div>
     </form>
@@ -304,16 +420,41 @@
     <div class="login-box">
       <h3 style="margin-top:0; color: var(--danger);">Доступ запрещен</h3>
       <p style="color: var(--muted); font-size: 0.9rem;">
-        Пользователь <b>{authState.username}</b> не имеет ролей администратора (<code>admin</code> или <code>adm_*</code>) и не может войти в <code>/pyferro_admin</code>.
+        Пользователь <b>{authState.username}</b> не имеет ролей администратора (<code
+          >admin</code
+        >
+        или <code>adm_*</code>) и не может войти в <code>/pyferro_admin</code>.
       </p>
-      <button class="btn btn-outline" onclick={logoutAdmin}>Выйти из аккаунта</button>
+      <button class="btn btn-outline" onclick={logoutAdmin}
+        >Выйти из аккаунта</button
+      >
     </div>
   </div>
 {:else}
   <div class="layout">
     <aside class="sidebar">
       <div class="brand">
-        <span>PyFerro 2.0</span>
+        <div class="brand-left">
+          <Boxes size={20} class="brand-title" />
+          <span class="brand-title">PyFerro 2.0</span>
+        </div>
+        <button
+          type="button"
+          class="theme-toggle-btn"
+          onclick={toggleTheme}
+          title={isDark() ? "Переключить на светлую тему" : "Переключить на тёмную тему"}
+          aria-label="Переключить тему"
+        >
+          {#if isDark()}
+            <Sun size={15} />
+          {:else}
+            <Moon size={15} />
+          {/if}
+        </button>
+      </div>
+
+      <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 0.6rem; display: flex; align-items: center; justify-content: space-between;">
+        <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted);">Пользователь</span>
         <span class="badge badge-sys">{authState.username}</span>
       </div>
 
@@ -322,7 +463,8 @@
           class="nav-btn {activeTab === 'permissions' ? 'active' : ''}"
           onclick={() => selectTab("permissions")}
         >
-          Матрица прав и Роли
+          <KeyRound size={17} />
+          <span>Матрица прав и Роли</span>
         </button>
       {/if}
 
@@ -331,7 +473,8 @@
           class="nav-btn {activeTab === 'users' ? 'active' : ''}"
           onclick={() => selectTab("users")}
         >
-          Пользователи
+          <Users size={17} />
+          <span>Пользователи</span>
         </button>
       {/if}
 
@@ -340,28 +483,65 @@
           class="nav-btn {activeTab === 'crud' ? 'active' : ''}"
           onclick={() => selectTab("crud")}
         >
-          Таблицы (CRUD)
+          <Database size={17} />
+          <span>Таблицы</span>
         </button>
       {/if}
 
-      <div style="margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border);">
-        <div style="font-size: 0.78rem; color: var(--muted); margin-bottom: 0.5rem;">
-          Роли: {authState.roles.join(", ")}
+      {#if hasAdminSection("seo")}
+        <button
+          class="nav-btn {activeTab === 'seo' ? 'active' : ''}"
+          onclick={() => selectTab("seo")}
+        >
+          <Network size={17} />
+          <span>SEO и Дерево сайта</span>
+        </button>
+      {/if}
+
+      {#if hasAdminSection("help")}
+        <button
+          class="nav-btn {activeTab === 'help' ? 'active' : ''}"
+          onclick={() => selectTab("help")}
+        >
+          <BookOpen size={17} />
+          <span>Справочник</span>
+        </button>
+      {/if}
+
+      <div
+        style="margin-top: auto; padding-top: 0.85rem; border-top: 1px solid var(--border);"
+      >
+        <div
+          style="font-size: 0.78rem; color: var(--muted); margin-bottom: 0.6rem; word-break: break-all;"
+        >
+          <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 0.2rem;">Роли:</div>
+          {authState.roles.join(", ")}
         </div>
-        <button class="btn btn-outline" style="width:100%;" onclick={logoutAdmin}>
-          Выйти
+        <button
+          class="btn btn-outline"
+          style="width:100%; justify-content: center;"
+          onclick={logoutAdmin}
+        >
+          <LogOut size={15} />
+          <span>Выйти</span>
         </button>
       </div>
     </aside>
 
     <main class="content">
       {#if errorMsg}
-        <div class="card" style="border-color: var(--danger); margin-bottom: 1rem; color: #fca5a5;">
+        <div
+          class="card"
+          style="border-color: var(--danger); margin-bottom: 1rem; color: #fca5a5;"
+        >
           {errorMsg}
         </div>
       {/if}
       {#if statusMsg}
-        <div class="card" style="border-color: var(--success); margin-bottom: 1rem; color: #86efac;">
+        <div
+          class="card"
+          style="border-color: var(--success); margin-bottom: 1rem; color: #86efac;"
+        >
           {statusMsg}
         </div>
       {/if}
@@ -371,7 +551,8 @@
           <div>
             <h2 style="margin:0;">Роли и плашки прав (Плашка.метод)</h2>
             <small style="color: var(--muted);">
-              Любая таблица и любой кастомный RPC-метод группируются по точке в единые карточки
+              Любая таблица и любой кастомный RPC-метод группируются по точке в
+              единые карточки
             </small>
           </div>
           {#if selectedRoleName !== "admin"}
@@ -382,7 +563,9 @@
         </div>
 
         <div class="card" style="margin-bottom: 1.25rem;">
-          <div style="display:flex; flex-wrap:wrap; gap: 0.5rem; align-items:center;">
+          <div
+            style="display:flex; flex-wrap:wrap; gap: 0.5rem; align-items:center;"
+          >
             {#each rolesList as r}
               <button
                 class="btn {selectedRoleName === r.name ? '' : 'btn-outline'}"
@@ -390,21 +573,38 @@
               >
                 {r.name}
                 {#if r.is_system}
-                  <span class="badge badge-sys" style="margin-left:0.35rem;">[Системная]</span>
+                  <span class="badge badge-sys" style="margin-left:0.35rem;"
+                    >[Системная]</span
+                  >
                 {/if}
               </button>
               {#if !r.is_system && selectedRoleName === r.name}
-                <button class="btn btn-danger" onclick={() => deleteCustomRole(r)}>
-                  Удалить роль
+                <button
+                  class="btn btn-danger"
+                  onclick={() => deleteCustomRole(r)}
+                >
+                  <Trash2 size={14} />
+                  <span>Удалить роль</span>
                 </button>
               {/if}
             {/each}
           </div>
 
           <div style="display:flex; gap: 0.5rem; margin-top: 0.85rem;">
-            <input class="input" placeholder="Новая роль (например manager)" bind:value={newRoleName} />
-            <input class="input" placeholder="Описание роли" bind:value={newRoleDesc} />
-            <button class="btn btn-outline" onclick={createCustomRole}>+ Создать роль</button>
+            <input
+              class="input"
+              placeholder="Новая роль (например manager)"
+              bind:value={newRoleName}
+            />
+            <input
+              class="input"
+              placeholder="Описание роли"
+              bind:value={newRoleDesc}
+            />
+            <button class="btn btn-outline" onclick={createCustomRole}>
+              <Plus size={15} />
+              <span>Создать роль</span>
+            </button>
           </div>
         </div>
 
@@ -431,16 +631,23 @@
                         <input
                           type="checkbox"
                           disabled={selectedRoleName === "admin"}
-                          checked={selectedRoleName === "admin" || isMethodAllowed(m.full)}
-                          onchange={(e) => toggleMethodAllowed(m.full, e.currentTarget.checked)}
+                          checked={selectedRoleName === "admin" ||
+                            isMethodAllowed(m.full)}
+                          onchange={(e) =>
+                            toggleMethodAllowed(
+                              m.full,
+                              e.currentTarget.checked,
+                            )}
                         />
                       </td>
                       <td style="text-align:center;">
                         <input
                           type="checkbox"
-                          disabled={selectedRoleName === "admin"}
-                          checked={selectedRoleName !== "admin" && isMethodOwnOnly(m.full)}
-                          onchange={(e) => toggleMethodOwn(m.full, e.currentTarget.checked)}
+                          disabled={selectedRoleName === "admin" || !isMethodAllowed(m.full)}
+                          checked={selectedRoleName !== "admin" &&
+                            isMethodOwnOnly(m.full)}
+                          onchange={(e) =>
+                            toggleMethodOwn(m.full, e.currentTarget.checked)}
                         />
                       </td>
                     </tr>
@@ -455,8 +662,16 @@
           <h2 style="margin:0;">Управление пользователями</h2>
           <div style="display:flex; gap: 0.5rem;">
             <input class="input" placeholder="Логин" bind:value={newUsername} />
-            <input class="input" type="password" placeholder="Пароль" bind:value={newUserPass} />
-            <button class="btn" onclick={createNewUser}>+ Создать пользователя</button>
+            <input
+              class="input"
+              type="password"
+              placeholder="Пароль"
+              bind:value={newUserPass}
+            />
+            <button class="btn" onclick={createNewUser}>
+              <Plus size={15} />
+              <span>Создать пользователя</span>
+            </button>
           </div>
         </div>
 
@@ -477,11 +692,18 @@
                   <td>
                     <div style="display:flex; flex-wrap:wrap; gap: 0.65rem;">
                       {#each rolesList as r}
-                        <label style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.84rem;">
+                        <label
+                          style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.84rem;"
+                        >
                           <input
                             type="checkbox"
                             checked={(u.roles || []).includes(r.name)}
-                            onchange={(e) => toggleUserRole(u, r.name, e.currentTarget.checked)}
+                            onchange={(e) =>
+                              toggleUserRole(
+                                u,
+                                r.name,
+                                e.currentTarget.checked,
+                              )}
                           />
                           <span>{r.name}</span>
                           {#if r.is_system}
@@ -515,7 +737,10 @@
               bind:value={searchQuery}
               onkeydown={(e) => e.key === "Enter" && loadModelRows()}
             />
-            <button class="btn btn-outline" onclick={loadModelRows}>Найти</button>
+            <button class="btn btn-outline" onclick={loadModelRows}>
+              <Search size={15} />
+              <span>Найти</span>
+            </button>
           </div>
         </div>
 
@@ -527,7 +752,9 @@
                 <span>Создать запись ({selectedModel}.create)</span>
                 <span class="badge">Всего записей: {tableTotal}</span>
               </div>
-              <div style="display:flex; gap: 0.5rem; flex-wrap:wrap; align-items:center;">
+              <div
+                style="display:flex; gap: 0.5rem; flex-wrap:wrap; align-items:center;"
+              >
                 {#each currentSchema.fields.filter((f) => !f.readonly) as f}
                   <input
                     class="input"
@@ -535,7 +762,10 @@
                     bind:value={newRecordData[f.name]}
                   />
                 {/each}
-                <button class="btn" onclick={createModelRow}>+ Добавить</button>
+                <button class="btn" onclick={createModelRow}>
+                  <Plus size={15} />
+                  <span>Добавить</span>
+                </button>
               </div>
             </div>
 
@@ -560,9 +790,9 @@
                           class="btn btn-danger"
                           onclick={() => deleteModelRow(row.id)}
                         >
-                          Удалить
+                          <Trash2 size={14} />
+                          <span>Удалить</span>
                         </button>
-                      </td>
                     </tr>
                   {/each}
                 </tbody>
@@ -570,7 +800,10 @@
             </div>
           {/if}
         {/if}
+      {:else if activeTab === "seo"}
+        <SeoView onnotify={handleSeoNotify} />
+      {:else if activeTab === "help"}
+        <HelpView currentSlug={helpSlug} onNavigate={handleHelpNavigate} />
       {/if}
-    </main>
   </div>
 {/if}

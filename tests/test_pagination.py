@@ -171,7 +171,6 @@ async def test_count_false_mode(db_session):
     assert len(res["rows"]) == 2
 
 
-@pytest.mark.asyncio
 def test_cursor_encode_decode():
     token = encode_cursor(42, col="id", direction="desc")
     decoded = decode_cursor(token)
