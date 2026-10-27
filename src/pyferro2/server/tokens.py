@@ -29,7 +29,7 @@ class TokenManager:
     Управляет сессионными JWT-токенами и целевыми (capability) токенами для файлов.
     """
 
-    __slots__ = ("secret_key", "default_ttl", "_cache", "_revoked_jtis")
+    __slots__ = ("secret_key", "default_ttl", "_cache", "_revoked_jtis", "_revoked_users")
 
     def __init__(
         self,
@@ -43,6 +43,8 @@ class TokenManager:
         # Кэш активных токенов в памяти: token_str -> (SessionData, exp_timestamp, jti)
         self._cache: dict[str, tuple[SessionData, int, str]] = {}
         self._revoked_jtis: set[str] = set()
+        # Отозванные пользователи: user_id -> timestamp отзыва (защищает и холодный путь jwt.decode)
+        self._revoked_users: dict[int, int] = {}
 
     def issue_token(self, session_data: SessionData, ttl_seconds: int | None = None) -> str:
         """
@@ -56,6 +58,9 @@ class TokenManager:
         ttl = ttl_seconds if ttl_seconds is not None else self.default_ttl
         exp = now + ttl
         jti = secrets.token_hex(12)
+
+        if session_data.user_id is not None:
+            self._revoked_users.pop(session_data.user_id, None)
 
         payload: dict[str, Any] = {
             "typ": "access",
@@ -87,7 +92,11 @@ class TokenManager:
         cached = self._cache.get(token)
         if cached is not None:
             session_data, exp, jti = cached
-            if now < exp and jti not in self._revoked_jtis:
+            if (
+                now < exp
+                and jti not in self._revoked_jtis
+                and (session_data.user_id is None or session_data.user_id not in self._revoked_users)
+            ):
                 return session_data
             self._cache.pop(token, None)
             return None
@@ -105,9 +114,15 @@ class TokenManager:
         if jti and jti in self._revoked_jtis:
             return None
 
+        uid = payload.get("user_id")
+        iat = int(payload.get("iat") or 0)
+        if type(uid) is int and uid in self._revoked_users:
+            if iat <= self._revoked_users[uid]:
+                return None
+
         try:
             session_data = SessionData(
-                user_id=payload.get("user_id"),
+                user_id=uid,
                 username=str(payload.get("username") or ""),
                 roles=frozenset(payload.get("roles") or ()),
                 permissions=frozenset(payload.get("permissions") or ()),
@@ -145,6 +160,7 @@ class TokenManager:
 
     def revoke_user(self, user_id: int) -> None:
         """Отзывает все активные токены указанного пользователя (например, при блокировке или смене ролей)."""
+        self._revoked_users[user_id] = int(time.time())
         to_remove = [
             tok for tok, (sd, _, _) in self._cache.items() if sd.user_id == user_id
         ]

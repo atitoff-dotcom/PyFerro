@@ -35,6 +35,8 @@ from pyferro2.rpc.errors import (
     RpcError,
     UnauthorizedError,
 )
+from pyferro2.seo.page_cache import clear_seo_cache
+from pyferro2.seo.sitemap import invalidate_sitemap_cache
 
 if TYPE_CHECKING:
     from pyferro2.rpc.router import RpcRouter
@@ -248,30 +250,34 @@ class CrudEngine:
         """
         if self._has_admin_bypass(spec, session_data) or global_perm in session_data.permissions:
             return "all"
-
-        if own_perm is not None and own_perm in session_data.permissions:
-            if not spec.has_creator_id or global_perm == spec.perm_create:
-                return "all"
-            if not session_data.is_guest:
-                return "own"
+        if own_perm and own_perm in session_data.permissions:
+            if session_data.is_guest:
+                raise UnauthorizedError("Для работы со своими записями необходима авторизация")
+            return "own" if spec.has_creator_id else "all"
 
         if session_data.is_guest:
-            raise UnauthorizedError()
-        raise ForbiddenError(f"Нет прав на операцию '{global_perm}'")
+            raise UnauthorizedError(f"Требуется авторизация для доступа к '{global_perm}'")
+        raise ForbiddenError(f"Недостаточно прав: требуется разрешение '{global_perm}'")
 
     def list_schemas(self, session_data: SessionData) -> list[dict[str, Any]]:
         """
-        Возвращает список декларативных схем моделей, к которым у пользователя есть доступ.
+        Возвращает список декларативных схем моделей, доступных текущему пользователю.
+        Системные таблицы `User` и `Role` доступны только администраторам (`admin` / `adm_*`).
         """
-        result: list[dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for spec in self._models.values():
+            if spec.model_cls in (User, Role):
+                if self._has_admin_bypass(spec, session_data):
+                    out.append(spec.to_schema_dict())
+                continue
+
             if (
                 self._has_admin_bypass(spec, session_data)
                 or spec.perm_read in session_data.permissions
                 or spec.perm_read_own in session_data.permissions
             ):
-                result.append(spec.to_schema_dict())
-        return result
+                out.append(spec.to_schema_dict())
+        return out
 
     async def list_records(
         self,
@@ -284,7 +290,7 @@ class CrudEngine:
         search: str = "",
         tabular: bool = False,
     ) -> dict[str, Any]:
-        """Возвращает постраничный список записей с фильтрацией прав, поиском и опциональным сжатием $tabular."""
+        """Возвращает пагинированный список записей таблицы (с поддержкой RLS и `$tabular`)."""
         spec = self.get_spec(model_name)
         mode = self._check_access_mode(spec, session_data, spec.perm_read, spec.perm_read_own)
 
@@ -406,6 +412,8 @@ class CrudEngine:
             await db.rollback()
             raise InvalidParamsError(f"Ошибка создания записи {spec.name}: {exc}") from exc
 
+        clear_seo_cache()
+        invalidate_sitemap_cache()
         return _serialize_instance(instance, spec)
 
     async def update_record(
@@ -460,6 +468,8 @@ class CrudEngine:
         if isinstance(instance, User) and not instance.is_active and self._on_disconnect_user:
             await self._on_disconnect_user(instance.id)
 
+        clear_seo_cache()
+        invalidate_sitemap_cache()
         return _serialize_instance(instance, spec)
 
     async def delete_record(
@@ -497,6 +507,8 @@ class CrudEngine:
         if deleted_user_id is not None and self._on_disconnect_user is not None:
             await self._on_disconnect_user(deleted_user_id)
 
+        clear_seo_cache()
+        invalidate_sitemap_cache()
         return {"deleted": True, "model": spec.name, "id": record_id}
 
     async def set_role_permissions(
@@ -517,12 +529,16 @@ class CrudEngine:
             raise RpcError(f"Роль '{role_name}' не найдена", code=-32004)
 
         clean_perms = sorted({str(p).strip() for p in permissions if str(p).strip()})
+        role.role_permissions.clear()
+        await db.flush()
         role.role_permissions = [RolePermission(permission=p) for p in clean_perms]
         await db.commit()
-
         new_perm_set = frozenset(clean_perms)
         if role.name == GUEST_ROLE and self._on_guest_permissions_updated is not None:
             self._on_guest_permissions_updated(new_perm_set)
+
+        clear_seo_cache()
+        invalidate_sitemap_cache()
 
         if self._on_disconnect_user is not None:
             stmt = select(User.id).join(User.roles).where(Role.id == role.id)

@@ -30,6 +30,7 @@ class Session:
     __slots__ = (
         "session_id",
         "data",
+        "_guest_permissions",
         "_notify",
         "_close",
         "_active_rpcs",
@@ -44,6 +45,7 @@ class Session:
         data: SessionData = GUEST_SESSION_DATA,
         notify: NotifyCallback | None = None,
         close: CloseCallback | None = None,
+        guest_permissions: frozenset[str] | None = None,
     ) -> None:
         if type(session_id) is not str or not session_id:
             raise ValueError("session_id должен быть непустой строкой")
@@ -56,6 +58,12 @@ class Session:
 
         self.session_id: str = session_id
         self.data: SessionData = data
+        if guest_permissions is not None:
+            self._guest_permissions: frozenset[str] = frozenset(guest_permissions)
+        elif data.is_guest:
+            self._guest_permissions = data.permissions
+        else:
+            self._guest_permissions = GUEST_SESSION_DATA.permissions
         self._notify: NotifyCallback | None = notify
         self._close: CloseCallback | None = close
         self._active_rpcs: int = 0
@@ -76,11 +84,14 @@ class Session:
             raise TypeError(f"new_data должен быть экземпляром SessionData, получено: {type(new_data).__name__}")
         self.data = new_data
 
-    def reset_to_guest(self, guest_permissions: frozenset[str] = frozenset()) -> None:
+    def reset_to_guest(self, guest_permissions: frozenset[str] | None = None) -> None:
         """
-        Сбрасывает сессию обратно в гостевое состояние (при вызове `auth.logout`).
+        Сбрасывает сессию обратно в гостевое состояние (при вызове `auth.logout`),
+        сохраняя актуальные разрешения роли `guest`.
         """
-        self.data = SessionData.guest(guest_permissions)
+        if guest_permissions is not None:
+            self._guest_permissions = frozenset(guest_permissions)
+        self.data = SessionData.guest(self._guest_permissions)
 
     async def notify(self, event: str, payload: Any = None) -> None:
         """

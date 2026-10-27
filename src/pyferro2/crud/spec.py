@@ -1,5 +1,5 @@
 """
-Однократная компиляция метаданных SQLAlchemy-моделей (`ModelSpec`) для движка CRUD.
+Описание одной видимой колонки модели для UI и сериализации (`ModelSpec`).
 
 Интроспекция колонок (`sqlalchemy.inspect`) вызывается **ровно 1 раз при старте**
 в момент `crud.register(Model)`.
@@ -26,9 +26,10 @@ class FieldSpec:
     nullable: bool
     readonly: bool
     searchable: bool
+    foreign_key_table: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "name": self.name,
             "type": self.type_name,
             "primary_key": self.primary_key,
@@ -36,6 +37,9 @@ class FieldSpec:
             "readonly": self.readonly,
             "searchable": self.searchable,
         }
+        if self.foreign_key_table is not None:
+            out["foreign_key_table"] = self.foreign_key_table
+        return out
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +51,7 @@ class ModelSpec:
 
     name: str
     title: str
+    table_name: str
     model_cls: type[Base]
     has_creator_id: bool
 
@@ -73,6 +78,7 @@ class ModelSpec:
         return {
             "name": self.name,
             "title": self.title,
+            "table_name": self.table_name,
             "has_creator_id": self.has_creator_id,
             "fields": [f.to_dict() for f in self.fields],
             "searchable": list(self.searchable_fields),
@@ -112,6 +118,7 @@ def compile_model_spec(
     crud_meta = getattr(model_cls, "Crud", None)
     model_name = name or getattr(crud_meta, "name", None) or model_cls.__name__
     model_title = title or getattr(crud_meta, "title", None) or model_name
+    table_name = getattr(model_cls, "__tablename__", model_name.lower())
 
     raw_searchable = (
         searchable if searchable is not None else getattr(crud_meta, "searchable", ())
@@ -142,6 +149,11 @@ def compile_model_spec(
 
         is_ro = col_name in readonly_set or col.primary_key
         is_search = col_name in searchable_set
+        fk_table: str | None = None
+        if col.foreign_keys:
+            first_fk = next(iter(col.foreign_keys))
+            fk_table = first_fk.column.table.name
+
         f_spec = FieldSpec(
             name=col_name,
             type_name=_map_sa_type(col.type),
@@ -149,6 +161,7 @@ def compile_model_spec(
             nullable=bool(col.nullable),
             readonly=is_ro,
             searchable=is_search,
+            foreign_key_table=fk_table,
         )
         field_specs.append(f_spec)
         readable_names.append(col_name)
@@ -173,6 +186,7 @@ def compile_model_spec(
     return ModelSpec(
         name=model_name,
         title=model_title,
+        table_name=table_name,
         model_cls=model_cls,
         has_creator_id=has_creator,
         fields=tuple(field_specs),

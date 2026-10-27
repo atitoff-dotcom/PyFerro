@@ -4,12 +4,14 @@
 Жизненный цикл загрузки (Two-Phase Commit):
 1. `init_upload(creator_id)` — выделяет временную директорию `<tmp_root>/<folder_hash>`.
 2. `receive_stream(...)` — принимает поток байтов из HTTP, пишет чанками на диск
-   (потребление RAM = O(1)) и параллельно вычисляет контрольную сумму SHA-256.
+   (потребление RAM = O(1)) с контролем таймаута чтения чанков (защита от Slowloris)
+   и параллельно вычисляет контрольную сумму SHA-256.
 3. `commit_upload(...)` — атомарно переносит файлы в постоянное хранилище (`os.replace`)
    и создает записи `StoredFile` в базе данных.
 4. `rollback_upload(...)` — удаляет временную директорию при отмене или ошибке.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 import hashlib
@@ -28,6 +30,11 @@ from pyferro2.files.models import StoredFile
 
 _SAFE_FILENAME_RE = re.compile(r"[^a-zA-Z0-9._\-А-Яа-яЁё]")
 DEFAULT_MAX_FILE_SIZE = 250 * 1024 * 1024  # 250 МБ
+DEFAULT_CHUNK_TIMEOUT = 15.0  # 15 секунд между чанками (защита от Slowloris)
+
+
+class FileMaxSizeExceededError(ValueError):
+    """Исключение при превышении максимально допустимого размера загружаемого файла."""
 
 
 def sanitize_filename(raw_name: str | None) -> str:
@@ -61,6 +68,7 @@ class FileStorage:
         "storage_dir",
         "tmp_root",
         "max_file_size",
+        "chunk_timeout",
         "nginx_internal_prefix",
         "_transactions",
     )
@@ -71,10 +79,12 @@ class FileStorage:
         tmp_root: str | Path = "/tmp/pyferro2_uploads",
         max_file_size: int = DEFAULT_MAX_FILE_SIZE,
         nginx_internal_prefix: str | None = None,
+        chunk_timeout: float = DEFAULT_CHUNK_TIMEOUT,
     ) -> None:
         self.storage_dir: Path = Path(storage_dir)
         self.tmp_root: Path = Path(tmp_root)
         self.max_file_size: int = max_file_size
+        self.chunk_timeout: float = chunk_timeout
         # Если задан (например, "/_internal_files"), сервер отдает заголовок X-Accel-Redirect для Nginx
         self.nginx_internal_prefix: str | None = (
             nginx_internal_prefix.rstrip("/") if nginx_internal_prefix else None
@@ -111,6 +121,7 @@ class FileStorage:
     ) -> dict[str, Any]:
         """
         Принимает поток чанков файла, записывает на диск в O(1) RAM и считает SHA-256.
+        Контролирует таймаут чтения между чанками (`chunk_timeout`) и лимит размера (`max_file_size`).
         """
         tx = self._transactions.get(folder_hash)
         if tx is None:
@@ -124,12 +135,25 @@ class FileStorage:
 
         try:
             with open(dest_path, "wb") as f:
-                async for chunk in chunks:
+                it = aiter(chunks)
+                while True:
+                    try:
+                        if self.chunk_timeout and self.chunk_timeout > 0:
+                            chunk = await asyncio.wait_for(anext(it), timeout=self.chunk_timeout)
+                        else:
+                            chunk = await anext(it)
+                    except StopAsyncIteration:
+                        break
+                    except TimeoutError as exc:
+                        raise TimeoutError(
+                            f"Превышен таймаут ожидания данных ({self.chunk_timeout} с)"
+                        ) from exc
+
                     if not chunk:
                         continue
                     total_bytes += len(chunk)
                     if total_bytes > self.max_file_size:
-                        raise ValueError(
+                        raise FileMaxSizeExceededError(
                             f"Превышен максимальный размер файла ({self.max_file_size} байт)"
                         )
                     hasher.update(chunk)
@@ -175,7 +199,10 @@ class FileStorage:
             src_file = tx.tmp_dir / fname
             dst_file = final_dir / fname
             if src_file.exists():
-                shutil.move(str(src_file), str(dst_file))
+                try:
+                    os.replace(src_file, dst_file)
+                except OSError:
+                    shutil.move(str(src_file), str(dst_file))
 
             record = StoredFile(
                 creator_id=creator_id if creator_id is not None else tx.creator_id,

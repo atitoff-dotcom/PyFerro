@@ -9,6 +9,7 @@
 4. `HTTP GET /files/<folder>/<filename>` — zero-copy отдача файлов через Rust (`proto.response_file`)
    или Nginx `X-Accel-Redirect` (`proto.response_empty`).
 5. `HTTP GET /pyferro_admin` — zero-copy раздача статической SPA панели управления через Rust.
+6. `HTTP GET /sitemap.xml` (`/sitemap-N.xml`), `/<indexnow_key>.txt` и Dynamic Rendering для ботов (`?bot=1`).
 """
 
 import asyncio
@@ -36,13 +37,24 @@ from pyferro2.crud.rpc import register_crud_rpc
 from pyferro2.db.engine import Database
 from pyferro2.files.models import StoredFile
 from pyferro2.files.rpc import register_file_rpc
-from pyferro2.files.storage import FileStorage
+from pyferro2.files.storage import FileMaxSizeExceededError, FileStorage
+from pyferro2.help.rpc import register_help_rpc
 from pyferro2.rpc.errors import RpcError
 from pyferro2.rpc.router import RpcRouter, encode_error
+from pyferro2.seo.models import get_seo_config
+from pyferro2.seo.router import handle_bot_http
+from pyferro2.seo.rpc import register_seo_rpc
+from pyferro2.seo.site_tree import load_seo_from_db
+from pyferro2.seo.sitemap import handle_sitemap_http
 from pyferro2.server.auth_rpc import register_auth_rpc
 from pyferro2.server.tokens import TokenManager, extract_token_from_scope
 
 _JSON_CONTENT_TYPE: tuple[str, str] = ("content-type", "application/json; charset=utf-8")
+_FILE_SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("x-content-type-options", "nosniff"),
+    ("content-security-policy", "default-src 'none'; sandbox"),
+    ("referrer-policy", "no-referrer"),
+)
 
 
 def _granian_target_loader(target: Any) -> Any:
@@ -84,9 +96,9 @@ class PyFerroApp:
         "guest_session_data",
         "admin_path",
         "frontend_dist",
+        "docs_help_dir",
         "_sessions",
     )
-
     def __init__(
         self,
         db: Database | None = None,
@@ -97,6 +109,7 @@ class PyFerroApp:
         secret_key: str = "pyferro2-dev-secret-key-change-in-prod-32b",
         admin_path: str = "/pyferro_admin",
         frontend_dist: Path | None = None,
+        docs_help_dir: Path | str = "docs/help",
     ) -> None:
         self.db: Database = db if db is not None else Database()
         self.router: RpcRouter = router if router is not None else RpcRouter()
@@ -108,11 +121,13 @@ class PyFerroApp:
         )
         self.guest_session_data: SessionData = GUEST_SESSION_DATA
         self.admin_path: str = admin_path.rstrip("/") or "/pyferro_admin"
-        self.frontend_dist: Path = (
-            frontend_dist
-            if frontend_dist is not None
-            else Path(__file__).resolve().parent.parent / "frontend" / "dist"
-        )
+        if frontend_dist is not None:
+            self.frontend_dist = frontend_dist
+        else:
+            pkg_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+            repo_dist = Path(__file__).resolve().parent.parent.parent.parent / "frontend" / "dist"
+            self.frontend_dist = pkg_dist if pkg_dist.exists() else repo_dist
+        self.docs_help_dir: Path = Path(docs_help_dir)
         self._sessions: set[Session] = set()
 
         self.crud: CrudEngine = (
@@ -124,15 +139,23 @@ class PyFerroApp:
             )
         )
 
-        # Регистрируем встроенные системные, файловые и CRUD RPC-методы
+        # Регистрируем встроенные системные, файловые, CRUD и SEO RPC-методы
         register_auth_rpc(self.router, self.token_manager)
         register_file_rpc(self.router, self.file_storage, self.token_manager)
         register_crud_rpc(self.router, self.crud)
+        register_seo_rpc(
+            self.router,
+            self.db,
+            self.crud,
+            lambda: self.guest_session_data.permissions,
+        )
+        register_help_rpc(self.router, self.docs_help_dir)
 
     def _update_guest_permissions(self, permissions: frozenset[str]) -> None:
         """Обновляет in-memory кэш прав роли `guest` при изменении матрицы прав."""
         self.guest_session_data = SessionData.guest(permissions)
         for sess in list(self._sessions):
+            sess._guest_permissions = permissions
             if sess.data.is_guest:
                 sess.reset_to_guest(permissions)
 
@@ -151,11 +174,12 @@ class PyFerroApp:
                 await sess.request_disconnect(code)
 
     async def startup(self) -> None:
-        """Инициализирует таблицы БД, системные роли и кэш разрешений гостя."""
+        """Инициализирует таблицы БД, системные роли, кэш разрешений гостя и дерево SEO."""
         await self.db.create_tables()
         async with self.db.session() as session:
             await seed_system_roles(session)
             self.guest_session_data = await load_guest_session_data(session)
+            await load_seo_from_db(session)
 
     async def shutdown(self) -> None:
         """Корректно закрывает активные сессии и соединения с БД."""
@@ -272,14 +296,18 @@ class PyFerroApp:
         proto: Any,
         initial_data: SessionData,
     ) -> None:
+        path = getattr(scope, "path", "")
+        if path not in ("/ws", "/ws/"):
+            # Отклоняем WebSocket-подключение на неизвестный маршрут до accept()
+            try:
+                proto.close(WsCloseCode.POLICY_VIOLATION)
+            except Exception:
+                pass
+            return
+
         try:
             transport = await proto.accept()
         except Exception:
-            return
-
-        path = getattr(scope, "path", "")
-        if path not in ("/ws", "/ws/"):
-            # Если запрос пришел не на /ws, безопасно закрываем принятое соединение
             return
 
         ws_closed = False
@@ -308,6 +336,7 @@ class PyFerroApp:
             data=initial_data,
             notify=ws_notify,
             close=ws_close,
+            guest_permissions=self.guest_session_data.permissions,
         )
         self._sessions.add(session)
 
@@ -359,7 +388,8 @@ class PyFerroApp:
         """
         Обрабатывает входящий JSON-RPC фрейм по WebSocket:
         - Если вызван мультиретурн-метод (`yield`), запускает потоковую передачу чанков с тем же `id`.
-        - Если вызван обычный `return`-метод, выполняет его и отправляет единичный ответ.
+        - Если вызван обычный `return`-метод, выполняет его, гарантированно отправляет ответ,
+          и только после этого завершает RPC-цикл (применяя отложенный дисконнект, если он был запрошен).
         """
         try:
             packet = orjson.loads(raw)
@@ -403,18 +433,30 @@ class PyFerroApp:
                         await transport.send_str(eb.decode("utf-8"))
                 except asyncio.CancelledError:
                     raise
+                except Exception:
+                    if req_id is not None and not session._closed:
+                        eb = encode_error(
+                            req_id,
+                            JsonRpcErrorCode.INTERNAL_ERROR,
+                            "Внутренняя ошибка сервера",
+                        )
+                        await transport.send_str(eb.decode("utf-8"))
 
             task = asyncio.create_task(_run_stream())
             session.register_stream_task(task)
             await asyncio.sleep(0)
             return
 
-        # Обычный атомарный `return`-вызов
-        resp_bytes = await self.router.handle_raw(raw, session, db=self.db)
-        _set_scope_session_data(scope, session.data)
+        # Обычный атомарный `return`-вызов: удерживаем счетчик активных RPC до отправки ответа в сокет
+        session.begin_rpc()
+        try:
+            resp_bytes = await self.router.handle_raw(raw, session, db=self.db)
+            _set_scope_session_data(scope, session.data)
 
-        if resp_bytes is not None:
-            await transport.send_str(resp_bytes.decode("utf-8"))
+            if resp_bytes is not None and not session._closed:
+                await transport.send_str(resp_bytes.decode("utf-8"))
+        finally:
+            await session.end_rpc()
 
     async def _handle_http(
         self,
@@ -427,7 +469,11 @@ class PyFerroApp:
 
         if (path == "/rpc" or path == "/rpc/") and method == "POST":
             body = await proto()
-            session = Session(session_id=f"http-{secrets.token_hex(6)}", data=session_data)
+            session = Session(
+                session_id=f"http-{secrets.token_hex(6)}",
+                data=session_data,
+                guest_permissions=self.guest_session_data.permissions,
+            )
             resp_bytes = await self.router.handle_raw(body, session, db=self.db)
             _set_scope_session_data(scope, session.data)
             proto.response_bytes(200, [_JSON_CONTENT_TYPE], resp_bytes or b"")
@@ -446,6 +492,45 @@ class PyFerroApp:
         ):
             await self._handle_http_admin_spa(path, proto)
             return
+
+        if method in ("GET", "HEAD"):
+            # 1. Карта сайта (/sitemap.xml, /sitemap-N.xml)
+            if await handle_sitemap_http(
+                scope,
+                proto,
+                db=self.db,
+                crud_engine=self.crud,
+                guest_permissions=self.guest_session_data.permissions,
+            ):
+                return
+
+            # 2. Верификационный ключ IndexNow (/<indexnow_key>.txt)
+            seo_cfg = get_seo_config()
+            if seo_cfg.indexnow_key and path == f"/{seo_cfg.indexnow_key}.txt":
+                if hasattr(proto, "response_str"):
+                    proto.response_str(
+                        200,
+                        [("content-type", "text/plain; charset=utf-8")],
+                        seo_cfg.indexnow_key,
+                    )
+                else:
+                    proto.response_bytes(
+                        200,
+                        [("content-type", "text/plain; charset=utf-8")],
+                        seo_cfg.indexnow_key.encode("utf-8"),
+                    )
+                return
+
+            # 3. Dynamic Rendering для поисковых ботов и режима эмуляции (?bot=1)
+            if await handle_bot_http(
+                scope,
+                proto,
+                db=self.db,
+                crud_engine=self.crud,
+                guest_permissions=self.guest_session_data.permissions,
+                admin_path=self.admin_path,
+            ):
+                return
 
         proto.response_bytes(
             404,
@@ -531,6 +616,42 @@ class PyFerroApp:
             )
             return
 
+        # Fail-Fast проверка заголовка Content-Length ДО чтения потока из RSGI proto
+        raw_content_length = (
+            headers.get("content-length") if hasattr(headers, "get") else None
+        )
+        if raw_content_length is not None:
+            try:
+                declared_size = int(raw_content_length)
+            except (TypeError, ValueError):
+                proto.response_bytes(
+                    400,
+                    [_JSON_CONTENT_TYPE],
+                    orjson.dumps({"error": "Некорректный заголовок Content-Length"}),
+                )
+                return
+            if declared_size < 0:
+                proto.response_bytes(
+                    400,
+                    [_JSON_CONTENT_TYPE],
+                    orjson.dumps({"error": "Некорректный заголовок Content-Length"}),
+                )
+                return
+            if declared_size > self.file_storage.max_file_size:
+                proto.response_bytes(
+                    413,
+                    [_JSON_CONTENT_TYPE],
+                    orjson.dumps(
+                        {
+                            "error": (
+                                f"Превышен максимальный размер файла "
+                                f"({self.file_storage.max_file_size} байт)"
+                            )
+                        }
+                    ),
+                )
+                return
+
         try:
             file_info = await self.file_storage.receive_stream(
                 folder_hash=folder_hash,
@@ -538,6 +659,20 @@ class PyFerroApp:
                 mime_type=mime_type,
                 chunks=_iter_rsgi_chunks(proto),
             )
+        except FileMaxSizeExceededError as exc:
+            proto.response_bytes(
+                413,
+                [_JSON_CONTENT_TYPE],
+                orjson.dumps({"error": str(exc)}),
+            )
+            return
+        except TimeoutError as exc:
+            proto.response_bytes(
+                408,
+                [_JSON_CONTENT_TYPE],
+                orjson.dumps({"error": str(exc)}),
+            )
+            return
         except ValueError as exc:
             proto.response_bytes(
                 400,
@@ -611,13 +746,17 @@ class PyFerroApp:
             return
 
         content_type = record.mime_type
+        response_headers: list[tuple[str, str]] = [
+            ("content-type", content_type),
+            *_FILE_SECURITY_HEADERS,
+        ]
 
         if self.file_storage.nginx_internal_prefix:
             internal_uri = f"{self.file_storage.nginx_internal_prefix}/{folder_hash}/{filename}"
             proto.response_empty(
                 200,
                 [
-                    ("content-type", content_type),
+                    *response_headers,
                     ("x-accel-redirect", internal_uri),
                 ],
             )
@@ -625,7 +764,7 @@ class PyFerroApp:
 
         proto.response_file(
             200,
-            [("content-type", content_type)],
+            response_headers,
             str(file_path),
         )
 

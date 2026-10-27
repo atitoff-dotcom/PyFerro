@@ -1,0 +1,235 @@
+{
+  "version": 1,
+  "tree": [
+    {
+      "slug": "getting-started",
+      "title": "Руководство для разработчиков: Быстрый старт",
+      "order": 1,
+      "filename": "01_getting_started.md"
+    },
+    {
+      "slug": "crud-engine",
+      "title": "CRUD Engine и спецификации моделей",
+      "order": 2,
+      "filename": "02_crud_engine.md"
+    },
+    {
+      "slug": "rpc-and-auth",
+      "title": "RPC-маршрутизация и права доступа",
+      "order": 3,
+      "filename": "03_rpc_and_auth.md"
+    }
+  ],
+  "articles": {
+    "getting-started": {
+      "slug": "getting-started",
+      "title": "Руководство для разработчиков: Быстрый старт",
+      "order": 1,
+      "toc": [
+        {
+          "id": "руководство-для-разработчиков-быстрый-старт",
+          "text": "Руководство для разработчиков: Быстрый старт",
+          "level": 1
+        },
+        {
+          "id": "архитектура-системы",
+          "text": "Архитектура системы",
+          "level": 2
+        },
+        {
+          "id": "интерактивный-компонент-пагинация",
+          "text": "Интерактивный компонент: Пагинация",
+          "level": 2
+        },
+        {
+          "id": "полезные-ссылки",
+          "text": "Полезные ссылки",
+          "level": 2
+        }
+      ],
+      "blocks": [
+        {
+          "type": "html",
+          "html": "<h1 id=\"руководство-для-разработчиков-быстрый-старт\">Руководство для разработчиков: Быстрый старт</h1>\n<p>Добро пожаловать в панель управления PyFerro 2.0. Это интерактивная документация, в которой теоретические разделы дополнены живыми компонентами интерфейса и песочницами.</p>\n<h2 id=\"архитектура-системы\">Архитектура системы</h2>\n<p>PyFerro 2.0 построен на трех ключевых концепциях:</p>\n<ol>\n<li><strong>Rust RSGI (Granian)</strong> — высокопроизводительный асинхронный сервер сетевых шлюзов.</li>\n<li><strong>WSRPC (JSON-RPC 2.0)</strong> — симметричный протокол поверх WebSocket и HTTP POST <code>/rpc</code>.</li>\n<li><strong>Ролевая модель <code>adm_*</code></strong> — гранулярное разделение прав доступа к модулям панели.</li>\n</ol>\n<pre><code class=\"language-python\"><span class=\"kn\">from</span><span class=\"w\"> </span><span class=\"nn\">pyferro2.core.session_data</span><span class=\"w\"> </span><span class=\"kn\">import</span> <span class=\"n\">SessionData</span>\n<span class=\"kn\">from</span><span class=\"w\"> </span><span class=\"nn\">pyferro2.rpc.router</span><span class=\"w\"> </span><span class=\"kn\">import</span> <span class=\"n\">RpcRouter</span>\n\n<span class=\"n\">router</span> <span class=\"o\">=</span> <span class=\"n\">RpcRouter</span><span class=\"p\">()</span>\n</code></pre>\n<h2 id=\"интерактивный-компонент-пагинация\">Интерактивный компонент: Пагинация</h2>\n<p>Ниже представлен реальный рабочий компонент <code>Pagination.svelte</code>, используемый в таблицах админки. Вы можете кликать по страницам и менять их размер:</p>\n"
+        },
+        {
+          "type": "widget",
+          "widget": "PaginationDemo",
+          "props": {
+            "total": 250,
+            "pageSize": 10,
+            "currentPage": 1
+          }
+        },
+        {
+          "type": "html",
+          "html": "<h2 id=\"полезные-ссылки\">Полезные ссылки</h2>\n<p>Используйте меню слева для навигации между статьями документации. Каждая статья имеет прямой постоянный URL вида <code>/pyferro_admin/help/&lt;slug&gt;</code>.</p>\n"
+        }
+      ]
+    },
+    "crud-engine": {
+      "slug": "crud-engine",
+      "title": "CRUD Engine и спецификации моделей",
+      "order": 2,
+      "toc": [
+        {
+          "id": "crud-engine-и-спецификации-моделей",
+          "text": "CRUD Engine и спецификации моделей",
+          "level": 1
+        },
+        {
+          "id": "определение-модели",
+          "text": "Определение модели",
+          "level": 2
+        },
+        {
+          "id": "интерактивный-пример",
+          "text": "Интерактивный пример",
+          "level": 2
+        },
+        {
+          "id": "автоматическая-валидация",
+          "text": "Автоматическая валидация",
+          "level": 2
+        }
+      ],
+      "blocks": [
+        {
+          "type": "html",
+          "html": "<h1 id=\"crud-engine-и-спецификации-моделей\">CRUD Engine и спецификации моделей</h1>\n<p>Движок CRUD в PyFerro позволяет автоматически генерировать формы, валидаторы и списки для любых моделей SQLAlchemy.</p>\n<h2 id=\"определение-модели\">Определение модели</h2>\n<p>Модели данных наследуются от <code>RowSecureModel</code> и объявляют внутренний класс <code>Crud</code>:</p>\n<pre><code class=\"language-python\"><span class=\"kn\">from</span><span class=\"w\"> </span><span class=\"nn\">sqlalchemy.orm</span><span class=\"w\"> </span><span class=\"kn\">import</span> <span class=\"n\">Mapped</span><span class=\"p\">,</span> <span class=\"n\">mapped_column</span>\n<span class=\"kn\">from</span><span class=\"w\"> </span><span class=\"nn\">sqlalchemy</span><span class=\"w\"> </span><span class=\"kn\">import</span> <span class=\"n\">String</span><span class=\"p\">,</span> <span class=\"n\">Integer</span>\n<span class=\"kn\">from</span><span class=\"w\"> </span><span class=\"nn\">pyferro2.core.session_data</span><span class=\"w\"> </span><span class=\"kn\">import</span> <span class=\"n\">SessionData</span>\n\n<span class=\"k\">class</span><span class=\"w\"> </span><span class=\"nc\">Article</span><span class=\"p\">(</span><span class=\"n\">RowSecureModel</span><span class=\"p\">):</span>\n    <span class=\"n\">__tablename__</span> <span class=\"o\">=</span> <span class=\"s2\">\"articles\"</span>\n    \n    <span class=\"nb\">id</span><span class=\"p\">:</span> <span class=\"n\">Mapped</span><span class=\"p\">[</span><span class=\"nb\">int</span><span class=\"p\">]</span> <span class=\"o\">=</span> <span class=\"n\">mapped_column</span><span class=\"p\">(</span><span class=\"n\">Integer</span><span class=\"p\">,</span> <span class=\"n\">primary_key</span><span class=\"o\">=</span><span class=\"kc\">True</span><span class=\"p\">)</span>\n    <span class=\"n\">title</span><span class=\"p\">:</span> <span class=\"n\">Mapped</span><span class=\"p\">[</span><span class=\"nb\">str</span><span class=\"p\">]</span> <span class=\"o\">=</span> <span class=\"n\">mapped_column</span><span class=\"p\">(</span><span class=\"n\">String</span><span class=\"p\">(</span><span class=\"mi\">200</span><span class=\"p\">))</span>\n    <span class=\"n\">author_id</span><span class=\"p\">:</span> <span class=\"n\">Mapped</span><span class=\"p\">[</span><span class=\"nb\">int</span><span class=\"p\">]</span> <span class=\"o\">=</span> <span class=\"n\">mapped_column</span><span class=\"p\">(</span><span class=\"n\">Integer</span><span class=\"p\">)</span>\n    \n    <span class=\"k\">class</span><span class=\"w\"> </span><span class=\"nc\">Crud</span><span class=\"p\">:</span>\n        <span class=\"n\">readable_fields</span> <span class=\"o\">=</span> <span class=\"p\">[</span><span class=\"s2\">\"id\"</span><span class=\"p\">,</span> <span class=\"s2\">\"title\"</span><span class=\"p\">,</span> <span class=\"s2\">\"author_id\"</span><span class=\"p\">]</span>\n        <span class=\"n\">writable_fields</span> <span class=\"o\">=</span> <span class=\"p\">[</span><span class=\"s2\">\"title\"</span><span class=\"p\">]</span>\n</code></pre>\n<h2 id=\"интерактивный-пример\">Интерактивный пример</h2>\n<p>Попробуйте интерактивную демонстрацию пагинации для набора из 500 записей:</p>\n"
+        },
+        {
+          "type": "widget",
+          "widget": "PaginationDemo",
+          "props": {
+            "total": 500,
+            "pageSize": 25,
+            "currentPage": 1
+          }
+        },
+        {
+          "type": "html",
+          "html": "<h2 id=\"автоматическая-валидация\">Автоматическая валидация</h2>\n<p>При отправке изменений движок проверяет типы данных, ограничения длины строк и права пользователя на редактирование строк (<code>readable_fields</code>, <code>writable_fields</code>).</p>\n"
+        }
+      ]
+    },
+    "rpc-and-auth": {
+      "slug": "rpc-and-auth",
+      "title": "RPC-маршрутизация и права доступа",
+      "order": 3,
+      "toc": [
+        {
+          "id": "rpc-маршрутизация-и-права-доступа",
+          "text": "RPC-маршрутизация и права доступа",
+          "level": 1
+        },
+        {
+          "id": "регистрация-метода",
+          "text": "Регистрация метода",
+          "level": 2
+        },
+        {
+          "id": "системные-роли-adm",
+          "text": "Системные роли `adm_*`",
+          "level": 2
+        }
+      ],
+      "blocks": [
+        {
+          "type": "html",
+          "html": "<h1 id=\"rpc-маршрутизация-и-права-доступа\">RPC-маршрутизация и права доступа</h1>\n<p>Каждый метод API регистрируется через декоратор роутера с указанием необходимых системных ролей.</p>\n<h2 id=\"регистрация-метода\">Регистрация метода</h2>\n<pre><code class=\"language-python\"><span class=\"kn\">from</span><span class=\"w\"> </span><span class=\"nn\">pyferro2.core.constants</span><span class=\"w\"> </span><span class=\"kn\">import</span> <span class=\"n\">admRole</span>\n<span class=\"kn\">from</span><span class=\"w\"> </span><span class=\"nn\">pyferro2.core.session_data</span><span class=\"w\"> </span><span class=\"kn\">import</span> <span class=\"n\">SessionData</span>\n\n<span class=\"nd\">@router</span><span class=\"o\">.</span><span class=\"n\">rpc_method</span><span class=\"p\">(</span><span class=\"n\">role</span><span class=\"o\">=</span><span class=\"p\">[</span><span class=\"n\">admRole</span><span class=\"o\">.</span><span class=\"n\">adm_help</span><span class=\"p\">])</span>\n<span class=\"k\">async</span> <span class=\"k\">def</span><span class=\"w\"> </span><span class=\"nf\">get_system_status</span><span class=\"p\">(</span><span class=\"n\">session</span><span class=\"p\">:</span> <span class=\"n\">SessionData</span><span class=\"p\">)</span> <span class=\"o\">-&gt;</span> <span class=\"nb\">dict</span><span class=\"p\">:</span>\n    <span class=\"k\">return</span> <span class=\"p\">{</span><span class=\"s2\">\"status\"</span><span class=\"p\">:</span> <span class=\"s2\">\"ok\"</span><span class=\"p\">,</span> <span class=\"s2\">\"user\"</span><span class=\"p\">:</span> <span class=\"n\">session</span><span class=\"o\">.</span><span class=\"n\">username</span><span class=\"p\">}</span>\n</code></pre>\n<h2 id=\"системные-роли-adm\">Системные роли <code>adm_*</code></h2>\n<ul>\n<li><code>admin</code> — суперпользователь, имеет доступ ко всем методам и разделам.</li>\n<li><code>adm_help</code> — доступ к разделу «Руководство для разработчиков» (<code>/pyferro_admin/help</code>).</li>\n<li><code>adm_crud</code> — доступ к просмотру и редактированию таблиц.</li>\n<li><code>adm_roles</code> — управление матрицей прав и ролей.</li>\n<li><code>adm_users</code> — управление учетными записями.</li>\n<li><code>adm_seo</code> — управление SEO-правилами и sitemap.</li>\n</ul>\n"
+        }
+      ]
+    }
+  },
+  "search_index": [
+    {
+      "slug": "getting-started",
+      "article_title": "Руководство для разработчиков: Быстрый старт",
+      "section_title": "Руководство для разработчиков: Быстрый старт",
+      "section_id": "руководство-для-разработчиков-быстрый-старт",
+      "text": "Руководство для разработчиков: Быстрый старт Добро пожаловать в панель управления PyFerro 2.0. Это интерактивная документация, в которой теоретические разделы дополнены живыми компонентами интерфейса и песочницами.",
+      "code": ""
+    },
+    {
+      "slug": "getting-started",
+      "article_title": "Руководство для разработчиков: Быстрый старт",
+      "section_title": "Архитектура системы",
+      "section_id": "архитектура-системы",
+      "text": "Архитектура системы PyFerro 2.0 построен на трех ключевых концепциях: **Rust RSGI (Granian)** — высокопроизводительный асинхронный сервер сетевых шлюзов. **WSRPC (JSON-RPC 2.0)** — симметричный протокол поверх WebSocket и HTTP POST `/rpc`. **Ролевая модель `adm_*`** — гранулярное разделение прав доступа к модулям панели.",
+      "code": "/rpc\nadm_*\nfrom pyferro2.core.session_data import SessionData\nfrom pyferro2.rpc.router import RpcRouter\n\nrouter = RpcRouter()"
+    },
+    {
+      "slug": "getting-started",
+      "article_title": "Руководство для разработчиков: Быстрый старт",
+      "section_title": "Интерактивный компонент: Пагинация",
+      "section_id": "интерактивный-компонент-пагинация",
+      "text": "Интерактивный компонент: Пагинация Ниже представлен реальный рабочий компонент `Pagination.svelte`, используемый в таблицах админки. Вы можете кликать по страницам и менять их размер:",
+      "code": "Pagination.svelte"
+    },
+    {
+      "slug": "getting-started",
+      "article_title": "Руководство для разработчиков: Быстрый старт",
+      "section_title": "Полезные ссылки",
+      "section_id": "полезные-ссылки",
+      "text": "Полезные ссылки Используйте меню слева для навигации между статьями документации. Каждая статья имеет прямой постоянный URL вида `/pyferro_admin/help/<slug>`.",
+      "code": "/pyferro_admin/help/<slug>"
+    },
+    {
+      "slug": "crud-engine",
+      "article_title": "CRUD Engine и спецификации моделей",
+      "section_title": "CRUD Engine и спецификации моделей",
+      "section_id": "crud-engine-и-спецификации-моделей",
+      "text": "CRUD Engine и спецификации моделей Движок CRUD в PyFerro позволяет автоматически генерировать формы, валидаторы и списки для любых моделей SQLAlchemy.",
+      "code": ""
+    },
+    {
+      "slug": "crud-engine",
+      "article_title": "CRUD Engine и спецификации моделей",
+      "section_title": "Определение модели",
+      "section_id": "определение-модели",
+      "text": "Определение модели Модели данных наследуются от `RowSecureModel` и объявляют внутренний класс `Crud`:",
+      "code": "RowSecureModel\nCrud\nfrom sqlalchemy.orm import Mapped, mapped_column\nfrom sqlalchemy import String, Integer\nfrom pyferro2.core.session_data import SessionData\n\nclass Article(RowSecureModel):\n    __tablename__ = \"articles\"\n    \n    id: Mapped[int] = mapped_column(Integer, primary_key=True)\n    title: Mapped[str] = mapped_column(String(200))\n    author_id: Mapped[int] = mapped_column(Integer)\n    \n    class Crud:\n        readable_fields = [\"id\", \"title\", \"author_id\"]\n        writable_fields = [\"title\"]"
+    },
+    {
+      "slug": "crud-engine",
+      "article_title": "CRUD Engine и спецификации моделей",
+      "section_title": "Интерактивный пример",
+      "section_id": "интерактивный-пример",
+      "text": "Интерактивный пример Попробуйте интерактивную демонстрацию пагинации для набора из 500 записей:",
+      "code": ""
+    },
+    {
+      "slug": "crud-engine",
+      "article_title": "CRUD Engine и спецификации моделей",
+      "section_title": "Автоматическая валидация",
+      "section_id": "автоматическая-валидация",
+      "text": "Автоматическая валидация При отправке изменений движок проверяет типы данных, ограничения длины строк и права пользователя на редактирование строк (`readable_fields`, `writable_fields`).",
+      "code": "readable_fields\nwritable_fields"
+    },
+    {
+      "slug": "rpc-and-auth",
+      "article_title": "RPC-маршрутизация и права доступа",
+      "section_title": "RPC-маршрутизация и права доступа",
+      "section_id": "rpc-маршрутизация-и-права-доступа",
+      "text": "RPC-маршрутизация и права доступа Каждый метод API регистрируется через декоратор роутера с указанием необходимых системных ролей.",
+      "code": ""
+    },
+    {
+      "slug": "rpc-and-auth",
+      "article_title": "RPC-маршрутизация и права доступа",
+      "section_title": "Регистрация метода",
+      "section_id": "регистрация-метода",
+      "text": "Регистрация метода",
+      "code": "from pyferro2.core.constants import admRole\nfrom pyferro2.core.session_data import SessionData\n\n@router.rpc_method(role=[admRole.adm_help])\nasync def get_system_status(session: SessionData) -> dict:\n    return {\"status\": \"ok\", \"user\": session.username}"
+    },
+    {
+      "slug": "rpc-and-auth",
+      "article_title": "RPC-маршрутизация и права доступа",
+      "section_title": "Системные роли `adm_*`",
+      "section_id": "системные-роли-adm",
+      "text": "Системные роли `adm_*` `admin` — суперпользователь, имеет доступ ко всем методам и разделам. `adm_help` — доступ к разделу «Руководство для разработчиков» (`/pyferro_admin/help`). `adm_crud` — доступ к просмотру и редактированию таблиц. `adm_roles` — управление матрицей прав и ролей. `adm_users` — управление учетными записями. `adm_seo` — управление SEO-правилами и sitemap.",
+      "code": "adm_*\nadmin\nadm_help\n/pyferro_admin/help\nadm_crud\nadm_roles\nadm_users\nadm_seo"
+    }
+  ]
+}
