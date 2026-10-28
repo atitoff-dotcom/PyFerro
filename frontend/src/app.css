@@ -1,24 +1,88 @@
+@import "tailwindcss";
+
 /* ==========================================================================
    PyFerro 2.0 Design Tokens & Ergonomic Themes
-   - Dark Theme: Soft Darcula (JetBrains-inspired, lifted ~15% for readability)
-   - Light Theme: Homeopathically warm off-white (eradicates blue glare)
+   - 16-Step Perceptual S-Curve Gradation (Cosine Harmonic Model)
+   - Dark Theme: Refined JetBrains Darcula (Hue ~215°, Sat 4-5%)
+   - Light Theme: IntelliJ Light / Warm Stone (Hue ~215°, Sat 2-3%)
    ========================================================================== */
+
+@theme {
+  /* 16-Step S-Curve Palette Tokens */
+  --color-step-0: var(--step-0);
+  --color-step-1: var(--step-1);
+  --color-step-2: var(--step-2);
+  --color-step-3: var(--step-3);
+  --color-step-4: var(--step-4);
+  --color-step-5: var(--step-5);
+  --color-step-6: var(--step-6);
+  --color-step-7: var(--step-7);
+  --color-step-8: var(--step-8);
+  --color-step-9: var(--step-9);
+  --color-step-10: var(--step-10);
+  --color-step-11: var(--step-11);
+  --color-step-12: var(--step-12);
+  --color-step-13: var(--step-13);
+  --color-step-14: var(--step-14);
+  --color-step-15: var(--step-15);
+
+  /* Semantic UI Aliases for Tailwind */
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-alt: var(--panel-alt);
+  --color-panel-hover: var(--panel-hover);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-text: var(--text);
+  --color-text-bright: var(--text-bright);
+  --color-muted: var(--muted);
+  --color-muted-light: var(--muted-light);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-fg: var(--accent-fg);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+}
 
 :root,
 [data-theme="dark"] {
-  /* Surfaces & Canvas */
-  --bg: #323438;
-  --panel: #3c3f44;
-  --panel-alt: #44474e;
-  --panel-hover: #4a4e55;
-  --border: #50545b;
-  --border-subtle: #45484f;
+  /* 16-Step Cosine S-Curve (Dark: Darcula) */
+  --step-0: #131415;
+  --step-1: #161618;
+  --step-2: #1C1D1F;
+  --step-3: #26282A;
+  --step-4: #34373A;
+  --step-5: #45484C;
+  --step-6: #585C61;
+  --step-7: #6C7178;
+  --step-8: #82878E;
+  --step-9: #989CA2;
+  --step-10: #ADB1B5;
+  --step-11: #C0C2C6;
+  --step-12: #CFD1D4;
+  --step-13: #DBDCDE;
+  --step-14: #E2E3E5;
+  --step-15: #E4E5E7;
 
-  /* Typography */
-  --text: #dfe1e5;
-  --text-bright: #f5f6f8;
-  --muted: #9da0a4;
-  --muted-light: #b0b4b8;
+  /* Surfaces & Canvas mapped to S-Curve */
+  --bg: var(--step-0);
+  --panel: var(--step-1);
+  --panel-alt: var(--step-2);
+  --panel-hover: var(--step-4);
+  --border: var(--step-7);
+  --border-subtle: var(--step-6);
+
+  /* Typography mapped to S-Curve */
+  --text: var(--step-12);
+  --text-bright: var(--step-14);
+  --muted: var(--step-9);
+  --muted-light: var(--step-10);
 
   /* Brand Accent: Soft Darcula cornflower blue */
   --accent: #589df6;
@@ -38,26 +102,44 @@
   /* Shadows & Scrollbars */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.25);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.35);
-  --scrollbar-thumb: #585c64;
-  --scrollbar-track: #2d2f33;
+  --scrollbar-thumb: #34373A;
+  --scrollbar-track: #131415;
 
   color-scheme: dark;
 }
 
 [data-theme="light"] {
-  /* Surfaces & Canvas (Homeopathically warm stone off-white) */
-  --bg: #f7f7f5;
-  --panel: #ffffff;
-  --panel-alt: #f0f0eb;
-  --panel-hover: #e8e8e2;
-  --border: #deded7;
-  --border-subtle: #eaeae4;
+  /* 16-Step Cosine S-Curve (Light: IntelliJ Light / Warm Stone) */
+  --step-0: #FAFAFA;
+  --step-1: #F7F7F8;
+  --step-2: #F0F0F1;
+  --step-3: #E4E4E5;
+  --step-4: #D4D5D6;
+  --step-5: #C0C1C4;
+  --step-6: #AAACAF;
+  --step-7: #929599;
+  --step-8: #7A7D82;
+  --step-9: #64676A;
+  --step-10: #4F5154;
+  --step-11: #3D3E41;
+  --step-12: #2E2F30;
+  --step-13: #222324;
+  --step-14: #1B1C1D;
+  --step-15: #19191A;
 
-  /* Typography */
-  --text: #212120;
-  --text-bright: #141413;
-  --muted: #70706b;
-  --muted-light: #595954;
+  /* Surfaces & Canvas mapped to S-Curve */
+  --bg: var(--step-0);
+  --panel: #FFFFFF;
+  --panel-alt: var(--step-2);
+  --panel-hover: var(--step-4);
+  --border: var(--step-7);
+  --border-subtle: var(--step-6);
+
+  /* Typography mapped to S-Curve */
+  --text: var(--step-12);
+  --text-bright: var(--step-14);
+  --muted: var(--step-9);
+  --muted-light: var(--step-10);
 
   /* Brand Accent: Saturated classic sapphire/cobalt */
   --accent: #2b6cb0;
@@ -77,12 +159,11 @@
   /* Shadows & Scrollbars */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
-  --scrollbar-thumb: #c8c8c0;
-  --scrollbar-track: #ededeb;
+  --scrollbar-thumb: #D4D5D6;
+  --scrollbar-track: #FAFAFA;
 
   color-scheme: light;
 }
-
 :root {
   --radius-sm: 0.35rem;
   --radius: 0.5rem;
