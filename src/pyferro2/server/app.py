@@ -40,7 +40,7 @@ from pyferro2.files.rpc import register_file_rpc
 from pyferro2.files.storage import FileMaxSizeExceededError, FileStorage
 from pyferro2.help.rpc import register_help_rpc
 from pyferro2.rpc.errors import RpcError
-from pyferro2.rpc.router import RpcRouter, encode_error
+from pyferro2.rpc.router import RpcRouter, default_router, encode_error
 from pyferro2.seo.models import get_seo_config
 from pyferro2.seo.router import handle_bot_http
 from pyferro2.seo.rpc import register_seo_rpc
@@ -113,6 +113,7 @@ class PyFerroApp:
     ) -> None:
         self.db: Database = db if db is not None else Database()
         self.router: RpcRouter = router if router is not None else RpcRouter()
+        self.router.include(default_router)
         self.token_manager: TokenManager = (
             token_manager if token_manager is not None else TokenManager(secret_key=secret_key)
         )
@@ -175,6 +176,7 @@ class PyFerroApp:
 
     async def startup(self) -> None:
         """Инициализирует таблицы БД, системные роли, кэш разрешений гостя и дерево SEO."""
+        self.router.include(default_router)
         await self.db.create_tables()
         async with self.db.session() as session:
             await seed_system_roles(session)

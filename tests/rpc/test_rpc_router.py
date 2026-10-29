@@ -28,17 +28,12 @@ def router() -> RpcRouter:
 class TestRegistrationAndCompilation:
     """Проверка однократной компиляции сигнатур (`RpcMethodSpec`) при старте."""
 
-    def test_auto_module_and_class_method_names(self, router: RpcRouter) -> None:
-        @router.rpc_method
-        async def calc_tax(amount: int) -> int:
-            return amount
-
+    def test_auto_class_method_names_and_rejects_standalone_functions(self, router: RpcRouter) -> None:
         class catalog:
             @router.rpc_method
             async def get_items(session_data: SessionData, limit: int = 10) -> int:
                 return limit
 
-        assert "test_rpc_router.calc_tax" in router.methods
         assert "catalog.get_items" in router.methods
 
         spec = router.methods["catalog.get_items"]
@@ -48,6 +43,11 @@ class TestRegistrationAndCompilation:
         assert spec.param_names == ("limit",)
         assert spec.required_params == frozenset()
 
+        # Запрет объявления RPC-метода вне класса
+        with pytest.raises(TypeError, match="должен быть объявлен внутри класса"):
+            @router.rpc_method
+            async def standalone_calc(amount: int) -> int:
+                return amount
     def test_rejects_sync_function_and_varargs(self, router: RpcRouter) -> None:
         with pytest.raises(TypeError, match="должен быть асинхронной функцией"):
             @router.rpc_method
@@ -55,9 +55,10 @@ class TestRegistrationAndCompilation:
                 return 1
 
         with pytest.raises(TypeError, match="не должен использовать \\*args"):
-            @router.rpc_method
-            async def varargs_fn(*args: int) -> int:
-                return sum(args)
+            class service:
+                @router.rpc_method
+                async def varargs_fn(*args: int) -> int:
+                    return sum(args)
 
 
 class TestThreeStepAccessControl:
@@ -256,3 +257,37 @@ class TestParamsValidationAndRawWireProtocol:
         parsed_err = orjson.loads(bad_env_resp)
         assert parsed_err["id"] == 5
         assert parsed_err["error"]["code"] == JsonRpcErrorCode.INVALID_REQUEST
+
+
+class TestClassNestingAndRouterInclude:
+    """Проверка вложенности методов в класс-плашку и автоматического объединения роутеров."""
+
+    @pytest.mark.asyncio
+    async def test_class_nesting_creates_plaque_method(self) -> None:
+        from pyferro2.rpc import default_router, rpc_method
+
+        class Note:
+            @rpc_method
+            async def call() -> dict[str, str]:
+                return {"note": "created"}
+
+        assert "Note.call" in default_router.methods
+        spec = default_router.methods["Note.call"]
+        assert spec.name == "Note.call"
+
+        # Проверяем include в другой роутер
+        local_router = RpcRouter()
+        local_router.include(default_router)
+        assert "Note.call" in local_router.methods
+
+        session = Session(
+            session_id="s-test",
+            data=SessionData(
+                user_id=1,
+                username="test",
+                roles=frozenset({USER_ROLE}),
+                permissions=frozenset({"Note.call"}),
+            ),
+        )
+        res = await local_router.call("Note.call", session)
+        assert res == {"note": "created"}

@@ -163,10 +163,11 @@ flowchart TD
     ```
   * **Бизнес-методы (права настраиваются в БД и проверяются в памяти по `session_data.permissions`)**:
     ```python
-    @rpc_method
-    async def get_items(session_data: SessionData, ...): ...
+    class catalog:
+        @rpc_method
+        async def get_items(session_data: SessionData, ...): ...
     ```
-    *(Имя метода вычисляется автоматически по имени модуля и функции: `catalog.get_items`, либо задается явно `name="..."`)*
+    *(Имя метода всегда задается через класс-плашку: `catalog.get_items`. Объявление RPC вне класса строго запрещено)*
   * **Системные / административные методы**:
     ```python
     @rpc_method(role=[admRole.adm_crud, admRole.admin])

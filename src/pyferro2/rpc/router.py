@@ -92,16 +92,17 @@ def check_rpc_access(spec: RpcMethodSpec, session_data: SessionData) -> bool:
 
 def _resolve_method_name(fn: RpcHandler) -> str:
     """
-    Вычисляет имя метода `Плашка.метод` напрямую из структуры кода Python:
-    - Если функция объявлена внутри класса (`class Book: async def transfer`): -> `Book.transfer`.
-    - Если функция объявлена на уровне модуля (`catalog.py` -> `async def get_items`): -> `catalog.get_items`.
+    Вычисляет имя метода `Плашка.метод` напрямую из структуры кода Python.
+    RPC-метод обязан быть объявлен внутри класса (например: `class Note: @rpc_method async def call(...)`).
+    Имя метода всегда формируется строго как `ИмяКласса.имя_функции`.
     """
     qual_parts = fn.__qualname__.split(".")
     if len(qual_parts) >= 2 and qual_parts[-2] != "<locals>":
         return f"{qual_parts[-2]}.{qual_parts[-1]}"
-    module_short = fn.__module__.rsplit(".", 1)[-1]
-    return f"{module_short}.{fn.__name__}"
-
+    raise TypeError(
+        f"RPC-метод '{fn.__name__}' должен быть объявлен внутри класса "
+        f"(например: 'class MyService: @rpc_method async def {fn.__name__}(...):')"
+    )
 
 def _compile_method_spec(
     fn: RpcHandler,
@@ -261,6 +262,11 @@ class RpcRouter:
     def get_spec(self, method_name: str) -> RpcMethodSpec | None:
         """Мгновенно возвращает спецификацию метода по имени за O(1)."""
         return self._methods.get(method_name)
+
+    def include(self, other: RpcRouter) -> None:
+        """Включает методы из другого роутера в текущий (без перезаписи уже существующих)."""
+        for name, spec in other.methods.items():
+            self._methods.setdefault(name, spec)
 
     def rpc_method(
         self,
