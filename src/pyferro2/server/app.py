@@ -452,7 +452,7 @@ class PyFerroApp:
         # Обычный атомарный `return`-вызов: удерживаем счетчик активных RPC до отправки ответа в сокет
         session.begin_rpc()
         try:
-            resp_bytes = await self.router.handle_raw(raw, session, db=self.db)
+            resp_bytes = await self.router.handle_packet(packet, session, db=self.db)
             _set_scope_session_data(scope, session.data)
 
             if resp_bytes is not None and not session._closed:

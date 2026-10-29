@@ -54,10 +54,10 @@ def _serialize_instance(instance: Base, spec: ModelSpec) -> dict[str, Any]:
             out[field_name] = val.isoformat()
         else:
             out[field_name] = val
-    if isinstance(instance, User):
-        out["roles"] = sorted(r.name for r in instance.roles)
-    elif isinstance(instance, Role):
-        out["permissions"] = sorted(instance.get_permissions())
+    if spec.model_cls is User:
+        out["roles"] = sorted(r.name for r in instance.roles)  # type: ignore[attr-defined]
+    elif spec.model_cls is Role:
+        out["permissions"] = sorted(instance.get_permissions())  # type: ignore[attr-defined]
     return out
 
 
@@ -328,9 +328,11 @@ class CrudEngine:
 
         if tabular:
             fields = list(spec.readable_fields)
-            if spec.model_cls is User:
+            is_user = spec.model_cls is User
+            is_role = spec.model_cls is Role
+            if is_user:
                 fields.append("roles")
-            elif spec.model_cls is Role:
+            elif is_role:
                 fields.append("permissions")
 
             tabular_rows: list[list[Any]] = []
@@ -339,9 +341,9 @@ class CrudEngine:
                 for fname in spec.readable_fields:
                     val = getattr(row, fname, None)
                     r_vals.append(val.isoformat() if isinstance(val, datetime) else val)
-                if isinstance(row, User):
+                if is_user:
                     r_vals.append(sorted(r.name for r in row.roles))
-                elif isinstance(row, Role):
+                elif is_role:
                     r_vals.append(sorted(row.get_permissions()))
                 tabular_rows.append(r_vals)
 

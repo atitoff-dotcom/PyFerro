@@ -421,26 +421,16 @@ class RpcRouter:
         finally:
             await session.end_rpc()
 
-    async def handle_raw(
+    async def handle_packet(
         self,
-        raw_payload: bytes | str,
+        packet: dict[str, Any],
         session: Session,
         *,
         db: Database | AsyncSession | None = None,
     ) -> bytes | None:
         """
-        Принимает сырой JSON-RPC 2.0 пакет (`bytes` или `str`), парсит через `orjson`,
-        вызывает метод и возвращает готовые `bytes` ответа (или `None` для уведомлений без `id`).
+        Выполняет валидированный пакет JSON-RPC 2.0 (словарь) и возвращает ответ в `bytes`.
         """
-        try:
-            packet = orjson.loads(raw_payload)
-        except Exception:
-            return encode_error(None, JsonRpcErrorCode.PARSE_ERROR, "Ошибка разбора JSON")
-
-        if type(packet) is not dict or packet.get("jsonrpc") != "2.0":
-            req_id = packet.get("id") if type(packet) is dict else None
-            return encode_error(req_id, JsonRpcErrorCode.INVALID_REQUEST, "Некорректный пакет JSON-RPC 2.0")
-
         method_name = packet.get("method")
         is_notification = "id" not in packet
         req_id = packet.get("id")
@@ -470,6 +460,27 @@ class RpcRouter:
             "id": req_id,
         })
 
+    async def handle_raw(
+        self,
+        raw_payload: bytes | str,
+        session: Session,
+        *,
+        db: Database | AsyncSession | None = None,
+    ) -> bytes | None:
+        """
+        Принимает сырой JSON-RPC 2.0 пакет (`bytes` или `str`), парсит через `orjson`,
+        вызывает метод и возвращает готовые `bytes` ответа (или `None` для уведомлений без `id`).
+        """
+        try:
+            packet = orjson.loads(raw_payload)
+        except Exception:
+            return encode_error(None, JsonRpcErrorCode.PARSE_ERROR, "Ошибка разбора JSON")
+
+        if type(packet) is not dict or packet.get("jsonrpc") != "2.0":
+            req_id = packet.get("id") if type(packet) is dict else None
+            return encode_error(req_id, JsonRpcErrorCode.INVALID_REQUEST, "Некорректный пакет JSON-RPC 2.0")
+
+        return await self.handle_packet(packet, session, db=db)
 
 def encode_error(
     req_id: Any,
