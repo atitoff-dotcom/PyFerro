@@ -126,7 +126,7 @@ class PyFerroApp:
         else:
             pkg_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
             repo_dist = Path(__file__).resolve().parent.parent.parent.parent / "frontend" / "dist"
-            self.frontend_dist = pkg_dist if pkg_dist.exists() else repo_dist
+            self.frontend_dist = repo_dist if repo_dist.exists() else pkg_dist
         self.docs_help_dir: Path = Path(docs_help_dir)
         self._sessions: set[Session] = set()
 

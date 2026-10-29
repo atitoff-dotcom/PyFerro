@@ -23,7 +23,7 @@ SYSTEM_ROLE_DESCRIPTIONS: dict[str, str] = {
     admRole.adm_roles.value: "Доступ к разделу управления ролями и матрицей прав",
     admRole.adm_settings.value: "Доступ к системным настройкам",
     admRole.adm_rpc.value: "Доступ к инспектору и правам JSON-RPC методов",
-    admRole.adm_help.value: "Доступ к управлению справочной системой",
+    admRole.adm_help.value: "Чтение справки PyFerro2",
     admRole.adm_seo.value: "Доступ к управлению SEO-правилами и страницами",
 }
 

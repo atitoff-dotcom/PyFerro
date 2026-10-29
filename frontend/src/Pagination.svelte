@@ -5,8 +5,10 @@
    * - Стрелки «Назад» и «Вперед» с блокировкой
    * - Номера страниц с умными многоточиями
    * - Индикатор общего количества строк
-   * - Переключатель лимита строк (20, 50, 100)
+   * - Переключатель лимита строк (10, 20, 50, 100)
    */
+  import Button from "./ui/Button.svelte";
+  import Select from "./ui/Select.svelte";
 
   let { paginator, showLimitSelect = true, showTotal = true } = $props();
 
@@ -21,33 +23,34 @@
   }
 </script>
 
-<div class="pf-pagination">
+<div class="flex items-center justify-between gap-4 py-2 px-1 text-muted text-sm flex-wrap">
   {#if showTotal}
-    <div class="pf-pagination-info">
+    <div class="text-xs">
       {#if paginator.total > 0}
-        Показано <strong>{fromRow()}–{toRow()}</strong> из <strong>{paginator.total}</strong>
+        Показано <strong class="text-text-bright font-semibold">{fromRow()}–{toRow()}</strong> из <strong class="text-text-bright font-semibold">{paginator.total}</strong>
       {:else}
         Нет записей
       {/if}
     </div>
   {/if}
 
-  <div class="pf-pagination-controls">
-    <button
-      class="pf-btn pf-btn-nav"
+  <div class="flex items-center gap-1.5">
+    <Button
+      variant="outline"
+      size="sm"
       disabled={!paginator.hasPrev || paginator.loading}
       onclick={() => paginator.prev()}
       title="Предыдущая страница"
     >
       ← Назад
-    </button>
+    </Button>
 
-    <div class="pf-page-numbers">
+    <div class="flex items-center gap-1">
       {#each paginator.pageNumbers as p, idx}
         {#if p === '...'}
-          <button
-            type="button"
-            class="pf-btn pf-page-num pf-ellipsis"
+          <Button
+            variant="ghost"
+            size="sm"
             disabled={paginator.loading}
             onclick={() => {
               const maxP = paginator.totalPages || paginator.pages || Math.ceil((paginator.total || 0) / (paginator.limit || 10)) || 1;
@@ -60,130 +63,41 @@
             title="Перейти на 5 страниц {idx < paginator.pageNumbers.length / 2 ? 'назад' : 'вперед'}"
           >
             …
-          </button>
+          </Button>
         {:else}
-          <button
-            type="button"
-            class="pf-btn pf-page-num"
-            class:active={p === paginator.page}
+          <Button
+            variant={p === paginator.page ? "primary" : "outline"}
+            size="sm"
             disabled={paginator.loading}
             onclick={() => paginator.goTo(p)}
           >
             {p}
-          </button>
+          </Button>
         {/if}
       {/each}
     </div>
 
-    <button
-      class="pf-btn pf-btn-nav"
+    <Button
+      variant="outline"
+      size="sm"
       disabled={!paginator.hasNext || paginator.loading}
       onclick={() => paginator.next()}
       title="Следующая страница"
     >
       Вперед →
-    </button>
+    </Button>
   </div>
 
   {#if showLimitSelect}
-    <div class="pf-limit-select">
+    <div class="flex items-center gap-2 text-xs text-muted">
       <span>На стр:</span>
-      <select
+      <Select
         value={paginator.limit}
         disabled={paginator.loading}
         onchange={(e) => paginator.setLimit(e.target.value)}
-      >
-        <option value={10}>10</option>
-        <option value={20}>20</option>
-        <option value={50}>50</option>
-        <option value={100}>100</option>
-      </select>
+        class="h-8 min-h-8 text-xs py-0"
+        options={[10, 20, 50, 100]}
+      />
     </div>
   {/if}
 </div>
-
-<style>
-  .pf-pagination {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.75rem 0.5rem;
-    color: var(--muted, #94a3b8);
-    font-size: 0.875rem;
-    flex-wrap: wrap;
-  }
-
-  .pf-pagination-info {
-    font-size: 0.85rem;
-  }
-
-  .pf-pagination-info strong {
-    color: var(--text, #f8fafc);
-  }
-
-  .pf-pagination-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-
-  .pf-page-numbers {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-  }
-
-  .pf-btn {
-    background: var(--panel, #1e293b);
-    border: 1px solid var(--border, #334155);
-    color: var(--text, #f8fafc);
-    padding: 0.35rem 0.65rem;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.85rem;
-    transition: background 0.15s, border-color 0.15s;
-    user-select: none;
-  }
-
-  .pf-btn:hover:not(:disabled) {
-    background: var(--panel-alt, #263349);
-    border-color: var(--accent, #38bdf8);
-  }
-
-  .pf-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
-  .pf-page-num.active {
-    background: var(--accent, #38bdf8);
-    color: #0f172a;
-    font-weight: 600;
-    border-color: var(--accent, #38bdf8);
-  }
-
-  .pf-ellipsis {
-    padding: 0.35rem 0.65rem;
-    color: var(--muted, #94a3b8);
-    font-weight: 600;
-  }
-
-  .pf-limit-select {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.85rem;
-  }
-
-  .pf-limit-select select {
-    background: var(--panel, #1e293b);
-    border: 1px solid var(--border, #334155);
-    color: var(--text, #f8fafc);
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.85rem;
-    outline: none;
-    cursor: pointer;
-  }
-</style>

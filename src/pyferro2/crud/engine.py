@@ -176,9 +176,12 @@ class CrudEngine:
         ):
             fn.__name__ = action
             fn.__qualname__ = f"{model_name}.{action}"
+            roles_for_action = list(extra_roles)
+            if spec.model_cls is Role and action == "read":
+                roles_for_action.append(admRole.adm_users)
             self._router.rpc_method(
                 fn,
-                role=extra_roles,
+                role=roles_for_action,
                 allow_permissions=not is_sys_rbac,
             )
 
@@ -230,7 +233,7 @@ class CrudEngine:
             return True
         if spec.model_cls is User and session_data.has_admin_access("users"):
             return True
-        if spec.model_cls is Role and session_data.has_admin_access("roles"):
+        if spec.model_cls is Role and (session_data.has_admin_access("roles") or session_data.has_admin_access("users")):
             return True
         return False
 

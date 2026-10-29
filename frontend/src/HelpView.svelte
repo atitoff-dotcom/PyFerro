@@ -2,13 +2,14 @@
   import { onMount, tick } from 'svelte';
   import { rpc } from './rpc.js';
   import { WIDGETS } from './widgets/registry.js';
+  import { Badge } from './ui/index.js';
   import { BookOpen, Search, AlertCircle, ChevronRight } from '@lucide/svelte';
 
   let { currentSlug = '', onNavigate = null } = $props();
 
   let articles = $state([]);
   let searchIndex = $state([]);
-  let selectedSlug = $state(currentSlug || '');
+  let selectedSlug = $state('');
   let activeArticle = $state(null);
   let loading = $state(true);
   let articleLoading = $state(false);
@@ -138,7 +139,7 @@
       }
       articles = Array.isArray(resp) ? resp : (resp?.articles || []);
       if (!selectedSlug && articles.length > 0) {
-        selectedSlug = articles[0].slug;
+        selectedSlug = currentSlug || articles[0].slug;
       }
       if (selectedSlug) {
         await loadArticle(selectedSlug);
@@ -158,42 +159,41 @@
       } catch {
         resp = await rpc.call('help.search_index');
       }
-      searchIndex = Array.isArray(resp) ? resp : [];
+      searchIndex = resp?.index || [];
     } catch {
-      searchIndex = [];
+      // Поиск фолбэчится на заголовки статей
     }
   }
 
-  async function selectArticle(slug, sectionId = null) {
+  async function selectArticle(slug, sectionId = '') {
     selectedSlug = slug;
+    filterQuery = '';
     if (onNavigate) {
       onNavigate(slug);
     }
-    await loadArticle(slug);
-
-    if (sectionId) {
-      await tick();
-      setTimeout(() => {
-        const el = document.getElementById(sectionId);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }, 70);
-    }
+    await loadArticle(slug, sectionId);
   }
 
-  async function loadArticle(slug) {
+  async function loadArticle(slug, targetAnchor = '') {
     if (!slug) return;
     articleLoading = true;
     errorMsg = '';
     try {
-      let resp;
+      let data;
       try {
-        resp = await rpc.call('help.get_article', { slug });
+        data = await rpc.call('help.get_article', { slug });
       } catch {
-        resp = await rpc.call('help.article', { slug });
+        data = await rpc.call('help.article', { slug });
       }
-      activeArticle = resp;
+      activeArticle = data;
+
+      if (targetAnchor) {
+        await tick();
+        const el = document.getElementById(targetAnchor);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
     } catch (e) {
       errorMsg = 'Ошибка загрузки статьи: ' + (e.message || String(e));
       activeArticle = null;
@@ -207,21 +207,20 @@
   <!-- Боковое меню статей и встроенного поиска -->
   <aside class="help-sidebar">
     <div class="help-sidebar-header">
-      <div style="display:flex; align-items:center; gap:0.5rem;">
-        <BookOpen size={17} style="color: var(--accent);" />
+      <div class="flex items-center gap-2">
+        <BookOpen size={17} class="text-accent" />
         <span class="help-title">Справочник</span>
       </div>
-      <span class="badge">{articles.length}</span>
+      <Badge variant="default">{articles.length}</Badge>
     </div>
 
     <div class="help-search-box">
-      <div style="position:relative; display:flex; align-items:center;">
-        <Search size={14} style="position:absolute; left:0.65rem; color: var(--muted); pointer-events:none;" />
+      <div class="relative flex items-center">
+        <Search size={14} class="absolute left-2.5 text-muted pointer-events-none" />
         <input
           type="text"
           placeholder="Поиск по статьям и коду…"
-          class="help-search-input"
-          style="padding-left: 2rem;"
+          class="help-search-input pl-8"
           bind:value={filterQuery}
         />
         {#if filterQuery}
@@ -253,13 +252,13 @@
               <div class="help-search-meta">
                 <span class="help-search-art-name">{res.article_title}</span>
                 {#if res.matchType === 'code'}
-                  <span class="badge badge-code">код</span>
+                  <span class="badge-code">код</span>
                 {:else if res.matchType === 'section'}
-                  <span class="badge badge-section">раздел</span>
+                  <span class="badge-section">раздел</span>
                 {/if}
               </div>
               <div class="help-search-sec-name">
-                <ChevronRight size={11} style="flex-shrink:0; opacity:0.7;" />
+                <ChevronRight size={11} class="shrink-0 opacity-70" />
                 <span>{res.section_title}</span>
               </div>
               {#if res.snippetHtml}
@@ -540,18 +539,18 @@
   }
 
   .badge-code {
-    background: #8b5cf620;
-    color: #a78bfa;
-    border: 1px solid #8b5cf640;
+    background: var(--accent-subtle);
+    color: var(--accent);
+    border: 1px solid var(--accent);
     font-size: 0.65rem;
     padding: 0.1rem 0.35rem;
     border-radius: 3px;
     font-weight: 600;
   }
   .badge-section {
-    background: #3b82f620;
-    color: #60a5fa;
-    border: 1px solid #3b82f640;
+    background: var(--panel-alt);
+    color: var(--text-bright);
+    border: 1px solid var(--border-subtle);
     font-size: 0.65rem;
     padding: 0.1rem 0.35rem;
     border-radius: 3px;
@@ -622,7 +621,6 @@
     opacity: 0.8;
   }
 
-  /* Стилизация тела статьи Markdown и блоков кода */
   /* Стилизация тела статьи Markdown и блоков кода */
   :global(.markdown-body pre) {
     background: var(--panel-alt);
@@ -726,8 +724,8 @@
     font-size: 0.85rem;
   }
   .alert-error {
-    background: #ef444415;
-    border: 1px solid #ef444440;
-    color: #ef4444;
+    background: var(--danger-subtle);
+    border: 1px solid var(--danger);
+    color: var(--danger);
   }
 </style>

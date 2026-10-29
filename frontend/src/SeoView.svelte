@@ -1,6 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { rpc } from "./rpc.js";
+  import { Button, Input, Select, Card, Badge, Checkbox } from "./ui/index.js";
 
   let { onnotify = () => {} } = $props();
 
@@ -105,7 +106,7 @@
   async function saveSeoData() {
     isSaving = true;
     try {
-      const res = await rpc.call("seo.save_tree", {
+      await rpc.call("seo.save_tree", {
         tree: siteTree,
         site_url: siteUrl,
         site_name: siteName,
@@ -113,13 +114,9 @@
         default_description: defaultDescription,
         default_og_image: defaultOgImage,
         indexnow_key: indexnowKey,
-        sitemap_ttl: Number(sitemapTtl) || 3600,
+        sitemap_ttl: sitemapTtl,
       });
-      if (res.tree) {
-        siteTree = res.tree;
-      }
-      onnotify(res.message || "Настройки SEO и дерево сайта сохранены", "success");
-      await refreshPreview();
+      onnotify("Дерево сайта и SEO настройки успешно сохранены в БД!", "info");
     } catch (e) {
       onnotify(e.message, "error");
     } finally {
@@ -127,51 +124,53 @@
     }
   }
 
-  async function applyPreset(presetKey) {
-    try {
-      const res = await rpc.call("seo.apply_preset", { preset_key: presetKey });
-      if (res.tree) {
-        siteTree = res.tree;
-        selectedNodeId = "root";
-      }
-      showPresetsModal = false;
-      onnotify(res.message || "Шаблон применен", "success");
-      await refreshPreview();
-    } catch (e) {
-      onnotify(e.message, "error");
-    }
-  }
-
-  async function toggleGuestRead(modelKey, checked) {
-    try {
-      const res = await rpc.call("seo.toggle_guest_read", {
-        model_key: modelKey,
-        allowed: checked,
-      });
-      availableModels = availableModels.map((m) =>
-        m.key === modelKey ? { ...m, seo_allowed: res.seo_allowed } : m
-      );
-      onnotify(
-        checked
-          ? `Таблица ${modelKey} открыта для гостей и поисковых роботов (${modelKey}.read)`
-          : `Публичный доступ к ${modelKey} закрыт`,
-        "success"
-      );
-      await refreshPreview();
-    } catch (e) {
-      onnotify(e.message, "error");
-    }
-  }
-
   async function pingIndexNow() {
     isPinging = true;
     try {
       const res = await rpc.call("seo.ping_indexnow");
-      onnotify(res.message || "IndexNow уведомлен", "success");
+      if (res.status === 200 || res.status === 202) {
+        onnotify(
+          `IndexNow успешно отправлен (${res.url_count} URL передано в поисковики)`,
+          "info"
+        );
+      } else {
+        onnotify(`Ответ IndexNow: ${res.message || res.status}`, "info");
+      }
     } catch (e) {
       onnotify(e.message, "error");
     } finally {
       isPinging = false;
+    }
+  }
+
+  async function toggleGuestRead(modelKey, enabled) {
+    try {
+      const res = await rpc.call("seo.toggle_model_read", {
+        model_key: modelKey,
+        enabled,
+      });
+      const m = availableModels.find((x) => x.key === modelKey);
+      if (m) m.seo_allowed = res.seo_allowed;
+      onnotify(
+        `Право .read для роли guest на модель ${modelKey}: ${res.seo_allowed ? "включено" : "выключено"}`,
+        "info"
+      );
+      triggerPreviewDebounced();
+    } catch (e) {
+      onnotify(e.message, "error");
+    }
+  }
+
+  async function applyPreset(presetKey) {
+    try {
+      const res = await rpc.call("seo.apply_preset", { preset_key: presetKey });
+      siteTree = res.tree;
+      selectedNodeId = "root";
+      showPresetsModal = false;
+      onnotify(`Применен готовый шаблон структуры: ${presetKey}`, "info");
+      triggerPreviewDebounced();
+    } catch (e) {
+      onnotify(e.message, "error");
     }
   }
 
@@ -180,22 +179,19 @@
     triggerPreviewDebounced();
   }
 
-  function addChildNode(parentNode = currentNode) {
+  function addChildNode(parentNode) {
     if (!parentNode) return;
-    if (!parentNode.children) {
-      parentNode.children = [];
-    }
-    const newId = "node_" + Math.random().toString(36).slice(2, 8);
-    const parentUrl =
-      parentNode.url_pattern === "/" ? "" : parentNode.url_pattern || "";
+    if (!parentNode.children) parentNode.children = [];
+    const newId = `node_${Date.now()}`;
+    const basePattern = (parentNode.url_pattern || "/").replace(/\/$/, "");
     const newNode = {
       id: newId,
-      title: "Новый раздел",
-      url_pattern: `${parentUrl}/new-section`,
+      title: "Новая страница",
+      url_pattern: `${basePattern}/page-${parentNode.children.length + 1}`,
       node_type: "static",
       template: "",
-      meta_title: "Новый раздел — {site_name}",
-      meta_description: "Описание нового раздела",
+      meta_title: "{site_name}",
+      meta_description: "",
       og_image: "",
       schema_type: "WebPage",
       sitemap_enabled: true,
@@ -261,8 +257,9 @@
 
   function insertModelLoop(modelKey) {
     if (!currentNode) return;
-    const snippet = `\n<h2>${modelKey}:</h2>\n<ul>\n{% for item in ${modelKey} %}\n  <li><a href="/${modelKey.toLowerCase()}s/{{ item.id }}">{{ item.title or item.name or item.id }}</a></li>\n{% endfor %}\n</ul>\n`;
-    currentNode.template = (currentNode.template || "") + snippet;
+    const loopSnippet = `\n<ul>\n{% for item in ${modelKey} %}\n  <li><a href="/${modelKey}/{{ item.id }}">{{ item.title or item.name or item.id }}</a></li>\n{% endfor %}\n</ul>\n`;
+    currentNode.template = (currentNode.template || "") + loopSnippet;
+    activeField = "template";
     triggerValidateDebounced();
     triggerPreviewDebounced();
   }
@@ -270,10 +267,14 @@
   function triggerValidateDebounced() {
     clearTimeout(validateTimer);
     validateTimer = setTimeout(async () => {
-      if (!currentNode) return;
+      if (!currentNode || !currentNode.template) {
+        templateValid = true;
+        templateError = null;
+        return;
+      }
       try {
         const res = await rpc.call("seo.validate_template", {
-          template: currentNode.template || "",
+          template: currentNode.template,
         });
         templateValid = res.valid;
         templateError = res.error;
@@ -307,21 +308,19 @@
   }
 </script>
 
-<div class="row-between">
+<div class="flex items-center justify-between mb-4 flex-wrap gap-3">
   <div>
-    <h2 style="margin:0;">🌲 SEO, Дерево сайта и Dynamic Rendering</h2>
-    <small style="color: var(--muted);">
-      Единое дерево URL, метатеги OpenGraph / JSON-LD, песочница Jinja2 и карта
-      сайта <code>/sitemap.xml</code>
+    <h2 class="m-0 text-lg font-bold text-text-bright">🌲 SEO, Дерево сайта и Dynamic Rendering</h2>
+    <small class="text-muted">
+      Единое дерево URL, метатеги OpenGraph / JSON-LD, песочница Jinja2 и карта сайта <code class="text-accent">/sitemap.xml</code>
     </small>
   </div>
-  <div style="display:flex; gap: 0.5rem; flex-wrap:wrap; align-items:center;">
-    <button class="btn btn-outline" onclick={() => (showPresetsModal = true)}>
+  <div class="flex gap-2 flex-wrap items-center">
+    <Button variant="outline" onclick={() => (showPresetsModal = true)}>
       📐 Шаблоны структуры
-    </button>
+    </Button>
     <a
-      class="btn btn-outline"
-      style="text-decoration:none;"
+      class="inline-flex items-center justify-center min-h-8 h-8 px-3.5 rounded text-sm font-medium border border-border text-text hover:bg-panel-alt hover:text-text-bright no-underline transition-all"
       href="/sitemap.xml"
       target="_blank"
       rel="noreferrer"
@@ -329,8 +328,7 @@
       🗺️ /sitemap.xml ↗
     </a>
     <a
-      class="btn btn-outline"
-      style="text-decoration:none; border-color: var(--success); color: var(--success);"
+      class="inline-flex items-center justify-center min-h-8 h-8 px-3.5 rounded text-sm font-medium border border-success text-success hover:bg-success-subtle no-underline transition-all"
       href="{currentNode?.url_pattern && !currentNode.url_pattern.includes('{')
         ? currentNode.url_pattern
         : '/'}?bot=1"
@@ -339,231 +337,215 @@
     >
       🤖 Открыть как бот (?bot=1) ↗
     </a>
-    <button
-      class="btn btn-outline"
+    <Button
+      variant="outline"
       disabled={isPinging}
       onclick={pingIndexNow}
     >
       ⚡ {isPinging ? "Отправка..." : "IndexNow Ping"}
-    </button>
-    <button class="btn" disabled={isSaving} onclick={saveSeoData}>
+    </Button>
+    <Button variant="primary" disabled={isSaving} onclick={saveSeoData}>
       💾 {isSaving ? "Сохранение..." : "Сохранить в БД"}
-    </button>
+    </Button>
   </div>
 </div>
 
 {#if showPresetsModal}
-  <div class="card" style="margin-bottom: 1.25rem; border-color: var(--accent);">
-    <div class="card-header">
+  <Card class="mb-5 border-accent">
+    <div class="flex items-center justify-between pb-3 mb-3 border-b border-border-subtle font-bold text-sm text-text-bright">
       <span>Выберите готовый шаблон структуры дерева сайта</span>
-      <button
-        class="btn btn-outline"
-        style="padding: 0.25rem 0.6rem;"
+      <Button
+        variant="outline"
+        size="sm"
         onclick={() => (showPresetsModal = false)}
       >
         ✕ Закрыть
-      </button>
+      </Button>
     </div>
-    <div class="card-grid">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {#each availablePresets as p}
-        <div class="card" style="background: var(--bg);">
-          <div style="font-weight:700; margin-bottom: 0.35rem;">
+        <Card class="bg-bg">
+          <div class="font-bold text-sm text-text-bright mb-1.5">
             {p.icon} {p.title}
           </div>
-          <p style="font-size: 0.84rem; color: var(--muted); margin-top:0;">
+          <p class="text-xs text-muted mt-0 mb-3">
             {p.description}
           </p>
-          <button
-            class="btn btn-outline"
+          <Button
+            variant="outline"
+            size="sm"
             onclick={() => applyPreset(p.key)}
           >
             Применить шаблон
-          </button>
-        </div>
+          </Button>
+        </Card>
       {/each}
     </div>
-  </div>
+  </Card>
 {/if}
 
 {#if isLoading}
-  <div class="card">Загрузка дерева сайта и конфигурации SEO из БД...</div>
+  <Card class="text-muted">Загрузка дерева сайта и конфигурации SEO из БД...</Card>
 {:else}
-  <div
-    style="display:grid; grid-template-columns: 360px 1fr; gap: 1.25rem; align-items:start;"
-  >
+  <div class="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-5 items-start">
     <!-- ЛЕВАЯ КОЛОНКА: Дерево сайта, глобальные настройки и доступ гостей к таблицам -->
-    <div style="display:flex; flex-direction:column; gap: 1rem;">
+    <div class="flex flex-col gap-4">
       <!-- 1. Живое дерево сайта -->
-      <div class="card">
-        <div class="card-header">
+      <Card>
+        <div class="flex items-center justify-between pb-3 mb-3 border-b border-border-subtle font-bold text-sm text-text-bright">
           <span>Дерево страниц сайта</span>
-          <button
-            class="btn btn-outline"
-            style="padding: 0.25rem 0.6rem; font-size: 0.8rem;"
+          <Button
+            variant="outline"
+            size="sm"
             onclick={() => addChildNode(currentNode)}
           >
             + Подраздел
-          </button>
+          </Button>
         </div>
 
         {#snippet treeItem(node, depth)}
-          <div
-            style="margin-left: {depth * 14}px; margin-bottom: 0.35rem; padding: 0.45rem 0.6rem; border-radius: 0.45rem; cursor: pointer; display:flex; align-items:center; justify-content:space-between; border: 1px solid {selectedNodeId === node.id ? 'var(--accent)' : 'var(--border)'}; background: {selectedNodeId === node.id ? 'rgba(56, 189, 248, 0.14)' : 'var(--bg)'};"
+          <button
+            type="button"
+            class="w-full text-left mb-1.5 p-2 rounded cursor-pointer flex items-center justify-between border transition-colors {selectedNodeId === node.id ? 'border-accent bg-accent-subtle text-text-bright' : 'border-border-subtle bg-bg hover:bg-panel-hover text-text'}"
+            style="margin-left: {depth * 14}px;"
             onclick={() => selectNode(node.id)}
           >
-            <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-              <span style="margin-right:0.35rem;">
+            <div class="overflow-hidden text-ellipsis whitespace-nowrap mr-2">
+              <span class="mr-1.5">
                 {#if node.node_type === "collection"}📁{:else if node.node_type === "detail"}🏷️{:else}📄{/if}
               </span>
-              <b style="font-size:0.86rem;">{node.title}</b>
-              <div style="font-size:0.74rem; color: var(--muted); font-family:monospace;">
+              <b class="text-xs font-semibold">{node.title}</b>
+              <div class="text-[0.72rem] text-muted font-mono">
                 {node.url_pattern}
               </div>
             </div>
             {#if node.model_key}
-              <span class="badge badge-sys">{node.model_key}</span>
+              <Badge variant="accent">{node.model_key}</Badge>
             {/if}
-          </div>
+          </button>
           {#each node.children || [] as child}
             {@render treeItem(child, depth + 1)}
           {/each}
         {/snippet}
 
         {@render treeItem(siteTree, 0)}
-      </div>
+      </Card>
 
       <!-- 2. Публичный доступ таблиц (guest -> Model.read) -->
-      <div class="card">
-        <div class="card-header">
+      <Card>
+        <div class="flex items-center justify-between pb-2 mb-2 border-b border-border-subtle font-bold text-sm text-text-bright">
           <span>Доступ таблиц для ботов (guest)</span>
-          <span class="badge">Model.read</span>
+          <Badge variant="default">Model.read</Badge>
         </div>
-        <small style="color: var(--muted); display:block; margin-bottom: 0.65rem;">
+        <small class="text-muted block mb-3 text-xs">
           Поисковые роботы индексируют только те таблицы, для которых у роли
-          <code>guest</code> включено право <code>.read</code>:
+          <code class="text-accent">guest</code> включено право <code class="text-accent">.read</code>:
         </small>
         {#if availableModels.length === 0}
-          <div style="font-size: 0.85rem; color: var(--muted);">
+          <div class="text-xs text-muted">
             Нет зарегистрированных прикладных таблиц
           </div>
         {:else}
-          <div style="display:flex; flex-direction:column; gap: 0.45rem;">
+          <div class="flex flex-col gap-2">
             {#each availableModels as m}
-              <label
-                style="display:flex; align-items:center; justify-content:space-between; padding: 0.35rem 0.5rem; border-radius: 0.4rem; background: var(--bg); border: 1px solid var(--border); font-size: 0.85rem;"
-              >
+              <div class="flex items-center justify-between p-2 rounded bg-bg border border-border-subtle text-xs">
                 <span>
-                  <b>{m.key}</b>
-                  <small style="color: var(--muted);">({m.verbose_name})</small>
+                  <b class="text-text-bright">{m.key}</b>
+                  <small class="text-muted">({m.verbose_name})</small>
                 </span>
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={m.seo_allowed}
                   onchange={(e) =>
                     toggleGuestRead(m.key, e.currentTarget.checked)}
                 />
-              </label>
+              </div>
             {/each}
           </div>
         {/if}
-      </div>
+      </Card>
 
       <!-- 3. Глобальные настройки домена и IndexNow -->
-      <div class="card">
-        <div class="card-header">
+      <Card>
+        <div class="pb-2 mb-3 border-b border-border-subtle font-bold text-sm text-text-bright">
           <span>Глобальные параметры сайта</span>
         </div>
-        <div style="display:flex; flex-direction:column; gap: 0.6rem;">
+        <div class="flex flex-col gap-3 text-xs">
           <div>
-            <small style="color: var(--muted);">Название сайта (og:site_name)</small>
-            <input
-              class="input"
-              style="width:100%;"
-              bind:value={siteName}
-            />
+            <div class="text-muted block mb-1">Название сайта (og:site_name)</div>
+            <Input class="w-full" bind:value={siteName} />
           </div>
           <div>
-            <small style="color: var(--muted);">Базовый URL (для канонических ссылок и Sitemap)</small>
-            <input
-              class="input"
-              style="width:100%;"
-              bind:value={siteUrl}
-            />
+            <div class="text-muted block mb-1">Базовый URL (для канонических ссылок и Sitemap)</div>
+            <Input class="w-full" bind:value={siteUrl} />
           </div>
           <div>
-            <small style="color: var(--muted);">Ключ IndexNow (раздается на /&lt;key&gt;.txt)</small>
-            <input
-              class="input"
-              style="width:100%;"
+            <div class="text-muted block mb-1">Ключ IndexNow (раздается на /&lt;key&gt;.txt)</div>
+            <Input
+              class="w-full"
               placeholder="Например: my-indexnow-key-123"
               bind:value={indexnowKey}
             />
           </div>
           <div>
-            <small style="color: var(--muted);">Картинка соцсетей по умолчанию (og:image)</small>
-            <input
-              class="input"
-              style="width:100%;"
+            <div class="text-muted block mb-1">Картинка соцсетей по умолчанию (og:image)</div>
+            <Input
+              class="w-full"
               placeholder="https://example.com/og.png"
               bind:value={defaultOgImage}
             />
           </div>
         </div>
-      </div>
+      </Card>
 
       {#if botRoutes.length > 0}
-        <div class="card">
-          <div class="card-header">
+        <Card>
+          <div class="flex items-center justify-between pb-2 mb-2 border-b border-border-subtle font-bold text-sm text-text-bright">
             <span>Кодовые маршруты (@bot_page)</span>
-            <span class="badge">{botRoutes.length}</span>
+            <Badge variant="default">{botRoutes.length}</Badge>
           </div>
-          <div style="display:flex; flex-wrap:wrap; gap: 0.35rem;">
+          <div class="flex flex-wrap gap-1.5">
             {#each botRoutes as br}
-              <code class="badge badge-sys">{br}</code>
+              <Badge variant="accent">{br}</Badge>
             {/each}
           </div>
-        </div>
+        </Card>
       {/if}
     </div>
 
     <!-- ПРАВАЯ КОЛОНКА: Редактор выбранного узла + Чипсы + Живой симулятор (Google / Telegram / Бот) -->
     {#if currentNode}
-      <div style="display:flex; flex-direction:column; gap: 1rem;">
-        <div class="card">
-          <div class="card-header">
-            <span>
-              Редактирование узла: <b>{currentNode.title}</b>
-              <code style="margin-left: 0.5rem; font-size:0.85rem;">{currentNode.url_pattern}</code>
+      <div class="flex flex-col gap-4">
+        <Card>
+          <div class="flex items-center justify-between pb-3 mb-3 border-b border-border-subtle font-bold text-sm text-text-bright flex-wrap gap-2">
+            <span class="flex items-center gap-2">
+              <span>Редактирование узла: <b>{currentNode.title}</b></span>
+              <code class="text-xs font-mono bg-bg px-1.5 py-0.5 rounded text-accent">{currentNode.url_pattern}</code>
             </span>
             {#if selectedNodeId !== "root"}
-              <button
-                class="btn btn-danger"
-                style="padding: 0.25rem 0.65rem; font-size: 0.8rem;"
+              <Button
+                variant="danger"
+                size="sm"
                 onclick={deleteSelectedNode}
               >
                 Удалить узел
-              </button>
+              </Button>
             {/if}
           </div>
 
-          <div
-            style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; margin-bottom: 0.85rem;"
-          >
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
             <div>
-              <small style="color: var(--muted);">Название в хлебных крошках</small>
-              <input
-                class="input"
-                style="width:100%;"
+              <div class="text-xs text-muted block mb-1">Название в хлебных крошках</div>
+              <Input
+                class="w-full"
                 bind:value={currentNode.title}
                 oninput={triggerPreviewDebounced}
               />
             </div>
 
             <div>
-              <small style="color: var(--muted);">Шаблон URL (например /books/&#123;id&#125;)</small>
-              <input
-                class="input"
-                style="width:100%; font-family:monospace;"
+              <div class="text-xs text-muted block mb-1">Шаблон URL (например /books/&#123;id&#125;)</div>
+              <Input
+                class="w-full font-mono"
                 bind:value={currentNode.url_pattern}
                 disabled={selectedNodeId === "root"}
                 onfocus={() => (activeField = "url_pattern")}
@@ -572,24 +554,22 @@
             </div>
 
             <div>
-              <small style="color: var(--muted);">Тип узла</small>
-              <select
-                class="input"
-                style="width:100%;"
+              <div class="text-xs text-muted block mb-1">Тип узла</div>
+              <Select
+                class="w-full"
                 bind:value={currentNode.node_type}
                 onchange={triggerPreviewDebounced}
               >
                 <option value="static">📄 Статическая страница (static)</option>
                 <option value="collection">📁 Раздел / список записей (collection)</option>
                 <option value="detail">🏷️ Детальная карточка из БД (detail)</option>
-              </select>
+              </Select>
             </div>
 
             <div>
-              <small style="color: var(--muted);">Привязка к таблице БД (CRUD)</small>
-              <select
-                class="input"
-                style="width:100%;"
+              <div class="text-xs text-muted block mb-1">Привязка к таблице БД (CRUD)</div>
+              <Select
+                class="w-full"
                 bind:value={currentNode.model_key}
                 onchange={triggerPreviewDebounced}
               >
@@ -599,49 +579,42 @@
                     {m.key} ({m.verbose_name}) {m.seo_allowed ? "✓" : "🔒"}
                   </option>
                 {/each}
-              </select>
+              </Select>
             </div>
           </div>
 
           <!-- Панель быстрых чипсов для подстановки полей БД и циклов -->
-          <div
-            style="background: var(--bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.6rem 0.75rem; margin-bottom: 0.85rem;"
-          >
-            <div
-              style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap: 0.5rem;"
-            >
-              <small style="color: var(--muted);">
-                Быстрая вставка в поле <code>{activeField}</code>:
+          <div class="bg-bg border border-border-subtle rounded-md p-3 mb-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <small class="text-xs text-muted">
+                Быстрая вставка в поле <code class="text-accent">{activeField}</code>:
               </small>
-              <div style="display:flex; flex-wrap:wrap; gap: 0.35rem;">
+              <div class="flex flex-wrap gap-1.5">
                 <button
                   type="button"
-                  class="badge badge-sys"
-                  style="cursor:pointer;"
+                  class="cursor-pointer"
                   onclick={() => insertChip("site_name")}
                 >
-                  + &#123;site_name&#125;
+                  <Badge variant="accent">+ &#123;site_name&#125;</Badge>
                 </button>
                 {#if selectedModelSchema}
                   {#each selectedModelSchema.fields as f}
                     <button
                       type="button"
-                      class="badge"
-                      style="cursor:pointer; color: var(--text);"
+                      class="cursor-pointer"
                       onclick={() => insertChip(f.name)}
                     >
-                      + &#123;{f.name}&#125;
+                      <Badge variant="default">+ &#123;{f.name}&#125;</Badge>
                     </button>
                   {/each}
                   {#each selectedModelSchema.relations || [] as rel}
                     {#each rel.fields as rf}
                       <button
                         type="button"
-                        class="badge badge-sys"
-                        style="cursor:pointer;"
+                        class="cursor-pointer"
                         onclick={() => insertChip(rf.chip)}
                       >
-                        + &#123;{rf.chip}&#125;
+                        <Badge variant="accent">+ &#123;{rf.chip}&#125;</Badge>
                       </button>
                     {/each}
                   {/each}
@@ -650,14 +623,11 @@
             </div>
           </div>
 
-          <div
-            style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.85rem;"
-          >
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
             <div>
-              <small style="color: var(--muted);">SEO Заголовок (Title / og:title)</small>
-              <input
-                class="input"
-                style="width:100%;"
+              <div class="text-xs text-muted block mb-1">SEO Заголовок (Title / og:title)</div>
+              <Input
+                class="w-full"
                 bind:value={currentNode.meta_title}
                 onfocus={() => (activeField = "meta_title")}
                 oninput={triggerPreviewDebounced}
@@ -665,10 +635,9 @@
             </div>
 
             <div>
-              <small style="color: var(--muted);">Тип микроразметки Schema.org (@type)</small>
-              <select
-                class="input"
-                style="width:100%;"
+              <div class="text-xs text-muted block mb-1">Тип микроразметки Schema.org (@type)</div>
+              <Select
+                class="w-full"
                 bind:value={currentNode.schema_type}
                 onchange={triggerPreviewDebounced}
               >
@@ -681,16 +650,15 @@
                 <option value="DiscussionForumPosting">DiscussionForumPosting (Форум)</option>
                 <option value="AboutPage">AboutPage</option>
                 <option value="ContactPage">ContactPage</option>
-              </select>
+              </Select>
             </div>
           </div>
 
-          <div style="margin-bottom: 0.85rem;">
-            <small style="color: var(--muted);">Мета-описание (meta description / og:description)</small>
+          <div class="mb-3">
+            <div class="text-xs text-muted block mb-1">Мета-описание (meta description / og:description)</div>
             <textarea
-              class="input"
+              class="w-full min-h-[64px] px-3 py-2 rounded bg-bg text-text border border-border text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-subtle resize-y"
               rows="2"
-              style="width:100%; resize:vertical;"
               bind:value={currentNode.meta_description}
               onfocus={() => (activeField = "meta_description")}
               oninput={triggerPreviewDebounced}
@@ -698,34 +666,29 @@
           </div>
 
           {#if currentNode.node_type === "collection"}
-            <div
-              style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; margin-bottom: 0.85rem; padding: 0.65rem; border-radius: 0.5rem; background: var(--bg); border: 1px solid var(--border);"
-            >
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3 p-3 rounded-md bg-bg border border-border-subtle">
               <div>
-                <small style="color: var(--muted);">Шаблон ссылки элемента</small>
-                <input
-                  class="input"
-                  style="width:100%; font-family:monospace;"
+                <div class="text-xs text-muted block mb-1">Шаблон ссылки элемента</div>
+                <Input
+                  class="w-full font-mono text-xs"
                   placeholder="/books/&#123;id&#125;"
                   bind:value={currentNode.item_link_pattern}
                   oninput={triggerPreviewDebounced}
                 />
               </div>
               <div>
-                <small style="color: var(--muted);">Заголовок элемента</small>
-                <input
-                  class="input"
-                  style="width:100%;"
+                <div class="text-xs text-muted block mb-1">Заголовок элемента</div>
+                <Input
+                  class="w-full text-xs"
                   placeholder="&#123;title&#125;"
                   bind:value={currentNode.item_title_pattern}
                   oninput={triggerPreviewDebounced}
                 />
               </div>
               <div>
-                <small style="color: var(--muted);">Описание элемента</small>
-                <input
-                  class="input"
-                  style="width:100%;"
+                <div class="text-xs text-muted block mb-1">Описание элемента</div>
+                <Input
+                  class="w-full text-xs"
                   placeholder="&#123;author&#125;"
                   bind:value={currentNode.item_desc_pattern}
                   oninput={triggerPreviewDebounced}
@@ -735,28 +698,26 @@
           {/if}
 
           <!-- Кастомный шаблон Jinja2 (опционально) -->
-          <div style="margin-bottom: 0.85rem;">
-            <div class="row-between" style="margin-bottom: 0.35rem;">
-              <small style="color: var(--muted);">
+          <div class="mb-3">
+            <div class="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+              <small class="text-xs text-muted">
                 Кастомный HTML-шаблон Jinja2 для бота (оставьте пустым для авто-генерации):
               </small>
-              <div style="display:flex; gap: 0.35rem; flex-wrap:wrap;">
+              <div class="flex gap-1.5 flex-wrap">
                 {#each availableModels as m}
                   <button
                     type="button"
-                    class="badge badge-sys"
-                    style="cursor:pointer;"
+                    class="cursor-pointer"
                     onclick={() => insertModelLoop(m.key)}
                   >
-                    + Цикл &#123;% for item in {m.key} %&#125;
+                    <Badge variant="accent">+ Цикл &#123;% for item in {m.key} %&#125;</Badge>
                   </button>
                 {/each}
               </div>
             </div>
             <textarea
-              class="input"
+              class="w-full min-h-[120px] px-3 py-2 rounded bg-bg text-text border border-border text-xs font-mono outline-none focus:border-accent focus:ring-2 focus:ring-accent-subtle"
               rows="6"
-              style="width:100%; font-family:monospace; font-size: 0.84rem;"
               placeholder="<h1>&#123;&#123; title &#125;&#125;</h1>&#10;<p>&#123;&#123; description &#125;&#125;</p>"
               bind:value={currentNode.template}
               onfocus={() => (activeField = "template")}
@@ -766,136 +727,114 @@
               }}
             ></textarea>
             {#if !templateValid && templateError}
-              <div style="color: var(--danger); font-size: 0.8rem; margin-top: 0.25rem;">
+              <div class="text-danger text-xs mt-1">
                 ⚠️ {templateError}
               </div>
             {/if}
           </div>
 
           <!-- Параметры Sitemap для узла -->
-          <div
-            style="display:flex; align-items:center; gap: 1.25rem; flex-wrap:wrap; padding-top: 0.5rem; border-top: 1px solid var(--border);"
-          >
-            <label style="display:inline-flex; align-items:center; gap: 0.4rem; font-size: 0.86rem;">
-              <input
-                type="checkbox"
-                bind:checked={currentNode.sitemap_enabled}
-              />
-              <span>Включить в /sitemap.xml</span>
-            </label>
-            <label style="display:inline-flex; align-items:center; gap: 0.4rem; font-size: 0.86rem;">
-              <span style="color: var(--muted);">Приоритет:</span>
-              <input
-                class="input"
+          <div class="flex items-center gap-5 flex-wrap pt-3 border-t border-border-subtle text-xs">
+            <Checkbox
+              bind:checked={currentNode.sitemap_enabled}
+              label="Включить в /sitemap.xml"
+            />
+            <div class="flex items-center gap-2">
+              <span class="text-muted">Приоритет:</span>
+              <Input
                 type="number"
                 step="0.1"
                 min="0.1"
                 max="1.0"
-                style="width: 75px; padding: 0.25rem 0.4rem;"
+                class="w-20 h-7 min-h-7 text-xs py-0"
                 bind:value={currentNode.sitemap_priority}
               />
-            </label>
-            <label style="display:inline-flex; align-items:center; gap: 0.4rem; font-size: 0.86rem;">
-              <span style="color: var(--muted);">Частота:</span>
-              <select
-                class="input"
-                style="padding: 0.25rem 0.5rem;"
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-muted">Частота:</span>
+              <Select
+                class="h-7 min-h-7 text-xs py-0"
                 bind:value={currentNode.sitemap_changefreq}
-              >
-                <option value="always">always</option>
-                <option value="hourly">hourly</option>
-                <option value="daily">daily</option>
-                <option value="weekly">weekly</option>
-                <option value="monthly">monthly</option>
-              </select>
-            </label>
+                options={["always", "hourly", "daily", "weekly", "monthly"]}
+              />
+            </div>
           </div>
-        </div>
+        </Card>
 
         <!-- ЖИВОЙ СИМУЛЯТОР ПРЕВЬЮ (Google / Telegram / Семантический HTML робота) -->
-        <div class="card">
-          <div class="card-header">
+        <Card>
+          <div class="flex items-center justify-between pb-3 mb-3 border-b border-border-subtle font-bold text-sm text-text-bright flex-wrap gap-2">
             <span>
               👁️ Живой симулятор: как страницу видит поисковик и мессенджер
               {#if isPreviewLoading}
-                <small style="color: var(--muted); font-weight:normal;">(обновление...)</small>
+                <small class="text-muted font-normal">(обновление...)</small>
               {/if}
             </span>
-            <div style="display:flex; gap: 0.35rem;">
-              <button
-                class="btn {previewTab === 'google' ? '' : 'btn-outline'}"
-                style="padding: 0.25rem 0.65rem; font-size: 0.8rem;"
+            <div class="flex gap-1.5">
+              <Button
+                variant={previewTab === 'google' ? 'primary' : 'outline'}
+                size="sm"
                 onclick={() => (previewTab = "google")}
               >
                 🔍 Google / Яндекс
-              </button>
-              <button
-                class="btn {previewTab === 'telegram' ? '' : 'btn-outline'}"
-                style="padding: 0.25rem 0.65rem; font-size: 0.8rem;"
+              </Button>
+              <Button
+                variant={previewTab === 'telegram' ? 'primary' : 'outline'}
+                size="sm"
                 onclick={() => (previewTab = "telegram")}
               >
                 💬 Telegram / Соцсети
-              </button>
-              <button
-                class="btn {previewTab === 'robot' ? '' : 'btn-outline'}"
-                style="padding: 0.25rem 0.65rem; font-size: 0.8rem;"
+              </Button>
+              <Button
+                variant={previewTab === 'robot' ? 'primary' : 'outline'}
+                size="sm"
                 onclick={() => (previewTab = "robot")}
               >
                 🤖 Семантический HTML бота
-              </button>
+              </Button>
             </div>
           </div>
 
           {#if previewData}
             {#if previewTab === "google"}
-              <div
-                style="background: #ffffff; color: #202124; padding: 1.1rem 1.35rem; border-radius: 0.55rem; max-width: 650px;"
-              >
-                <div style="font-size: 0.78rem; color: #4d5156; margin-bottom: 0.2rem;">
+              <!-- Точный симулятор сниппета выдачи Google -->
+              <div class="bg-white text-[#202124] p-4 rounded-lg max-w-2xl border border-gray-200 shadow-sm">
+                <div class="text-xs text-[#4d5156] mb-1">
                   {siteUrl.replace(/\/$/, "")}{previewData.url || "/"}
                 </div>
-                <div
-                  style="font-size: 1.15rem; color: #1a0dab; font-weight: 500; margin-bottom: 0.25rem;"
-                >
+                <div class="text-lg text-[#1a0dab] font-medium mb-1 hover:underline cursor-pointer">
                   {previewData.title || "Без заголовка"}
                 </div>
-                <div style="font-size: 0.86rem; color: #4d5156; line-height: 1.4;">
+                <div class="text-sm text-[#4d5156] leading-relaxed">
                   {previewData.description || "Описание не указано"}
                 </div>
                 {#if previewData.breadcrumbs && previewData.breadcrumbs.length > 0}
-                  <div
-                    style="margin-top: 0.55rem; font-size: 0.76rem; color: #5f6368;"
-                  >
+                  <div class="mt-2 text-xs text-[#5f6368]">
                     Хлебные крошки Schema.org:
                     {previewData.breadcrumbs.map((b) => b.title).join(" › ")}
                   </div>
                 {/if}
               </div>
             {:else if previewTab === "telegram"}
-              <div
-                style="background: #182533; border-left: 4px solid #38bdf8; padding: 0.85rem 1rem; border-radius: 0.45rem; max-width: 520px;"
-              >
-                <div
-                  style="font-size: 0.78rem; color: #38bdf8; font-weight: 700; margin-bottom: 0.2rem;"
-                >
+              <!-- Точный симулятор превью в Telegram -->
+              <div class="bg-[#182533] border-l-4 border-[#38bdf8] p-3.5 rounded max-w-lg shadow-sm">
+                <div class="text-xs text-[#38bdf8] font-bold mb-1">
                   {siteName}
                 </div>
-                <div style="font-weight: 700; color: #f8fafc; margin-bottom: 0.25rem;">
+                <div class="font-bold text-[#f8fafc] text-sm mb-1">
                   {previewData.title || "Без заголовка"}
                 </div>
-                <div style="font-size: 0.85rem; color: #cbd5e1;">
+                <div class="text-xs text-[#cbd5e1] leading-relaxed">
                   {previewData.description || ""}
                 </div>
               </div>
             {:else}
-              <div
-                style="background: var(--bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.85rem; font-family: monospace; font-size: 0.82rem; white-space: pre-wrap; max-height: 320px; overflow-y: auto;"
-              >
+              <div class="bg-bg border border-border-subtle rounded-md p-3 font-mono text-xs text-text whitespace-pre-wrap max-h-80 overflow-y-auto">
                 {previewData.body_html || ""}
               </div>
             {/if}
           {/if}
-        </div>
+        </Card>
       </div>
     {/if}
   </div>

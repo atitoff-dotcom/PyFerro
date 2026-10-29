@@ -11,7 +11,19 @@
   import { rpc } from "./rpc.js";
   import SeoView from "./SeoView.svelte";
   import HelpView from "./HelpView.svelte";
+  import UsersView from "./UsersView.svelte";
+  import PermissionsView from "./PermissionsView.svelte";
   import { initTheme, toggleTheme, isDark } from "./theme.svelte.js";
+  import {
+    Button,
+    Input,
+    Card,
+    Badge,
+    Checkbox,
+    Modal,
+    ToastContainer,
+    toast,
+  } from "./ui/index.js";
   import {
     Boxes,
     Sun,
@@ -26,6 +38,7 @@
     Search,
     Trash2,
   } from "@lucide/svelte";
+
   let activeTab = $state("permissions");
   let loginUser = $state("");
   let loginPass = $state("");
@@ -42,18 +55,6 @@
     }
     return null;
   }
-  let rolesList = $state([]);
-  let allMethods = $state([]);
-  let selectedRoleName = $state("user");
-  let rolePermsSet = $state(new Set());
-  let newRoleName = $state("");
-  let newRoleDesc = $state("");
-
-  // --- Раздел Пользователей (adm_users) ---
-  let usersList = $state([]);
-  let newUsername = $state("");
-  let newUserPass = $state("");
-
   // --- Раздел Таблиц CRUD (adm_crud) ---
   let schemas = $state([]);
   let selectedModel = $state("");
@@ -99,10 +100,24 @@
     }
   }
 
+  let permissionsDirty = $state(false);
+  let showSidebarUnsavedModal = $state(false);
+  let pendingTab = $state(null);
+
   async function selectTab(tab) {
+    if (activeTab === tab) return;
+
+    if (activeTab === "permissions" && permissionsDirty) {
+      pendingTab = tab;
+      showSidebarUnsavedModal = true;
+      return;
+    }
+
+    await doSwitchTab(tab);
+  }
+
+  async function doSwitchTab(tab) {
     activeTab = tab;
-    errorMsg = "";
-    statusMsg = "";
     if (tab === "help") {
       const targetUrl = helpSlug
         ? `/pyferro_admin/help/${helpSlug}`
@@ -118,6 +133,16 @@
     await loadActiveTab();
   }
 
+  function confirmSidebarTabSwitch() {
+    showSidebarUnsavedModal = false;
+    permissionsDirty = false;
+    if (pendingTab) {
+      const target = pendingTab;
+      pendingTab = null;
+      doSwitchTab(target);
+    }
+  }
+
   function handleHelpNavigate(slug) {
     helpSlug = slug;
     const targetUrl = `/pyferro_admin/help/${slug}`;
@@ -128,180 +153,25 @@
 
   async function loadActiveTab() {
     try {
-      if (
-        activeTab === "permissions" &&
-        (hasAdminSection("roles") || hasAdminSection("rpc"))
-      ) {
-        await loadPermissionsMatrix();
-      } else if (activeTab === "users" && hasAdminSection("users")) {
-        await loadUsers();
-      } else if (activeTab === "crud" && hasAdminSection("crud")) {
+      if (activeTab === "crud" && hasAdminSection("crud")) {
         await loadSchemas();
       }
     } catch (e) {
-      errorMsg = e.message;
+      toast.error(e.message || "Ошибка загрузки данных раздела");
     }
   }
 
-  function handleSeoNotify(msg, type = "info") {
-    if (type === "error") {
-      errorMsg = msg;
-      statusMsg = "";
+  function handleNotify(msg, type = "info") {
+    if (type === "error" || type === "danger") {
+      toast.error(msg);
+    } else if (type === "success") {
+      toast.success(msg);
+    } else if (type === "warning") {
+      toast.warning(msg);
     } else {
-      statusMsg = msg;
-      errorMsg = "";
+      toast.info(msg);
     }
   }
-
-  // Группировка методов "Плашка.метод" по точке для карточек в GUI
-  function groupedMethodCards() {
-    const groups = new Map();
-    for (const fullMethod of allMethods) {
-      const dotIdx = fullMethod.indexOf(".");
-      const cardName = dotIdx > 0 ? fullMethod.slice(0, dotIdx) : "other";
-      const actionName = dotIdx > 0 ? fullMethod.slice(dotIdx + 1) : fullMethod;
-      if (!groups.has(cardName)) {
-        groups.set(cardName, []);
-      }
-      groups.get(cardName).push({ full: fullMethod, action: actionName });
-    }
-    return Array.from(groups.entries());
-  }
-
-  async function loadPermissionsMatrix() {
-    const data = await rpc.call("admin.get_permissions_matrix");
-    rolesList = data.roles || [];
-    allMethods = data.methods || [];
-    const current =
-      rolesList.find((r) => r.name === selectedRoleName) || rolesList[0];
-    if (current) {
-      selectRoleForEdit(current);
-    }
-  }
-
-  function selectRoleForEdit(roleObj) {
-    selectedRoleName = roleObj.name;
-    rolePermsSet = new Set(roleObj.permissions || []);
-  }
-
-  function isMethodAllowed(fullMethod) {
-    return (
-      rolePermsSet.has(fullMethod) || rolePermsSet.has(`${fullMethod}_own`)
-    );
-  }
-
-  function isMethodOwnOnly(fullMethod) {
-    return rolePermsSet.has(`${fullMethod}_own`);
-  }
-
-  function toggleMethodAllowed(fullMethod, checked) {
-    const next = new Set(rolePermsSet);
-    next.delete(fullMethod);
-    next.delete(`${fullMethod}_own`);
-    if (checked) {
-      next.add(fullMethod);
-    }
-    rolePermsSet = next;
-  }
-
-  function toggleMethodOwn(fullMethod, checked) {
-    const next = new Set(rolePermsSet);
-    next.delete(fullMethod);
-    next.delete(`${fullMethod}_own`);
-    if (checked) {
-      next.add(`${fullMethod}_own`);
-    } else {
-      next.add(fullMethod);
-    }
-    rolePermsSet = next;
-  }
-
-  async function saveRolePermissions() {
-    errorMsg = "";
-    statusMsg = "";
-    try {
-      await rpc.call("admin.set_role_permissions", {
-        role_name: selectedRoleName,
-        permissions: Array.from(rolePermsSet),
-      });
-      statusMsg = `Права роли «${selectedRoleName}» сохранены`;
-      await loadPermissionsMatrix();
-    } catch (e) {
-      errorMsg = e.message;
-    }
-  }
-
-  async function createCustomRole() {
-    if (!newRoleName.trim()) return;
-    errorMsg = "";
-    try {
-      await rpc.call("Role.create", {
-        data: { name: newRoleName.trim(), description: newRoleDesc.trim() },
-      });
-      newRoleName = "";
-      newRoleDesc = "";
-      await loadPermissionsMatrix();
-    } catch (e) {
-      errorMsg = e.message;
-    }
-  }
-
-  async function deleteCustomRole(roleObj) {
-    if (roleObj.is_system) return;
-    errorMsg = "";
-    try {
-      await rpc.call("Role.delete", { id: roleObj.id });
-      selectedRoleName = "user";
-      await loadPermissionsMatrix();
-    } catch (e) {
-      errorMsg = e.message;
-    }
-  }
-
-  // --- Пользователи ---
-  async function loadUsers() {
-    const uRes = await rpc.call("User.read", { limit: 100 });
-    usersList = uRes.items || [];
-    if (
-      rolesList.length === 0 &&
-      (hasAdminSection("roles") || authState.isAdmin)
-    ) {
-      const rRes = await rpc.call("Role.read", { limit: 100 });
-      rolesList = rRes.items || [];
-    }
-  }
-
-  async function createNewUser() {
-    if (!newUsername.trim() || !newUserPass) return;
-    errorMsg = "";
-    try {
-      await rpc.call("admin.create_user", {
-        username: newUsername.trim(),
-        password: newUserPass,
-      });
-      newUsername = "";
-      newUserPass = "";
-      await loadUsers();
-    } catch (e) {
-      errorMsg = e.message;
-    }
-  }
-
-  async function toggleUserRole(userObj, roleName, checked) {
-    const current = new Set(userObj.roles || []);
-    if (checked) current.add(roleName);
-    else current.delete(roleName);
-    try {
-      await rpc.call("admin.set_user_roles", {
-        user_id: userObj.id,
-        roles: Array.from(current),
-      });
-      await loadUsers();
-    } catch (e) {
-      errorMsg = e.message;
-    }
-  }
-
   // --- Таблицы CRUD ---
   async function loadSchemas() {
     schemas = await rpc.call("crud.schemas");
@@ -366,18 +236,20 @@
 </script>
 
 {#if authState.loading}
-  <div class="login-wrap">Загрузка сессии PyFerro 2.0...</div>
+  <div class="flex min-h-screen items-center justify-center p-4 text-muted">
+    Загрузка сессии PyFerro 2.0...
+  </div>
 {:else if !authState.userId}
-  <div class="login-wrap">
-    <form class="login-box" onsubmit={handleLoginSubmit}>
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-        <div style="display:flex; align-items:center; gap:0.5rem;">
-          <Boxes size={22} style="color: var(--accent);" />
-          <h2 style="margin:0; font-size:1.25rem; color: var(--accent);">PyFerro 2.0 Admin</h2>
+  <div class="flex min-h-screen items-center justify-center p-4">
+    <form class="w-full max-w-sm bg-panel border border-border rounded-lg p-6 shadow-md" onsubmit={handleLoginSubmit}>
+      <div class="flex justify-between items-center mb-2">
+        <div class="flex items-center gap-2">
+          <Boxes size={22} class="text-accent" />
+          <h2 class="m-0 text-xl font-bold text-accent">PyFerro 2.0 Admin</h2>
         </div>
-        <button
-          type="button"
-          class="theme-toggle-btn"
+        <Button
+          variant="outline"
+          size="icon"
           onclick={toggleTheme}
           title={isDark() ? "Переключить на светлую тему" : "Переключить на тёмную тему"}
           aria-label="Переключить тему"
@@ -387,47 +259,44 @@
           {:else}
             <Moon size={16} />
           {/if}
-        </button>
+        </Button>
       </div>
-      <p style="color: var(--muted); font-size: 0.88rem; margin-top:0;">
+      <p class="text-muted text-sm mt-0 mb-4">
         Вход в панель управления (/pyferro_admin)
       </p>
       {#if errorMsg}
-        <p style="color: var(--danger); font-size: 0.88rem;">{errorMsg}</p>
+        <div class="p-2.5 mb-3 rounded border border-danger/40 bg-danger-subtle text-danger text-sm font-medium">
+          {errorMsg}
+        </div>
       {/if}
-      <div
-        style="display:flex; flex-direction:column; gap: 0.75rem; margin-top: 1rem;"
-      >
-        <input
-          class="input"
+      <div class="flex flex-col gap-3">
+        <Input
           placeholder="Имя пользователя"
           bind:value={loginUser}
           required
         />
-        <input
-          class="input"
+        <Input
           type="password"
           placeholder="Пароль"
           bind:value={loginPass}
           required
         />
-        <button class="btn" type="submit">Войти</button>
+        <Button type="submit" variant="primary" class="w-full justify-center">
+          Войти
+        </Button>
       </div>
     </form>
   </div>
 {:else if !canAccessAdminPanel()}
-  <div class="login-wrap">
-    <div class="login-box">
-      <h3 style="margin-top:0; color: var(--danger);">Доступ запрещен</h3>
-      <p style="color: var(--muted); font-size: 0.9rem;">
-        Пользователь <b>{authState.username}</b> не имеет ролей администратора (<code
-          >admin</code
-        >
-        или <code>adm_*</code>) и не может войти в <code>/pyferro_admin</code>.
+  <div class="flex min-h-screen items-center justify-center p-4">
+    <div class="w-full max-w-md bg-panel border border-border rounded-lg p-6 shadow-md">
+      <h3 class="mt-0 text-danger text-lg font-bold">Доступ запрещен</h3>
+      <p class="text-muted text-sm my-3">
+        Пользователь <b class="text-text-bright">{authState.username}</b> не имеет ролей администратора (<code class="bg-bg px-1 py-0.5 rounded text-accent">admin</code> или <code class="bg-bg px-1 py-0.5 rounded text-accent">adm_*</code>) и не может войти в <code>/pyferro_admin</code>.
       </p>
-      <button class="btn btn-outline" onclick={logoutAdmin}
-        >Выйти из аккаунта</button
-      >
+      <Button variant="outline" onclick={logoutAdmin}>
+        Выйти из аккаунта
+      </Button>
     </div>
   </div>
 {:else}
@@ -436,11 +305,11 @@
       <div class="brand">
         <div class="brand-left">
           <Boxes size={20} class="brand-title" />
-          <span class="brand-title">PyFerro 2.0</span>
+          <span class="brand-title font-bold">PyFerro 2.0</span>
         </div>
-        <button
-          type="button"
-          class="theme-toggle-btn"
+        <Button
+          variant="outline"
+          size="icon"
           onclick={toggleTheme}
           title={isDark() ? "Переключить на светлую тему" : "Переключить на тёмную тему"}
           aria-label="Переключить тему"
@@ -450,12 +319,12 @@
           {:else}
             <Moon size={15} />
           {/if}
-        </button>
+        </Button>
       </div>
 
-      <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 0.6rem; display: flex; align-items: center; justify-content: space-between;">
-        <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted);">Пользователь</span>
-        <span class="badge badge-sys">{authState.username}</span>
+      <div class="text-xs text-muted mb-2.5 flex items-center justify-between">
+        <span class="text-[0.72rem] uppercase tracking-wider text-muted">Пользователь</span>
+        <Badge variant="accent">{authState.username}</Badge>
       </div>
 
       {#if hasAdminSection("roles") || hasAdminSection("rpc")}
@@ -508,268 +377,78 @@
         </button>
       {/if}
 
-      <div
-        style="margin-top: auto; padding-top: 0.85rem; border-top: 1px solid var(--border);"
-      >
-        <div
-          style="font-size: 0.78rem; color: var(--muted); margin-bottom: 0.6rem; word-break: break-all;"
-        >
-          <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 0.2rem;">Роли:</div>
+      <div class="mt-auto pt-3 border-t border-border">
+        <div class="text-xs text-muted mb-2 break-all">
+          <div class="text-[0.72rem] uppercase tracking-wider text-muted mb-1">Роли:</div>
           {authState.roles.join(", ")}
         </div>
-        <button
-          class="btn btn-outline"
-          style="width:100%; justify-content: center;"
+        <Button
+          variant="outline"
+          class="w-full justify-center"
           onclick={logoutAdmin}
         >
           <LogOut size={15} />
           <span>Выйти</span>
-        </button>
+        </Button>
       </div>
     </aside>
 
     <main class="content">
-      {#if errorMsg}
-        <div
-          class="card"
-          style="border-color: var(--danger); margin-bottom: 1rem; color: #fca5a5;"
-        >
-          {errorMsg}
-        </div>
-      {/if}
-      {#if statusMsg}
-        <div
-          class="card"
-          style="border-color: var(--success); margin-bottom: 1rem; color: #86efac;"
-        >
-          {statusMsg}
-        </div>
-      {/if}
-
       {#if activeTab === "permissions"}
-        <div class="row-between">
-          <div>
-            <h2 style="margin:0;">Роли и плашки прав (Плашка.метод)</h2>
-            <small style="color: var(--muted);">
-              Любая таблица и любой кастомный RPC-метод группируются по точке в
-              единые карточки
-            </small>
-          </div>
-          {#if selectedRoleName !== "admin"}
-            <button class="btn" onclick={saveRolePermissions}>
-              Сохранить права для «{selectedRoleName}»
-            </button>
-          {/if}
-        </div>
-
-        <div class="card" style="margin-bottom: 1.25rem;">
-          <div
-            style="display:flex; flex-wrap:wrap; gap: 0.5rem; align-items:center;"
-          >
-            {#each rolesList as r}
-              <button
-                class="btn {selectedRoleName === r.name ? '' : 'btn-outline'}"
-                onclick={() => selectRoleForEdit(r)}
-              >
-                {r.name}
-                {#if r.is_system}
-                  <span class="badge badge-sys" style="margin-left:0.35rem;"
-                    >[Системная]</span
-                  >
-                {/if}
-              </button>
-              {#if !r.is_system && selectedRoleName === r.name}
-                <button
-                  class="btn btn-danger"
-                  onclick={() => deleteCustomRole(r)}
-                >
-                  <Trash2 size={14} />
-                  <span>Удалить роль</span>
-                </button>
-              {/if}
-            {/each}
-          </div>
-
-          <div style="display:flex; gap: 0.5rem; margin-top: 0.85rem;">
-            <input
-              class="input"
-              placeholder="Новая роль (например manager)"
-              bind:value={newRoleName}
-            />
-            <input
-              class="input"
-              placeholder="Описание роли"
-              bind:value={newRoleDesc}
-            />
-            <button class="btn btn-outline" onclick={createCustomRole}>
-              <Plus size={15} />
-              <span>Создать роль</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="card-grid">
-          {#each groupedMethodCards() as [cardName, methods]}
-            <div class="card">
-              <div class="card-header">
-                <span>{cardName}</span>
-                <span class="badge">{methods.length} RPC</span>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Метод</th>
-                    <th style="text-align:center;">Разрешено</th>
-                    <th style="text-align:center;">Только свои</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each methods as m}
-                    <tr>
-                      <td><code>.{m.action}</code></td>
-                      <td style="text-align:center;">
-                        <input
-                          type="checkbox"
-                          disabled={selectedRoleName === "admin"}
-                          checked={selectedRoleName === "admin" ||
-                            isMethodAllowed(m.full)}
-                          onchange={(e) =>
-                            toggleMethodAllowed(
-                              m.full,
-                              e.currentTarget.checked,
-                            )}
-                        />
-                      </td>
-                      <td style="text-align:center;">
-                        <input
-                          type="checkbox"
-                          disabled={selectedRoleName === "admin" || !isMethodAllowed(m.full)}
-                          checked={selectedRoleName !== "admin" &&
-                            isMethodOwnOnly(m.full)}
-                          onchange={(e) =>
-                            toggleMethodOwn(m.full, e.currentTarget.checked)}
-                        />
-                      </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {/each}
-        </div>
+        <PermissionsView
+          onnotify={handleNotify}
+          ondirtychange={(dirty) => (permissionsDirty = dirty)}
+        />
       {:else if activeTab === "users"}
-        <div class="row-between">
-          <h2 style="margin:0;">Управление пользователями</h2>
-          <div style="display:flex; gap: 0.5rem;">
-            <input class="input" placeholder="Логин" bind:value={newUsername} />
-            <input
-              class="input"
-              type="password"
-              placeholder="Пароль"
-              bind:value={newUserPass}
-            />
-            <button class="btn" onclick={createNewUser}>
-              <Plus size={15} />
-              <span>Создать пользователя</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="card">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Логин</th>
-                <th>Роли пользователя</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each usersList as u}
-                <tr>
-                  <td>{u.id}</td>
-                  <td><b>{u.username}</b></td>
-                  <td>
-                    <div style="display:flex; flex-wrap:wrap; gap: 0.65rem;">
-                      {#each rolesList as r}
-                        <label
-                          style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.84rem;"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={(u.roles || []).includes(r.name)}
-                            onchange={(e) =>
-                              toggleUserRole(
-                                u,
-                                r.name,
-                                e.currentTarget.checked,
-                              )}
-                          />
-                          <span>{r.name}</span>
-                          {#if r.is_system}
-                            <span class="badge badge-sys">[Системная]</span>
-                          {/if}
-                        </label>
-                      {/each}
-                    </div>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+        <UsersView onnotify={handleNotify} />
       {:else if activeTab === "crud"}
-        <div class="row-between">
-          <div style="display:flex; gap: 0.5rem; flex-wrap:wrap;">
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div class="flex gap-2 flex-wrap">
             {#each schemas as s}
-              <button
-                class="btn {selectedModel === s.name ? '' : 'btn-outline'}"
+              <Button
+                variant={selectedModel === s.name ? "primary" : "outline"}
                 onclick={() => selectModel(s.name)}
               >
                 {s.title} ({s.name})
-              </button>
+              </Button>
             {/each}
           </div>
-          <div style="display:flex; gap: 0.5rem;">
-            <input
-              class="input"
+          <div class="flex gap-2">
+            <Input
               placeholder="Поиск..."
               bind:value={searchQuery}
               onkeydown={(e) => e.key === "Enter" && loadModelRows()}
             />
-            <button class="btn btn-outline" onclick={loadModelRows}>
+            <Button variant="outline" onclick={loadModelRows}>
               <Search size={15} />
               <span>Найти</span>
-            </button>
+            </Button>
           </div>
         </div>
 
         {#if selectedModel}
           {@const currentSchema = schemas.find((x) => x.name === selectedModel)}
           {#if currentSchema}
-            <div class="card" style="margin-bottom: 1rem;">
-              <div class="card-header">
+            <Card class="mb-4">
+              <div class="flex items-center justify-between pb-2 mb-3 border-b border-border-subtle font-bold text-sm text-text-bright">
                 <span>Создать запись ({selectedModel}.create)</span>
-                <span class="badge">Всего записей: {tableTotal}</span>
+                <Badge variant="default">Всего записей: {tableTotal}</Badge>
               </div>
-              <div
-                style="display:flex; gap: 0.5rem; flex-wrap:wrap; align-items:center;"
-              >
+              <div class="flex gap-2 flex-wrap items-center">
                 {#each currentSchema.fields.filter((f) => !f.readonly) as f}
-                  <input
-                    class="input"
+                  <Input
                     placeholder={f.name}
                     bind:value={newRecordData[f.name]}
                   />
                 {/each}
-                <button class="btn" onclick={createModelRow}>
+                <Button variant="primary" onclick={createModelRow}>
                   <Plus size={15} />
                   <span>Добавить</span>
-                </button>
+                </Button>
               </div>
-            </div>
+            </Card>
 
-            <div class="card">
+            <Card>
               <table>
                 <thead>
                   <tr>
@@ -786,24 +465,61 @@
                         <td>{row[f.name] ?? ""}</td>
                       {/each}
                       <td>
-                        <button
-                          class="btn btn-danger"
+                        <Button
+                          variant="danger"
+                          size="sm"
                           onclick={() => deleteModelRow(row.id)}
                         >
                           <Trash2 size={14} />
                           <span>Удалить</span>
-                        </button>
+                        </Button>
+                      </td>
                     </tr>
                   {/each}
                 </tbody>
               </table>
-            </div>
+            </Card>
           {/if}
         {/if}
       {:else if activeTab === "seo"}
-        <SeoView onnotify={handleSeoNotify} />
+        <SeoView onnotify={handleNotify} />
       {:else if activeTab === "help"}
         <HelpView currentSlug={helpSlug} onNavigate={handleHelpNavigate} />
       {/if}
+
+      <!-- Модальное окно подтверждения при смене вкладки сайдбара -->
+      <Modal
+        open={showSidebarUnsavedModal}
+        onclose={() => { showSidebarUnsavedModal = false; pendingTab = null; }}
+        title="Несохраненные изменения"
+        maxWidth="max-w-md"
+      >
+        <div class="space-y-2 text-sm text-text">
+          <p>
+            В разделе матрицы прав есть несохраненные изменения.
+          </p>
+          <p class="text-xs text-muted">
+            Вы действительно хотите перейти в другой раздел? Несохраненные изменения прав будут потеряны.
+          </p>
+        </div>
+
+        {#snippet footer()}
+          <Button
+            variant="outline"
+            onclick={() => { showSidebarUnsavedModal = false; pendingTab = null; }}
+          >
+            Отмена
+          </Button>
+          <Button
+            variant="danger"
+            onclick={confirmSidebarTabSwitch}
+          >
+            Не сохранять
+          </Button>
+        {/snippet}
+      </Modal>
+    </main>
   </div>
 {/if}
+
+<ToastContainer />
