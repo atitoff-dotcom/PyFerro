@@ -47,3 +47,5 @@ include = ["pyferro2*"]
 
 [tool.pytest.ini_options]
 pythonpath = [".", "src"]
+testpaths = ["tests"]
+addopts = "--ignore=examples"

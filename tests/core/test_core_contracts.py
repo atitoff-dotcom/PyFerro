@@ -32,7 +32,6 @@ class TestConstants:
         assert admRole.adm_rpc == "adm_rpc"
         assert admRole.adm_help == "adm_help"
         assert admRole.adm_seo == "adm_seo"
-        assert admRole.adm_starters == "adm_starters"
 
     def test_role_sets_are_frozensets(self) -> None:
         assert isinstance(ADM_SECTION_ROLES, frozenset)

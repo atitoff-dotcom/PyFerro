@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyferro-demo"
+version = "0.1.0"
+description = "Showcase & educational demo application built on the PyFerro framework (SEO Forum, JSON-RPC, Granian RSGI)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Alex Titoff", email = "a.tit.off@gmail.com" }
+]
+keywords = ["pyferro", "demo", "forum", "showcase", "rsgi", "wsrpc"]
+dependencies = [
+    "pyferro>=2.1.0",
+]
+
+[project.scripts]
+pyferro-demo = "pyferro_demo.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/atitoff-dotcom/PyFerro"
+Repository = "https://github.com/atitoff-dotcom/PyFerro.git"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pyferro_demo*"]
+
+[tool.setuptools.package-data]
+"pyferro_demo" = [
+    "templates/*",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "src"]
+asyncio_mode = "auto"

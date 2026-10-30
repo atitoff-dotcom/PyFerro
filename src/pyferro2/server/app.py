@@ -48,8 +48,6 @@ from pyferro2.seo.site_tree import load_seo_from_db
 from pyferro2.seo.sitemap import handle_sitemap_http
 from pyferro2.server.auth_rpc import register_auth_rpc
 from pyferro2.server.tokens import TokenManager, extract_token_from_scope
-from pyferro2.starters import StartersManager, register_starters_rpc
-
 _JSON_CONTENT_TYPE: tuple[str, str] = ("content-type", "application/json; charset=utf-8")
 _FILE_SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
     ("x-content-type-options", "nosniff"),
@@ -94,7 +92,6 @@ class PyFerroApp:
         "token_manager",
         "file_storage",
         "crud",
-        "starters",
         "guest_session_data",
         "admin_path",
         "frontend_dist",
@@ -153,8 +150,6 @@ class PyFerroApp:
             lambda: self.guest_session_data.permissions,
         )
         register_help_rpc(self.router, self.docs_help_dir)
-        self.starters = StartersManager(db=self.db)
-        register_starters_rpc(self.router, self.starters)
 
     def _update_guest_permissions(self, permissions: frozenset[str]) -> None:
         """Обновляет in-memory кэш прав роли `guest` при изменении матрицы прав."""

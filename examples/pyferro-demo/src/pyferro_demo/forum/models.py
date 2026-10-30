@@ -1,6 +1,5 @@
 """
-SQLAlchemy-модели таблиц стартеров (строго с префиксом tst_*).
-Используют изолированный StarterBase, чтобы не попадать в системный Base.metadata ядра.
+SQLAlchemy-модели демонстрационного форума.
 """
 
 from __future__ import annotations
@@ -15,30 +14,20 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class StarterBase(DeclarativeBase):
-    """Изолированный базовый класс моделей стартеров."""
+class ForumBase(DeclarativeBase):
+    """Базовый класс моделей демонстрационного форума."""
     pass
 
 
-class TstMeta(StarterBase):
-    """Служебная таблица версионирования установленных стартеров."""
+class Topic(ForumBase):
+    """Древовидная иерархия разделов и тем форума."""
 
-    __tablename__ = "tst_meta"
-
-    starter_id: Mapped[str] = mapped_column(String(100), primary_key=True)
-    installed_version: Mapped[str] = mapped_column(String(50), nullable=False)
-    installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now_utc)
-
-
-class TstTopic(StarterBase):
-    """Древовидная иерархия разделов и веток форума."""
-
-    __tablename__ = "tst_topics"
+    __tablename__ = "forum_topics"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     parent_id: Mapped[int | None] = mapped_column(
         Integer,
-        ForeignKey("tst_topics.id", ondelete="CASCADE"),
+        ForeignKey("forum_topics.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
@@ -53,23 +42,23 @@ class TstTopic(StarterBase):
     )
 
     # Отношение к сообщениям
-    messages: Mapped[list[TstMessage]] = relationship(
-        "TstMessage",
+    messages: Mapped[list[Message]] = relationship(
+        "Message",
         back_populates="topic",
         cascade="all, delete-orphan",
-        order_by="TstMessage.created_at",
+        order_by="Message.created_at",
     )
 
 
-class TstMessage(StarterBase):
+class Message(ForumBase):
     """Сообщения внутри форумной ветки."""
 
-    __tablename__ = "tst_messages"
+    __tablename__ = "forum_messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     topic_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("tst_topics.id", ondelete="CASCADE"),
+        ForeignKey("forum_topics.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -78,4 +67,4 @@ class TstMessage(StarterBase):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now_utc)
 
     # Обратное отношение
-    topic: Mapped[TstTopic] = relationship("TstTopic", back_populates="messages")
+    topic: Mapped[Topic] = relationship("Topic", back_populates="messages")
