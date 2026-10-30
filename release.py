@@ -147,8 +147,9 @@ def build_help() -> None:
 
 def run_tests() -> None:
     print("\n🧪 Запуск тестов бэкенда (pytest)...")
-    venv_pytest = ROOT_DIR / ".venv" / "bin" / "pytest"
-    cmd = [str(venv_pytest) if venv_pytest.exists() else "pytest"]
+    python_bin = ROOT_DIR / ".venv" / "bin" / "python"
+    py = str(python_bin) if python_bin.exists() else sys.executable
+    cmd = [py, "-m", "pytest"]
     run_cmd(cmd)
     print("  ✓ Все тесты успешно пройдены!")
 

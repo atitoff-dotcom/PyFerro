@@ -44,3 +44,6 @@ include = ["pyferro2*"]
     "frontend/dist/*",
     "frontend/dist/**/*",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "src"]

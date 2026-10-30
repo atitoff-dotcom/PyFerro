@@ -13,6 +13,7 @@
   import HelpView from "./HelpView.svelte";
   import UsersView from "./UsersView.svelte";
   import PermissionsView from "./PermissionsView.svelte";
+  import StartersView from "./StartersView.svelte";
   import { initTheme, toggleTheme, isDark } from "./theme.svelte.js";
   import {
     Button,
@@ -367,6 +368,16 @@
         </button>
       {/if}
 
+      {#if hasAdminSection("starters")}
+        <button
+          class="nav-btn {activeTab === 'starters' ? 'active' : ''}"
+          onclick={() => selectTab("starters")}
+        >
+          <Boxes size={17} />
+          <span>Примеры и стартеры</span>
+        </button>
+      {/if}
+
       {#if hasAdminSection("help")}
         <button
           class="nav-btn {activeTab === 'help' ? 'active' : ''}"
@@ -483,6 +494,8 @@
         {/if}
       {:else if activeTab === "seo"}
         <SeoView onnotify={handleNotify} />
+      {:else if activeTab === "starters"}
+        <StartersView onnotify={handleNotify} />
       {:else if activeTab === "help"}
         <HelpView currentSlug={helpSlug} onNavigate={handleHelpNavigate} />
       {/if}

@@ -1,140 +1,14 @@
 {
-  "__init__.py": {
-    "mtime": 1792953441.0066392,
-    "seen": 1792953946.1783066,
-    "ast_hash": "c9f15bb0dc92e92cab59240b2a6d03ae",
-    "semantic_hash": ""
-  },
-  "auth/__init__.py": {
-    "mtime": 1792914716.0,
-    "seen": 1792937793.0506153,
-    "ast_hash": "b75d1301251a5a7819313732047bf1ee",
-    "semantic_hash": ""
-  },
-  "auth/models.py": {
-    "mtime": 1792914901.0,
-    "seen": 1792937793.0506191,
-    "ast_hash": "0d65ad1b9f6cd242aeb719885b702137",
-    "semantic_hash": ""
-  },
-  "auth/passwords.py": {
-    "mtime": 1792914685.0,
-    "seen": 1792937793.0506217,
-    "ast_hash": "dad77cb9845b30b0a086b881f52ffeca",
-    "semantic_hash": ""
-  },
-  "auth/seeder.py": {
-    "mtime": 1792943284.223988,
-    "seen": 1792945958.9504955,
-    "ast_hash": "2dfbc4acf95cdf821d8586e58f41fae7",
-    "semantic_hash": ""
-  },
-  "core/__init__.py": {
-    "mtime": 1792923293.0,
-    "seen": 1792937793.0506256,
-    "ast_hash": "2546c4cdf03baf2c57df5386ae8b2fc8",
-    "semantic_hash": ""
-  },
-  "core/constants.py": {
-    "mtime": 1792914010.0,
-    "seen": 1792937793.050628,
-    "ast_hash": "913bd9d8439d9446e8e60e3313ffd0f8",
-    "semantic_hash": ""
-  },
-  "core/session.py": {
-    "mtime": 1792919434.0,
-    "seen": 1792937793.0506296,
-    "ast_hash": "ab54cfe1b3bad86f21d292c642281299",
-    "semantic_hash": ""
-  },
-  "core/session_data.py": {
-    "mtime": 1792922475.0,
-    "seen": 1792937793.0506315,
-    "ast_hash": "7763b7884e08e780fbf6a4591b3cdb61",
-    "semantic_hash": ""
-  },
-  "core/tabular.py": {
-    "mtime": 1792953418.7544649,
-    "seen": 1792953946.1783237,
-    "ast_hash": "3b510305c6f6b629da133e3703fb1eec",
-    "semantic_hash": ""
-  },
-  "crud/__init__.py": {
-    "mtime": 1792919441.0,
-    "seen": 1792937793.0506625,
-    "ast_hash": "d959b1652ef83b7865130158d7c00e0f",
-    "semantic_hash": ""
-  },
-  "crud/engine.py": {
-    "mtime": 1792923295.0,
-    "seen": 1792937793.050665,
-    "ast_hash": "8bf6d81c7bb6c840bfb3334537a97718",
-    "semantic_hash": ""
-  },
-  "crud/rpc.py": {
-    "mtime": 1792922481.0,
-    "seen": 1792937793.0506668,
-    "ast_hash": "e57918f0ebd1b3c8a6fb9d79f327b142",
-    "semantic_hash": ""
-  },
-  "crud/spec.py": {
-    "mtime": 1792921481.0,
-    "seen": 1792937793.050669,
-    "ast_hash": "041fd2e28fd237079d41c82fc0ca264b",
-    "semantic_hash": ""
-  },
-  "db/__init__.py": {
-    "mtime": 1792953387.0512345,
-    "seen": 1792953946.1783304,
-    "ast_hash": "c4f4fd74ecfbc940e9697bc430a7414c",
-    "semantic_hash": ""
-  },
-  "db/base.py": {
-    "mtime": 1792914644.0,
-    "seen": 1792937793.050673,
-    "ast_hash": "5ebd50ef518c09464cb3892b094f55f8",
-    "semantic_hash": ""
-  },
-  "db/engine.py": {
-    "mtime": 1792923541.0,
-    "seen": 1792937793.050675,
-    "ast_hash": "8259ef11af9b512d84c7bc7edc9ac5fd",
-    "semantic_hash": ""
-  },
-  "files/__init__.py": {
-    "mtime": 1792917181.0,
-    "seen": 1792937793.0506768,
-    "ast_hash": "e9c455915f8a5aebc84e137b130fee35",
-    "semantic_hash": ""
-  },
-  "files/models.py": {
-    "mtime": 1792917114.0,
-    "seen": 1792937793.0506785,
-    "ast_hash": "cfd4ab66cb8e84f7a88c9ac6dfe6a5e6",
-    "semantic_hash": ""
-  },
-  "files/rpc.py": {
-    "mtime": 1792922479.0,
-    "seen": 1792937793.0506804,
-    "ast_hash": "31c4dd4fa860edf4be7a78f871508693",
-    "semantic_hash": ""
-  },
-  "files/storage.py": {
-    "mtime": 1792917130.0,
-    "seen": 1792937793.0506823,
-    "ast_hash": "e426aa5c56b86a27ad5190a7588a8441",
-    "semantic_hash": ""
-  },
   "frontend/package.json": {
-    "mtime": 1792921651.0,
-    "seen": 1792937793.0506845,
-    "ast_hash": "7a294ce9f9a3e97fb2f5612379b5c47a",
+    "mtime": 1793170404.1098735,
+    "seen": 1793347829.5874772,
+    "ast_hash": "c72bb5dc4df7321ee727c31550285bc2",
     "semantic_hash": ""
   },
   "frontend/src/App.svelte": {
-    "mtime": 1792921659.0,
-    "seen": 1792937793.0506864,
-    "ast_hash": "bab3a98029d2029118ab72d82087e5e4",
+    "mtime": 1793279329.1778748,
+    "seen": 1793347829.58748,
+    "ast_hash": "5bfacd4af9484b5c1432e4c23ad0ce50",
     "semantic_hash": ""
   },
   "frontend/src/auth.svelte.js": {
@@ -150,57 +24,15 @@
     "semantic_hash": ""
   },
   "frontend/src/rpc.js": {
-    "mtime": 1792953531.7565591,
-    "seen": 1792953946.1783485,
-    "ast_hash": "7be1906a2d95af3ffbbb0f4232cc98a0",
+    "mtime": 1793080605.3322194,
+    "seen": 1793347829.5874968,
+    "ast_hash": "70ffe3119b8640a8934540a66b3632ba",
     "semantic_hash": ""
   },
   "frontend/vite.config.js": {
-    "mtime": 1792921653.0,
-    "seen": 1792937793.050694,
-    "ast_hash": "5bdda822eae107e7ff8c9c1b6e65a647",
-    "semantic_hash": ""
-  },
-  "rpc/__init__.py": {
-    "mtime": 1792915493.0,
-    "seen": 1792937793.050696,
-    "ast_hash": "e56a1d88f66bf7f53ea39dbf49e8c509",
-    "semantic_hash": ""
-  },
-  "rpc/errors.py": {
-    "mtime": 1792915471.0,
-    "seen": 1792937793.0506978,
-    "ast_hash": "f176e8466cb17726bccfb73d6ade3fc6",
-    "semantic_hash": ""
-  },
-  "rpc/router.py": {
-    "mtime": 1792923293.0,
-    "seen": 1792937793.0506995,
-    "ast_hash": "40f3a980381481671580764ddec67d7c",
-    "semantic_hash": ""
-  },
-  "server/__init__.py": {
-    "mtime": 1792939655.0252903,
-    "seen": 1792945958.950538,
-    "ast_hash": "41608689da8cad1892a182d6b178b132",
-    "semantic_hash": ""
-  },
-  "server/app.py": {
-    "mtime": 1792942216.5706902,
-    "seen": 1792945958.9505396,
-    "ast_hash": "f84eb28ea5a76e3951f6c96d513f6d5f",
-    "semantic_hash": ""
-  },
-  "server/auth_rpc.py": {
-    "mtime": 1792922477.0,
-    "seen": 1792937793.0507054,
-    "ast_hash": "ebbe785d9329f6d8d93013afacc0441b",
-    "semantic_hash": ""
-  },
-  "server/tokens.py": {
-    "mtime": 1792939642.9700198,
-    "seen": 1792945958.9505436,
-    "ast_hash": "caa98c311420edefcccff09efaa1bf99",
+    "mtime": 1793170428.0756502,
+    "seen": 1793347829.5875142,
+    "ast_hash": "22263fc3f9a2ce162db17d492ab5711b",
     "semantic_hash": ""
   },
   "tests/auth/test_db_and_auth_models.py": {
@@ -210,9 +42,9 @@
     "semantic_hash": ""
   },
   "tests/core/test_core_contracts.py": {
-    "mtime": 1792914061.0,
-    "seen": 1792937793.0507114,
-    "ast_hash": "4d4255076196999b67c5b7ac58f2d6f8",
+    "mtime": 1793278340.8024688,
+    "seen": 1793347829.5875807,
+    "ast_hash": "936da1283d5500cb6c747d16b76886bb",
     "semantic_hash": ""
   },
   "tests/crud/test_crud_and_multireturn.py": {
@@ -222,15 +54,15 @@
     "semantic_hash": ""
   },
   "tests/rpc/test_rpc_router.py": {
-    "mtime": 1792922482.0,
-    "seen": 1792937793.0507154,
-    "ast_hash": "8de7bdaa2c1073c5439f15cc8dd00b75",
+    "mtime": 1793271792.0985034,
+    "seen": 1793347829.5875845,
+    "ast_hash": "acd79165220ae8cb827816f02cdf53c7",
     "semantic_hash": ""
   },
   "tests/server/test_server_and_files.py": {
-    "mtime": 1792941692.36271,
-    "seen": 1792945958.9505506,
-    "ast_hash": "ad4e67519f7c6a22761ea7d272838393",
+    "mtime": 1792997104.6251414,
+    "seen": 1793347829.5875869,
+    "ast_hash": "afaabdc363d5b498e266cd6b7164fade",
     "semantic_hash": ""
   },
   "tests/test_e2e_lifecycle.py": {
@@ -240,15 +72,15 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1792953629.3774757,
-    "seen": 1792953946.1783783,
-    "ast_hash": "6680eb43f68738ed91ba129dbfdfc0f8",
+    "mtime": 1792996357.8001726,
+    "seen": 1793347829.5875962,
+    "ast_hash": "fb65b941530aaeb5c43277568e33f014",
     "semantic_hash": ""
   },
   "ROADMAP_V2.md": {
-    "mtime": 1792940136.360937,
-    "seen": 1792945958.9505563,
-    "ast_hash": "c9fdaf164a73c22daf02114bbff92af3",
+    "mtime": 1793271815.2070253,
+    "seen": 1793347829.5875974,
+    "ast_hash": "f413a5c45d732f1c3e0a8cf2ea450b4d",
     "semantic_hash": ""
   },
   "frontend/index.html": {
@@ -263,70 +95,550 @@
     "ast_hash": "3bbf319513a7112dece3da50d9fa6e63",
     "semantic_hash": ""
   },
-  "__main__.py": {
-    "mtime": 1792942323.5944812,
-    "seen": 1792945958.950486,
-    "ast_hash": "207a852e455b6f65408af29d840fb4e4",
-    "semantic_hash": ""
-  },
   "main.py": {
     "mtime": 1792940740.1494823,
     "seen": 1792945958.9505289,
     "ast_hash": "b63bc1f32d0ad7fa7927a932f90c8969",
     "semantic_hash": ""
   },
-  "migrations/migration_v2_0_0.py": {
-    "mtime": 1792945049.1173582,
-    "seen": 1792945958.95053,
-    "ast_hash": "213bf39ca826a09d59a1bba9278d2259",
-    "semantic_hash": ""
-  },
   "pyproject.toml": {
-    "mtime": 1792945549.5345922,
-    "seen": 1792945958.9505312,
-    "ast_hash": "2ebc7127d47617c01c3ad0fed1dcca7e",
+    "mtime": 1793347801.567177,
+    "seen": 1793347829.587519,
+    "ast_hash": "c3e1f82d5fdb349998fed5dadeee09e6",
     "semantic_hash": ""
   },
   "release.py": {
-    "mtime": 1792946221.2603269,
-    "seen": 1792946252.584606,
-    "ast_hash": "f152f9a93f1e39e91e33eec4701cc85f",
-    "semantic_hash": ""
-  },
-  "server/test_client.py": {
-    "mtime": 1792939931.001011,
-    "seen": 1792945958.950542,
-    "ast_hash": "0fd1faa05684fddda5c3bc8b0b32b0be",
+    "mtime": 1793347813.1394806,
+    "seen": 1793347829.58752,
+    "ast_hash": "5400ca0da17facd11e81b408d23802d5",
     "semantic_hash": ""
   },
   "GEMINI.md": {
-    "mtime": 1792945177.6522121,
-    "seen": 1792945958.9505534,
-    "ast_hash": "2637ff28f3cc25cedeaa5044826d7f00",
-    "semantic_hash": ""
-  },
-  "db/pagination.py": {
-    "mtime": 1792953366.032722,
-    "seen": 1792953946.1783347,
-    "ast_hash": "becc8d3dcc0327cf6f1da22db1b7a995",
+    "mtime": 1793272045.1083708,
+    "seen": 1793347829.5875916,
+    "ast_hash": "5bf7a3966ac797e008fe07ae86ea548d",
     "semantic_hash": ""
   },
   "frontend/src/Pagination.svelte": {
-    "mtime": 1792953565.127532,
-    "seen": 1792953946.1783445,
-    "ast_hash": "87c7d5758266c7f2d597b5ef8ddcaad1",
+    "mtime": 1793210912.8864346,
+    "seen": 1793347829.5874836,
+    "ast_hash": "61c3e1e6da3d802531cd30a8cce80dec",
     "semantic_hash": ""
   },
   "tests/test_pagination.py": {
-    "mtime": 1792953467.1193364,
-    "seen": 1792953946.178374,
-    "ast_hash": "96bc7bc9ee21921e1cd3da58fd8f826c",
+    "mtime": 1792994408.737354,
+    "seen": 1793347829.5875905,
+    "ast_hash": "33e02645869a83772eb7872358970f60",
     "semantic_hash": ""
   },
   "PAGINATION.md": {
     "mtime": 1792953609.3869457,
     "seen": 1792953946.178377,
     "ast_hash": "e6b745e0f858ba31bb797c4b1d5e55e8",
+    "semantic_hash": ""
+  },
+  "frontend/src/HelpView.svelte": {
+    "mtime": 1793211241.3682728,
+    "seen": 1793347829.5874817,
+    "ast_hash": "c88e36f61e00a45de1a487b9a1037f6f",
+    "semantic_hash": ""
+  },
+  "frontend/src/PermissionsView.svelte": {
+    "mtime": 1793262577.2105,
+    "seen": 1793347829.587485,
+    "ast_hash": "e9afc72569707ca76b32be5e6f7bc7c5",
+    "semantic_hash": ""
+  },
+  "frontend/src/SeoView.svelte": {
+    "mtime": 1793211445.183532,
+    "seen": 1793347829.587487,
+    "ast_hash": "8ea911f5f738e54c0b061087f1c21f21",
+    "semantic_hash": ""
+  },
+  "frontend/src/StartersView.svelte": {
+    "mtime": 1793279222.6549087,
+    "seen": 1793347829.5874884,
+    "ast_hash": "be28cb27bf32852323dfe24756299239",
+    "semantic_hash": ""
+  },
+  "frontend/src/UsersView.svelte": {
+    "mtime": 1793259480.4598317,
+    "seen": 1793347829.58749,
+    "ast_hash": "31fd73cbfa3387383754dfa377f2154d",
+    "semantic_hash": ""
+  },
+  "frontend/src/theme.svelte.js": {
+    "mtime": 1793079967.9946387,
+    "seen": 1793347829.5874977,
+    "ast_hash": "0cf2d8773847cb6a0cca57fbd55eb60d",
+    "semantic_hash": ""
+  },
+  "frontend/src/ui/Badge.svelte": {
+    "mtime": 1793184255.743558,
+    "seen": 1793347829.587499,
+    "ast_hash": "eb9d8ac4d81218f42ff37cf4416ea267",
+    "semantic_hash": ""
+  },
+  "frontend/src/ui/Button.svelte": {
+    "mtime": 1793262557.233963,
+    "seen": 1793347829.5875006,
+    "ast_hash": "50af70e142a1736ef15e4c4ae6aeaf27",
+    "semantic_hash": ""
+  },
+  "frontend/src/ui/Card.svelte": {
+    "mtime": 1793184265.3085413,
+    "seen": 1793347829.5875015,
+    "ast_hash": "c1b273969a9ac1f769b0ef4f6d142208",
+    "semantic_hash": ""
+  },
+  "frontend/src/ui/Checkbox.svelte": {
+    "mtime": 1793214497.8538096,
+    "seen": 1793347829.587503,
+    "ast_hash": "d5507a37bf576318da2dfc20b9e4815d",
+    "semantic_hash": ""
+  },
+  "frontend/src/ui/Input.svelte": {
+    "mtime": 1793214495.2737396,
+    "seen": 1793347829.5875044,
+    "ast_hash": "ec5a2c6e1ee8b28eac9bac73dfcd515a",
+    "semantic_hash": ""
+  },
+  "frontend/src/ui/Modal.svelte": {
+    "mtime": 1793257591.2178345,
+    "seen": 1793347829.5875053,
+    "ast_hash": "d45567a81c76cd81f1adbaed1b1f8630",
+    "semantic_hash": ""
+  },
+  "frontend/src/ui/Select.svelte": {
+    "mtime": 1793214496.5657747,
+    "seen": 1793347829.5875065,
+    "ast_hash": "a10102f9ebdda585a71e023a45493099",
+    "semantic_hash": ""
+  },
+  "frontend/src/ui/ToastContainer.svelte": {
+    "mtime": 1793261531.2339556,
+    "seen": 1793347829.5875077,
+    "ast_hash": "3130e91b1a89fa9158b11522e0be566d",
+    "semantic_hash": ""
+  },
+  "frontend/src/ui/Toggle.svelte": {
+    "mtime": 1793257584.9176586,
+    "seen": 1793347829.5875087,
+    "ast_hash": "81286901624fe43f80ca7a2eedd0cdb9",
+    "semantic_hash": ""
+  },
+  "frontend/src/ui/index.js": {
+    "mtime": 1793261535.410073,
+    "seen": 1793347829.5875099,
+    "ast_hash": "d6c57d162d4cdebd4479ac87c2a48a21",
+    "semantic_hash": ""
+  },
+  "frontend/src/ui/toast.svelte.js": {
+    "mtime": 1793261527.005837,
+    "seen": 1793347829.5875108,
+    "ast_hash": "37d212ec6cc6cbf38d4273ab67536787",
+    "semantic_hash": ""
+  },
+  "frontend/src/widgets/PaginationDemo.svelte": {
+    "mtime": 1793210916.838561,
+    "seen": 1793347829.5875118,
+    "ast_hash": "e07af3f8a0537f61993e7b564482e7e0",
+    "semantic_hash": ""
+  },
+  "frontend/src/widgets/registry.js": {
+    "mtime": 1793027684.3317118,
+    "seen": 1793347829.5875127,
+    "ast_hash": "cd4259908fdf6e43da5cff6437ae0ac7",
+    "semantic_hash": ""
+  },
+  "generate_help.py": {
+    "mtime": 1793084063.0542157,
+    "seen": 1793347829.587515,
+    "ast_hash": "2940c99ff3304d21f3fca703b1eca725",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/__init__.py": {
+    "mtime": 1793016233.695261,
+    "seen": 1793347829.5875213,
+    "ast_hash": "b84620dd5eb5f78aac50329655c42936",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/__main__.py": {
+    "mtime": 1792942323.5944812,
+    "seen": 1793347829.5875223,
+    "ast_hash": "207a852e455b6f65408af29d840fb4e4",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/auth/__init__.py": {
+    "mtime": 1792914716.0,
+    "seen": 1793347829.5875232,
+    "ast_hash": "b75d1301251a5a7819313732047bf1ee",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/auth/models.py": {
+    "mtime": 1792914901.0,
+    "seen": 1793347829.5875244,
+    "ast_hash": "0d65ad1b9f6cd242aeb719885b702137",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/auth/passwords.py": {
+    "mtime": 1792914685.0,
+    "seen": 1793347829.5875254,
+    "ast_hash": "dad77cb9845b30b0a086b881f52ffeca",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/auth/seeder.py": {
+    "mtime": 1793278361.3470337,
+    "seen": 1793347829.5875263,
+    "ast_hash": "aacd8584f413f1f6789d1c8febea9276",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/core/__init__.py": {
+    "mtime": 1792923293.0,
+    "seen": 1793347829.5875275,
+    "ast_hash": "2546c4cdf03baf2c57df5386ae8b2fc8",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/core/constants.py": {
+    "mtime": 1793278292.5371425,
+    "seen": 1793347829.5875285,
+    "ast_hash": "72bebadd34eeffa9b422ee6ac36aee2e",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/core/session.py": {
+    "mtime": 1792994294.7901096,
+    "seen": 1793347829.5875294,
+    "ast_hash": "e250b4f0ad6b3ceac2fbace58ee8e4b3",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/core/session_data.py": {
+    "mtime": 1792922475.0,
+    "seen": 1793347829.5875306,
+    "ast_hash": "7763b7884e08e780fbf6a4591b3cdb61",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/core/tabular.py": {
+    "mtime": 1792953418.7544649,
+    "seen": 1793347829.5875316,
+    "ast_hash": "3b510305c6f6b629da133e3703fb1eec",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/crud/__init__.py": {
+    "mtime": 1792919441.0,
+    "seen": 1793347829.5875325,
+    "ast_hash": "d959b1652ef83b7865130158d7c00e0f",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/crud/engine.py": {
+    "mtime": 1793272255.3854432,
+    "seen": 1793347829.5875335,
+    "ast_hash": "888ba36fdd6b3a95728ea4c3ccd33844",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/crud/rpc.py": {
+    "mtime": 1792922481.0,
+    "seen": 1793347829.5875347,
+    "ast_hash": "e57918f0ebd1b3c8a6fb9d79f327b142",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/crud/spec.py": {
+    "mtime": 1793015633.9256172,
+    "seen": 1793347829.5875356,
+    "ast_hash": "53fed09acf0849a6d57e24e0d19a3816",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/db/__init__.py": {
+    "mtime": 1792953387.0512345,
+    "seen": 1793347829.5875366,
+    "ast_hash": "c4f4fd74ecfbc940e9697bc430a7414c",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/db/base.py": {
+    "mtime": 1792914644.0,
+    "seen": 1793347829.5875378,
+    "ast_hash": "5ebd50ef518c09464cb3892b094f55f8",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/db/engine.py": {
+    "mtime": 1792923541.0,
+    "seen": 1793347829.5875387,
+    "ast_hash": "8259ef11af9b512d84c7bc7edc9ac5fd",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/db/pagination.py": {
+    "mtime": 1792953366.032722,
+    "seen": 1793347829.5875397,
+    "ast_hash": "becc8d3dcc0327cf6f1da22db1b7a995",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/files/__init__.py": {
+    "mtime": 1792997049.5515354,
+    "seen": 1793347829.5875406,
+    "ast_hash": "f9aa44906861c4d91e7191a9a671a3a9",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/files/models.py": {
+    "mtime": 1792917114.0,
+    "seen": 1793347829.5875418,
+    "ast_hash": "cfd4ab66cb8e84f7a88c9ac6dfe6a5e6",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/files/rpc.py": {
+    "mtime": 1792922479.0,
+    "seen": 1793347829.5875428,
+    "ast_hash": "31c4dd4fa860edf4be7a78f871508693",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/files/storage.py": {
+    "mtime": 1792997047.2674687,
+    "seen": 1793347829.5875437,
+    "ast_hash": "5f0ed0a8208412d229a34ce0eb5a1be1",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/help/__init__.py": {
+    "mtime": 1793081540.7629232,
+    "seen": 1793347829.587545,
+    "ast_hash": "4135541d618c80ade2173720ad7f7776",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/help/help_data.json": {
+    "mtime": 1793347816.0835578,
+    "seen": 1793347829.5875459,
+    "ast_hash": "215afe371d033859eb841be53440a023",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/help/rpc.py": {
+    "mtime": 1793082217.2941895,
+    "seen": 1793347829.587547,
+    "ast_hash": "3021b5a619309d42e594113b28b65177",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/migrations/__init__.py": {
+    "mtime": 1793084161.4369826,
+    "seen": 1793347829.5875483,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/migrations/migration_v2_0_0.py": {
+    "mtime": 1792945049.1173582,
+    "seen": 1793347829.5875492,
+    "ast_hash": "213bf39ca826a09d59a1bba9278d2259",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/migrations/migration_v2_1_0.py": {
+    "mtime": 1793016230.3271644,
+    "seen": 1793347829.5875502,
+    "ast_hash": "1e6c9919b0d794665ac93083eb350dd5",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/rpc/__init__.py": {
+    "mtime": 1792915493.0,
+    "seen": 1793347829.587551,
+    "ast_hash": "e56a1d88f66bf7f53ea39dbf49e8c509",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/rpc/errors.py": {
+    "mtime": 1792915471.0,
+    "seen": 1793347829.5875525,
+    "ast_hash": "f176e8466cb17726bccfb73d6ade3fc6",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/rpc/router.py": {
+    "mtime": 1793272213.1444135,
+    "seen": 1793347829.5875535,
+    "ast_hash": "b5fe30bf28600055b9876fc7fa3c1096",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/seo/__init__.py": {
+    "mtime": 1793016053.1380572,
+    "seen": 1793347829.5875545,
+    "ast_hash": "abeb4583ed1c862b68dbc86bb9a11c46",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/seo/detector.py": {
+    "mtime": 1793015684.6911612,
+    "seen": 1793347829.5875556,
+    "ast_hash": "ac6f835075801fc497563987fa9ccbd9",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/seo/indexnow.py": {
+    "mtime": 1793015748.9410975,
+    "seen": 1793347829.5875566,
+    "ast_hash": "600e9da97a19432cf46e42f57e4a16a2",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/seo/jinja_engine.py": {
+    "mtime": 1793017180.2939441,
+    "seen": 1793347829.5875576,
+    "ast_hash": "f56ca8bc125ea2a96ada31ff424cd93e",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/seo/models.py": {
+    "mtime": 1793015683.0711122,
+    "seen": 1793347829.5875587,
+    "ast_hash": "95a9d9accfb2686ae492871faec59f26",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/seo/page_cache.py": {
+    "mtime": 1793015686.5152164,
+    "seen": 1793347829.5875597,
+    "ast_hash": "98d38c4512715cb15f788f9f144857f7",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/seo/renderer.py": {
+    "mtime": 1793015747.125043,
+    "seen": 1793347829.5875607,
+    "ast_hash": "cb68f0d9dfee037aa5a6891106deb5fa",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/seo/router.py": {
+    "mtime": 1793015997.86445,
+    "seen": 1793347829.5875618,
+    "ast_hash": "42edbaa9ce6e872d3fc9ee8b1f845e4a",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/seo/rpc.py": {
+    "mtime": 1793016051.51001,
+    "seen": 1793347829.5875628,
+    "ast_hash": "e986d007e3512ba794535fa17f7a5449",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/seo/site_tree.py": {
+    "mtime": 1793015939.7947526,
+    "seen": 1793347829.5875638,
+    "ast_hash": "0ed3f33e8f8eebb11b0d8863c4735c80",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/seo/sitemap.py": {
+    "mtime": 1793015996.5524116,
+    "seen": 1793347829.5875647,
+    "ast_hash": "82099180570b376ec835f89d90fbcafc",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/server/__init__.py": {
+    "mtime": 1792939655.0252903,
+    "seen": 1793347829.5875664,
+    "ast_hash": "41608689da8cad1892a182d6b178b132",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/server/app.py": {
+    "mtime": 1793278746.309671,
+    "seen": 1793347829.5875673,
+    "ast_hash": "55f461675fd9062313a00ca879951d0f",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/server/auth_rpc.py": {
+    "mtime": 1792922477.0,
+    "seen": 1793347829.5875683,
+    "ast_hash": "ebbe785d9329f6d8d93013afacc0441b",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/server/test_client.py": {
+    "mtime": 1792939931.001011,
+    "seen": 1793347829.5875695,
+    "ast_hash": "0fd1faa05684fddda5c3bc8b0b32b0be",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/server/tokens.py": {
+    "mtime": 1792994292.218036,
+    "seen": 1793347829.5875707,
+    "ast_hash": "2360247f63ff91bba8f1206d16bf6cd1",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/starters/__init__.py": {
+    "mtime": 1793278663.343372,
+    "seen": 1793347829.5875716,
+    "ast_hash": "4170cde7459ae13808ed4efb69dd5941",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/starters/catalog.py": {
+    "mtime": 1793278892.7777352,
+    "seen": 1793347829.5875728,
+    "ast_hash": "e88afbfeedaf5d4a2040b5ee8d4df04e",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/starters/manager.py": {
+    "mtime": 1793278945.0751882,
+    "seen": 1793347829.5875738,
+    "ast_hash": "9fac31331b52875cf3d905a27ec492a5",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/starters/models.py": {
+    "mtime": 1793279039.8738232,
+    "seen": 1793347829.5875747,
+    "ast_hash": "24e28e80ee02ed62e20bf3664fdbcd04",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/starters/rpc.py": {
+    "mtime": 1793278642.934807,
+    "seen": 1793347829.587576,
+    "ast_hash": "e39f4a64ff4f269cfe0d8e3513697fbe",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/starters/seeder.py": {
+    "mtime": 1793278961.2436373,
+    "seen": 1793347829.5875769,
+    "ast_hash": "d1d58fc53490ad8d63aa371b5ce93046",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/starters/seo.py": {
+    "mtime": 1793278532.6157563,
+    "seen": 1793347829.5875778,
+    "ast_hash": "f27d0465f1af9566a710d42d183572b0",
+    "semantic_hash": ""
+  },
+  "tests/help/test_help.py": {
+    "mtime": 1793082271.487719,
+    "seen": 1793347829.5875833,
+    "ast_hash": "02386fca2752b955add05733d36d8b1f",
+    "semantic_hash": ""
+  },
+  "tests/seo/test_seo.py": {
+    "mtime": 1793017467.8739688,
+    "seen": 1793347829.5875854,
+    "ast_hash": "1d6165e2615f60c3c44cb608429f9a81",
+    "semantic_hash": ""
+  },
+  "tests/starters/test_starters_lifecycle.py": {
+    "mtime": 1793278990.1444407,
+    "seen": 1793347829.5875878,
+    "ast_hash": "968ff5a5c3f9d90455376f7d32defbeb",
+    "semantic_hash": ""
+  },
+  "GUI.md": {
+    "mtime": 1793261479.104488,
+    "seen": 1793347829.5875926,
+    "ast_hash": "76a45dc5e93e306dbcd0946a09788260",
+    "semantic_hash": ""
+  },
+  "NGINX.md": {
+    "mtime": 1792997137.222089,
+    "seen": 1793347829.5875938,
+    "ast_hash": "3b5533c3b6a931eb31c87e2a000f6c6e",
+    "semantic_hash": ""
+  },
+  "docs/EXAMPLES.md": {
+    "mtime": 1793278242.8037782,
+    "seen": 1793347829.5875986,
+    "ast_hash": "b942f05d95fbf2eeac56af97af98908b",
+    "semantic_hash": ""
+  },
+  "docs/help/01_getting_started.md": {
+    "mtime": 1793096863.6039236,
+    "seen": 1793347829.5875995,
+    "ast_hash": "37334d17a952aa95387a20e270fecd91",
+    "semantic_hash": ""
+  },
+  "docs/help/02_crud_engine.md": {
+    "mtime": 1793026944.067154,
+    "seen": 1793347829.5876007,
+    "ast_hash": "b23a6ced4f414bb9c5f2183a3fbbe576",
+    "semantic_hash": ""
+  },
+  "docs/help/03_rpc_and_auth.md": {
+    "mtime": 1793084352.1463432,
+    "seen": 1793347829.5876017,
+    "ast_hash": "fcd7fe9588e97dbdfe7c5d4011f2afbb",
     "semantic_hash": ""
   }
 }
