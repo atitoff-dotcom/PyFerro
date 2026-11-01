@@ -9,15 +9,15 @@ import pytest
 
 from pyferro2.core.session import Session
 from pyferro2.core.session_data import SessionData
-from pyferro_demo.app import create_demo_app
+from pyferro_demo.app import app as demo_app
 
 
 @pytest.fixture
 async def app():
-    """Создает тестовое демо-приложение в памяти."""
-    demo_app = await create_demo_app(db_url="sqlite+aiosqlite:///:memory:")
+    """Инициализирует тестовое демо-приложение."""
+    await demo_app.startup()
     yield demo_app
-    await demo_app.db.close()
+    await demo_app.shutdown()
 
 
 class TestForumE2E:

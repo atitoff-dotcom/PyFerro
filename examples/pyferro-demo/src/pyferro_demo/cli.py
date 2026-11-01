@@ -5,10 +5,10 @@ CLI утилита запуска pyferro-demo.
 from __future__ import annotations
 
 import argparse
-import asyncio
+import os
 import sys
 
-from pyferro_demo.app import create_demo_app
+from granian import Granian
 
 
 def main() -> None:
@@ -35,6 +35,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    os.environ["PYFERRO_DEMO_DB"] = args.db
+
     print("=" * 60)
     print(" 🚀 Запуск PyFerro Showcase & Demo Application")
     print(f" 📦 База данных: {args.db}")
@@ -43,9 +45,14 @@ def main() -> None:
     print(" 🔑 Логин:       admin / Пароль: admin")
     print("=" * 60)
 
-    db_url = f"sqlite+aiosqlite:///{args.db}"
-    app = asyncio.run(create_demo_app(db_url=db_url))
-    app.run(host=args.host, port=args.port)
+    server = Granian(
+        "pyferro_demo.app:app",
+        address=args.host,
+        port=args.port,
+        interface="rsgi",
+        workers=1,
+    )
+    server.serve()
 
 
 if __name__ == "__main__":

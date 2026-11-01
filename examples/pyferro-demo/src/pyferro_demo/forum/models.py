@@ -7,19 +7,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from pyferro2.db.base import Base
 
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class ForumBase(DeclarativeBase):
-    """Базовый класс моделей демонстрационного форума."""
-    pass
-
-
-class Topic(ForumBase):
+class Topic(Base):
     """Древовидная иерархия разделов и тем форума."""
 
     __tablename__ = "forum_topics"
@@ -50,7 +47,7 @@ class Topic(ForumBase):
     )
 
 
-class Message(ForumBase):
+class Message(Base):
     """Сообщения внутри форумной ветки."""
 
     __tablename__ = "forum_messages"
