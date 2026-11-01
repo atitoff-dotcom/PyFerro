@@ -24,7 +24,7 @@ def main() -> None:
         help="Команда (по умолчанию run)",
     )
     parser.add_argument(
-        "--host", default="127.0.0.1", help="Хост сервера (по умолчанию 127.0.0.1)"
+        "--host", default="0.0.0.0", help="Хост сервера (по умолчанию 0.0.0.0 — все интерфейсы)"
     )
     parser.add_argument(
         "--port", type=int, default=8080, help="Порт сервера (по умолчанию 8080)"
@@ -43,6 +43,7 @@ def main() -> None:
     print(f" 🌐 Адрес:       http://{args.host}:{args.port}")
     print(f" 🛡️  Админка:     http://{args.host}:{args.port}/pyferro_admin/")
     print(" 🔑 Логин:       admin / Пароль: admin")
+    print("=" * 60)
     print("=" * 60)
 
     server = Granian(
