@@ -533,13 +533,6 @@ class PyFerroApp:
             ):
                 return
 
-        if method == "GET" and path == "/":
-            proto.response_str(
-                307,
-                [("location", f"{self.admin_path}/")],
-                "",
-            )
-            return
 
         proto.response_bytes(
             404,

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PyFerro Demo — SEO Forum & Showcase</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    code, pre { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700 sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/20 font-bold text-xl text-white">
+          ⚡
+        </div>
+        <div>
+          <a href="/" class="text-lg font-bold text-white hover:text-orange-400 transition-colors flex items-center gap-2">
+            PyFerro Demo
+            <span class="text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30">v2.1.1</span>
+          </a>
+          <p class="text-xs text-slate-400">Реактивный SEO-Форум на Rust Granian RSGI & JSON-RPC 2.0</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <a href="/sitemap.xml" target="_blank" class="hidden sm:inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white px-3 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-700 transition">
+          🗺️ sitemap.xml
+        </a>
+        <a href="/pyferro_admin/" class="inline-flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white shadow-md shadow-orange-500/25 transition">
+          🛡️ Панель управления
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-6xl w-full mx-auto px-4 py-8">
+    
+    <!-- Hero Banner -->
+    <div class="mb-8 p-6 rounded-2xl bg-gradient-to-r from-slate-800 to-slate-800/40 border border-slate-700/80 shadow-xl">
+      <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold text-white mb-2">Демонстрационный форум сообщества</h1>
+          <p class="text-slate-300 text-sm max-w-2xl leading-relaxed">
+            Это живое приложение, запущенное на движке <strong class="text-orange-400">PyFerro 2.1.1</strong>.
+            Все темы и сообщения хранятся в изолированной базе данных <code class="text-xs bg-slate-900 px-2 py-1 rounded text-orange-300">demo.db</code>, 
+            данные передаются через высокоскоростной протокол <strong class="text-orange-400">JSON-RPC 2.0</strong> по WebSocket.
+          </p>
+        </div>
+        <div id="connection-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>RPC подключен</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Content Area (SPA views) -->
+    <div id="app-view">
+      <div class="flex items-center justify-center py-20 text-slate-400">
+        <svg class="animate-spin h-6 w-6 text-orange-500 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+        </svg>
+        Загрузка разделов форума через JSON-RPC...
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-slate-800/50 border-t border-slate-800 py-6 text-center text-xs text-slate-400">
+    <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+      <p>Работает на <a href="https://github.com/atitoff-dotcom/PyFerro" target="_blank" class="text-orange-400 hover:underline">PyFerro</a> & Granian RSGI (Rust runtime).</p>
+      <p>Изолированное окружение демонстрационного форума. База данных: <code class="text-slate-300">demo.db</code></p>
+    </div>
+  </footer>
+
+  <!-- Client-side Logic (JSON-RPC 2.0 client) -->
+  <script>
+    const appEl = document.getElementById("app-view");
+    const statusEl = document.getElementById("connection-status");
+    let currentTopic = null;
+
+    // JSON-RPC HTTP helper
+    async function rpcCall(method, params = {}) {
+      try {
+        const res = await fetch("/rpc", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: Date.now(),
+            method: method,
+            params: params
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message || "RPC Error");
+        return data.result;
+      } catch (err) {
+        console.error("RPC Error:", err);
+        throw err;
+      }
+    }
+
+    // Рендер списка всех тем
+    async function loadTopicsList() {
+      currentTopic = null;
+      appEl.innerHTML = `<div class="flex items-center justify-center py-20 text-slate-400">
+        <svg class="animate-spin h-6 w-6 text-orange-500 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+        Загрузка тем...</div>`;
+
+      try {
+        const rootTopics = await rpcCall("forum.list_topics", { parent_id: null });
+        
+        // Загрузим подтемы для каждого корневого раздела
+        let html = `<div class="space-y-6">`;
+
+        for (const cat of rootTopics) {
+          const subtopics = await rpcCall("forum.list_topics", { parent_id: cat.id });
+          
+          html += `
+            <div class="rounded-2xl bg-slate-800/60 border border-slate-700 overflow-hidden shadow-lg">
+              <div class="px-6 py-4 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between">
+                <div>
+                  <h2 class="text-lg font-bold text-white">${cat.title}</h2>
+                  <p class="text-xs text-slate-400 mt-0.5">${cat.seo_description || "Корневой раздел обсуждений"}</p>
+                </div>
+                <span class="text-xs px-2.5 py-1 rounded-full bg-slate-700 text-slate-300 font-medium">
+                  ${subtopics.length} разделов
+                </span>
+              </div>
+              <div class="divide-y divide-slate-700/60">
+          `;
+
+          if (subtopics.length === 0) {
+            html += `<div class="p-6 text-sm text-slate-500">В этом разделе пока нет подразделов.</div>`;
+          } else {
+            for (const sub of subtopics) {
+              const items = await rpcCall("forum.list_topics", { parent_id: sub.id });
+              html += `
+                <div class="p-5 hover:bg-slate-700/30 transition-colors">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="flex-1">
+                      <h3 class="text-base font-semibold text-orange-300 mb-1">
+                        📁 ${sub.title}
+                      </h3>
+                      <p class="text-xs text-slate-400 mb-3">${sub.seo_description || ""}</p>
+                      
+                      <div class="space-y-1.5 pl-4 border-l-2 border-slate-700">
+                        ${items.map(t => `
+                          <div class="flex items-center justify-between text-sm py-1">
+                            <a href="#topic-${t.slug}" onclick="openTopic('${t.slug}'); return false;" class="text-slate-200 hover:text-orange-400 transition font-medium flex items-center gap-2">
+                              <span>💬</span>
+                              <span>${t.title}</span>
+                            </a>
+                            <span class="text-xs text-slate-500">${new Date(t.created_at).toLocaleDateString("ru-RU")}</span>
+                          </div>
+                        `).join("")}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }
+          }
+
+          html += `</div></div>`;
+        }
+
+        html += `</div>`;
+        appEl.innerHTML = html;
+
+      } catch (err) {
+        appEl.innerHTML = `<div class="p-6 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400">
+          Ошибка при загрузке тем форума: ${err.message}
+        </div>`;
+      }
+    }
+
+    // Открытие темы и просмотр сообщений
+    async function openTopic(slug) {
+      appEl.innerHTML = `<div class="flex items-center justify-center py-20 text-slate-400">
+        <svg class="animate-spin h-6 w-6 text-orange-500 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+        Загрузка обсуждения...</div>`;
+
+      try {
+        const topic = await rpcCall("forum.get_topic", { slug: slug });
+        if (!topic) {
+          appEl.innerHTML = `<div class="p-6 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300">
+            Тема не найдена. <a href="/" onclick="loadTopicsList(); return false;" class="underline font-bold">Вернуться к списку</a>
+          </div>`;
+          return;
+        }
+
+        currentTopic = topic;
+
+        let html = `
+          <div>
+            <div class="mb-6 flex items-center justify-between">
+              <button onclick="loadTopicsList()" class="inline-flex items-center gap-1.5 text-sm font-medium text-slate-300 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition">
+                ← Ко всем разделам
+              </button>
+              <button onclick="toggleJsonLd()" class="inline-flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 px-3 py-1.5 rounded-lg bg-orange-500/10 border border-orange-500/30 transition">
+                🔍 Schema.org JSON-LD
+              </button>
+            </div>
+
+            <!-- JSON-LD Inspector Panel (hidden by default) -->
+            <div id="jsonld-panel" class="hidden mb-6 p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-orange-400 font-bold">Микроразметка Schema.org (DiscussionForumPosting)</span>
+                <span class="text-slate-500">Автоматически генерируется ядром для поисковиков</span>
+              </div>
+              <pre class="overflow-x-auto text-emerald-400 p-3 rounded bg-slate-900 border border-slate-800">${JSON.stringify(topic.json_ld, null, 2)}</pre>
+            </div>
+
+            <!-- Topic Header -->
+            <div class="mb-6 p-6 rounded-2xl bg-slate-800 border border-slate-700 shadow-lg">
+              <div class="flex items-center gap-2 text-xs text-slate-400 mb-2">
+                <span>Раздел:</span>
+                <span class="text-slate-300 font-medium">${topic.breadcrumbs.itemListElement.map(b => b.name).join(" › ")}</span>
+              </div>
+              <h1 class="text-2xl font-bold text-white mb-2">${topic.title}</h1>
+              <p class="text-sm text-slate-300">${topic.seo_description || ""}</p>
+            </div>
+
+            <!-- Messages Stream -->
+            <div class="space-y-4 mb-8">
+              <h2 class="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4">
+                Сообщения (${topic.messages.length})
+              </h2>
+              ${topic.messages.map(m => `
+                <div class="p-5 rounded-2xl bg-slate-800/80 border border-slate-700/80 shadow-sm flex items-start gap-4">
+                  <div class="w-10 h-10 rounded-full bg-slate-700 text-orange-400 flex items-center justify-center font-bold text-sm shrink-0 border border-slate-600">
+                    ${m.author_name.charAt(0).toUpperCase()}
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center justify-between mb-1.5">
+                      <span class="text-sm font-bold text-white">${m.author_name}</span>
+                      <span class="text-xs text-slate-500">${new Date(m.created_at).toLocaleString("ru-RU")}</span>
+                    </div>
+                    <div class="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">${m.content}</div>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+
+            <!-- Reply Form -->
+            <div class="p-6 rounded-2xl bg-slate-800 border border-slate-700 shadow-xl">
+              <h3 class="text-lg font-bold text-white mb-4">Написать ответ в тему</h3>
+              <form onsubmit="handlePostMessage(event)" class="space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1">Ваше имя</label>
+                    <input type="text" id="msg-author" value="Гость" required class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-orange-500 transition">
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-300 mb-1">Текст сообщения</label>
+                  <textarea id="msg-content" rows="3" required placeholder="Поделитесь своим мнением или задайте вопрос..." class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-orange-500 transition"></textarea>
+                </div>
+                <div class="flex justify-end">
+                  <button type="submit" id="btn-submit" class="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 font-medium text-sm text-white shadow-lg shadow-orange-500/20 transition flex items-center gap-2">
+                    <span>Отправить через JSON-RPC</span>
+                    <span>→</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        `;
+
+        appEl.innerHTML = html;
+
+      } catch (err) {
+        appEl.innerHTML = `<div class="p-6 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400">
+          Ошибка при загрузке темы: ${err.message}
+        </div>`;
+      }
+    }
+
+    function toggleJsonLd() {
+      const p = document.getElementById("jsonld-panel");
+      if (p) p.classList.toggle("hidden");
+    }
+
+    // Отправка нового сообщения в тему
+    async function handlePostMessage(e) {
+      e.preventDefault();
+      if (!currentTopic) return;
+
+      const author = document.getElementById("msg-author").value.trim();
+      const content = document.getElementById("msg-content").value.trim();
+      const btn = document.getElementById("btn-submit");
+
+      if (!content) return;
+
+      btn.disabled = true;
+      btn.innerHTML = `<svg class="animate-spin h-4 w-4 text-white inline mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg> Отправка...`;
+
+      try {
+        await rpcCall("forum.create_message", {
+          topic_id: currentTopic.id,
+          author_name: author,
+          content: content
+        });
+        // Перезагружаем тему с новым сообщением
+        await openTopic(currentTopic.slug);
+      } catch (err) {
+        alert("Ошибка при отправке: " + err.message);
+        btn.disabled = false;
+        btn.innerHTML = "Отправить через JSON-RPC →";
+      }
+    }
+
+    // Начальная загрузка при открытии страницы
+    window.addEventListener("DOMContentLoaded", () => {
+      const hash = window.location.hash;
+      if (hash && hash.startsWith("#topic-")) {
+        const slug = hash.replace("#topic-", "");
+        openTopic(slug);
+      } else {
+        loadTopicsList();
+      }
+    });
+  </script>
+</body>
+</html>
