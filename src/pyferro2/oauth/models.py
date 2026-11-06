@@ -57,7 +57,7 @@ class OAuthAccount(Base):
         DateTime(timezone=True), default=_utc_now, nullable=False
     )
 
-    user: Mapped["User"] = relationship("User", back_populates="oauth_accounts")
+    user: Mapped["User"] = relationship("pyferro2.auth.models.User", back_populates="oauth_accounts")
 
     @property
     def profile_data(self) -> dict[str, Any]:

@@ -174,7 +174,7 @@ class User(Base):
         lazy="selectin",
     )
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(
-        "OAuthAccount",
+        "pyferro2.oauth.models.OAuthAccount",
         back_populates="user",
         cascade="all, delete-orphan",
         lazy="selectin",
