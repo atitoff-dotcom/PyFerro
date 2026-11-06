@@ -39,8 +39,27 @@
     Search,
     Trash2,
     Link2,
+    CheckCircle2,
   } from "@lucide/svelte";
 
+  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const isPopupMode = urlParams ? (urlParams.get("popup") === "1" || urlParams.get("mode") === "popup") : false;
+
+  function notifyAuthSuccess(token, user) {
+    if (typeof window !== "undefined" && window.opener) {
+      try {
+        window.opener.postMessage(
+          { type: "pyferro_auth_success", token, user },
+          window.location.origin
+        );
+      } catch (e) {
+        console.warn("Failed to postMessage to opener:", e);
+      }
+      setTimeout(() => {
+        window.close();
+      }, 150);
+    }
+  }
   let activeTab = $state("permissions");
   let loginUser = $state("");
   let loginPass = $state("");
@@ -96,6 +115,10 @@
       if (res && res.user) {
         toast.success(`Добро пожаловать, ${res.user.username}!`);
         await refreshSession();
+        if (isPopupMode && typeof window !== "undefined" && window.opener) {
+          notifyAuthSuccess(res.token || getStoredToken(), res.user);
+          return;
+        }
         if (canAccessAdminPanel()) {
           pickInitialTab();
           await loadActiveTab();
@@ -137,6 +160,10 @@
       } else if (res.status === "registered") {
         toast.success("Регистрация успешна!");
         await refreshSession();
+        if (isPopupMode && typeof window !== "undefined" && window.opener) {
+          notifyAuthSuccess(getStoredToken(), authState);
+          return;
+        }
         if (canAccessAdminPanel()) {
           pickInitialTab();
           await loadActiveTab();
@@ -158,6 +185,10 @@
       if (res.status === "verified") {
         toast.success("Email подтвержден! Вход выполнен.");
         await refreshSession();
+        if (isPopupMode && typeof window !== "undefined" && window.opener) {
+          notifyAuthSuccess(getStoredToken(), authState);
+          return;
+        }
         if (canAccessAdminPanel()) {
           pickInitialTab();
           await loadActiveTab();
@@ -198,6 +229,10 @@
     });
 
     await refreshSession();
+    if (isPopupMode && authState.userId && typeof window !== "undefined" && window.opener) {
+      notifyAuthSuccess(getStoredToken(), authState);
+      return;
+    }
     if (canAccessAdminPanel()) {
       pickInitialTab();
       await loadActiveTab();
@@ -347,8 +382,12 @@
     ev.preventDefault();
     errorMsg = "";
     try {
-      await loginAdmin(loginUser, loginPass);
+      const u = await loginAdmin(loginUser, loginPass);
       loginPass = "";
+      if (isPopupMode && typeof window !== "undefined" && window.opener) {
+        notifyAuthSuccess(getStoredToken(), u);
+        return;
+      }
       if (canAccessAdminPanel()) {
         pickInitialTab();
         await loadActiveTab();
@@ -522,6 +561,24 @@
           {/each}
         </div>
       {/if}
+    </div>
+  </div>
+{:else if isPopupMode}
+  <div class="flex min-h-screen items-center justify-center p-4">
+    <div class="w-full max-w-sm bg-panel border border-border rounded-lg p-6 shadow-md text-center">
+      <CheckCircle2 size={48} class="text-emerald-500 mx-auto mb-3" />
+      <h3 class="mt-0 text-lg font-bold">Вы успешно вошли</h3>
+      <p class="text-muted text-sm my-3">
+        Вы авторизованы как <b class="text-text-bright">{authState.username}</b>.
+      </p>
+      <Button variant="primary" class="w-full justify-center" onclick={() => {
+        if (typeof window !== "undefined") {
+          notifyAuthSuccess(getStoredToken(), authState);
+          window.close();
+        }
+      }}>
+        Закрыть окно
+      </Button>
     </div>
   </div>
 {:else if !canAccessAdminPanel()}
