@@ -10,6 +10,7 @@
 
 from typing import Any
 
+from pyferro2.oauth.models import AuthConfig, OAuthAccount
 from sqlalchemy import (
     Boolean,
     Column,
@@ -172,9 +173,16 @@ class User(Base):
         back_populates="users",
         lazy="selectin",
     )
+    oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(
+        "OAuthAccount",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
     def __init__(self, **kwargs: Any) -> None:
         kwargs.setdefault("roles", [])
+        kwargs.setdefault("oauth_accounts", [])
         super().__init__(**kwargs)
 
     def set_password(self, raw_password: str) -> None:

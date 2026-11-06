@@ -6,9 +6,9 @@
     "semantic_hash": ""
   },
   "frontend/src/App.svelte": {
-    "mtime": 1793348744.4159858,
-    "seen": 1793349013.3266459,
-    "ast_hash": "852a59b582dd4359ae19d0508563939b",
+    "mtime": 1793955411.649745,
+    "seen": 1793955919.3397841,
+    "ast_hash": "0a0e50829588ab047f0f37a29231b338",
     "semantic_hash": ""
   },
   "frontend/src/auth.svelte.js": {
@@ -102,9 +102,9 @@
     "semantic_hash": ""
   },
   "pyproject.toml": {
-    "mtime": 1793348911.8604076,
-    "seen": 1793349013.3266807,
-    "ast_hash": "787a56df62205d31d474eb9fe11057fc",
+    "mtime": 1793517355.7092006,
+    "seen": 1793955919.3398218,
+    "ast_hash": "4641d4d586dd7ede15db766497c4bd37",
     "semantic_hash": ""
   },
   "release.py": {
@@ -252,9 +252,9 @@
     "semantic_hash": ""
   },
   "src/pyferro2/__init__.py": {
-    "mtime": 1793347829.7239153,
-    "seen": 1793349013.3266828,
-    "ast_hash": "b84620dd5eb5f78aac50329655c42936",
+    "mtime": 1793349230.1847646,
+    "seen": 1793955919.3398244,
+    "ast_hash": "158e5b9d27e140a734b8173723766fdc",
     "semantic_hash": ""
   },
   "src/pyferro2/__main__.py": {
@@ -270,9 +270,9 @@
     "semantic_hash": ""
   },
   "src/pyferro2/auth/models.py": {
-    "mtime": 1792914901.0,
-    "seen": 1793347829.5875244,
-    "ast_hash": "0d65ad1b9f6cd242aeb719885b702137",
+    "mtime": 1793948790.7904282,
+    "seen": 1793955919.339828,
+    "ast_hash": "ded826636f0ecd6630b0c042e2707f57",
     "semantic_hash": ""
   },
   "src/pyferro2/auth/passwords.py": {
@@ -396,8 +396,8 @@
     "semantic_hash": ""
   },
   "src/pyferro2/help/help_data.json": {
-    "mtime": 1793349218.2284515,
-    "seen": 1793349230.0890248,
+    "mtime": 1793955905.6350424,
+    "seen": 1793955919.3398545,
     "ast_hash": "3a65623fa97fdf55978d587436636f33",
     "semantic_hash": ""
   },
@@ -432,9 +432,9 @@
     "semantic_hash": ""
   },
   "src/pyferro2/rpc/errors.py": {
-    "mtime": 1792915471.0,
-    "seen": 1793347829.5875525,
-    "ast_hash": "f176e8466cb17726bccfb73d6ade3fc6",
+    "mtime": 1793949175.8612514,
+    "seen": 1793955919.3398714,
+    "ast_hash": "4b10fe04263238271a5af16c2ff8dd9b",
     "semantic_hash": ""
   },
   "src/pyferro2/rpc/router.py": {
@@ -516,9 +516,9 @@
     "semantic_hash": ""
   },
   "src/pyferro2/server/app.py": {
-    "mtime": 1793348678.8062465,
-    "seen": 1793349013.3267376,
-    "ast_hash": "7c7d4acd84ccacda6a7946b9188cd1cf",
+    "mtime": 1793955400.2334368,
+    "seen": 1793955919.339889,
+    "ast_hash": "b716da2277e2b727bfb28122c7e43b77",
     "semantic_hash": ""
   },
   "src/pyferro2/server/auth_rpc.py": {
@@ -581,82 +581,70 @@
     "ast_hash": "fcd7fe9588e97dbdfe7c5d4011f2afbb",
     "semantic_hash": ""
   },
-  "examples/pyferro-demo/pyproject.toml": {
-    "mtime": 1793348357.0336351,
-    "seen": 1793349013.3266273,
-    "ast_hash": "c66dc25875284ceea36503fdc6a27910",
-    "semantic_hash": ""
-  },
-  "examples/pyferro-demo/src/pyferro_demo/__init__.py": {
-    "mtime": 1793348373.394077,
-    "seen": 1793349013.32663,
-    "ast_hash": "45b509dc568338e962263fe40ad6f722",
-    "semantic_hash": ""
-  },
-  "examples/pyferro-demo/src/pyferro_demo/__main__.py": {
-    "mtime": 1793348477.0728662,
-    "seen": 1793349013.3266318,
-    "ast_hash": "b72a976d427ab1d49d27b6af0a891086",
-    "semantic_hash": ""
-  },
-  "examples/pyferro-demo/src/pyferro_demo/app.py": {
-    "mtime": 1793348506.5256553,
-    "seen": 1793349013.326633,
-    "ast_hash": "583782251579efb0e774f4b4116212eb",
-    "semantic_hash": ""
-  },
-  "examples/pyferro-demo/src/pyferro_demo/cli.py": {
-    "mtime": 1793348471.2007089,
-    "seen": 1793349013.326634,
-    "ast_hash": "04c2e7f64e99a6ddda8674ff87f8cfa4",
-    "semantic_hash": ""
-  },
-  "examples/pyferro-demo/src/pyferro_demo/forum/__init__.py": {
-    "mtime": 1793348380.3102639,
-    "seen": 1793349013.3266354,
-    "ast_hash": "fbab1d70abc16c284fd69902c555102a",
-    "semantic_hash": ""
-  },
-  "examples/pyferro-demo/src/pyferro_demo/forum/models.py": {
-    "mtime": 1793348391.0825543,
-    "seen": 1793349013.3266366,
-    "ast_hash": "9fe67b1ab6563b5f3e948d2c3fa40042",
-    "semantic_hash": ""
-  },
-  "examples/pyferro-demo/src/pyferro_demo/forum/rpc.py": {
-    "mtime": 1793348601.724197,
-    "seen": 1793349013.3266375,
-    "ast_hash": "b027fc1f3fe76f681e64ba635cdce5b3",
-    "semantic_hash": ""
-  },
-  "examples/pyferro-demo/src/pyferro_demo/forum/seeder.py": {
-    "mtime": 1793348411.8991153,
-    "seen": 1793349013.3266387,
-    "ast_hash": "83c213056714fa424900426270e737f1",
-    "semantic_hash": ""
-  },
-  "examples/pyferro-demo/src/pyferro_demo/forum/seo.py": {
-    "mtime": 1793348424.4194522,
-    "seen": 1793349013.3266397,
-    "ast_hash": "4827c02061ff4e458b2b0ec35429f776",
-    "semantic_hash": ""
-  },
-  "examples/pyferro-demo/tests/test_forum_e2e.py": {
-    "mtime": 1793348570.9513767,
-    "seen": 1793349013.3266408,
-    "ast_hash": "8b6dfef62d277b082f96dc25b05cbe4b",
-    "semantic_hash": ""
-  },
   "docs/help/04_demo_and_examples.md": {
     "mtime": 1793348763.8965015,
     "seen": 1793349013.3267653,
     "ast_hash": "8ced8bd12a5f313d65238dfbb6e703de",
     "semantic_hash": ""
   },
-  "examples/pyferro-demo/README.md": {
-    "mtime": 1793348367.0259051,
-    "seen": 1793349013.3267665,
-    "ast_hash": "a6a20a3c9bb6a4a2e7001279a07905d7",
+  "frontend/src/OAuthView.svelte": {
+    "mtime": 1793949525.739094,
+    "seen": 1793955919.3397882,
+    "ast_hash": "958fc14dd8959b871aee715a3a7186e7",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/migrations/migration_v2_2_0.py": {
+    "mtime": 1793955889.9426239,
+    "seen": 1793955919.339861,
+    "ast_hash": "7283499bb0f0889dbe35a9e9fad735e8",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/oauth/__init__.py": {
+    "mtime": 1793948080.3545313,
+    "seen": 1793955919.3398623,
+    "ast_hash": "416c1b67fd6a88e376671b0bbc782328",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/oauth/http_client.py": {
+    "mtime": 1793948928.8663073,
+    "seen": 1793955919.3398635,
+    "ast_hash": "7a375eb15b7bd7acd91dc2213f63a69d",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/oauth/mailer.py": {
+    "mtime": 1793948947.5028312,
+    "seen": 1793955919.3398645,
+    "ast_hash": "944bf2b1a5af105bef3dd777610f3f35",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/oauth/manager.py": {
+    "mtime": 1793949005.2844553,
+    "seen": 1793955919.3398657,
+    "ast_hash": "b7531a176fe724bc634933281c97abf2",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/oauth/models.py": {
+    "mtime": 1793948845.2879589,
+    "seen": 1793955919.3398666,
+    "ast_hash": "de45354db481380e825bd08459f558f0",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/oauth/providers.py": {
+    "mtime": 1793948980.2477515,
+    "seen": 1793955919.3398676,
+    "ast_hash": "1f2aa012564c8ddf0a45abc321909b81",
+    "semantic_hash": ""
+  },
+  "src/pyferro2/oauth/rpc.py": {
+    "mtime": 1793949203.6140318,
+    "seen": 1793955919.339869,
+    "ast_hash": "6e01eaff049741168e552c7f3afcb04f",
+    "semantic_hash": ""
+  },
+  "tests/auth/test_oauth_and_registration.py": {
+    "mtime": 1793955462.2031002,
+    "seen": 1793955919.3398952,
+    "ast_hash": "c34d9a3135dc66ae9dc9895e51507fd5",
     "semantic_hash": ""
   }
 }

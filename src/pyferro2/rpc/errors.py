@@ -65,3 +65,15 @@ class InvalidParamsError(RpcError):
 
     default_code = JsonRpcErrorCode.INVALID_PARAMS
     default_message = "Некорректные параметры вызова"
+
+
+class ValidationError(InvalidParamsError):
+    """Ошибка валидации прикладных данных (-32602)."""
+    pass
+
+
+class NotFoundError(RpcError):
+    """Запрошенный ресурс или запись не найдена (-32004)."""
+
+    default_code = -32004
+    default_message = "Запись не найдена"

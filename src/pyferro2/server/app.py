@@ -46,6 +46,7 @@ from pyferro2.seo.router import handle_bot_http
 from pyferro2.seo.rpc import register_seo_rpc
 from pyferro2.seo.site_tree import load_seo_from_db
 from pyferro2.seo.sitemap import handle_sitemap_http
+from pyferro2.oauth.rpc import register_oauth_rpc
 from pyferro2.server.auth_rpc import register_auth_rpc
 from pyferro2.server.tokens import TokenManager, extract_token_from_scope
 _JSON_CONTENT_TYPE: tuple[str, str] = ("content-type", "application/json; charset=utf-8")
@@ -141,6 +142,7 @@ class PyFerroApp:
 
         # Регистрируем встроенные системные, файловые, CRUD и SEO RPC-методы
         register_auth_rpc(self.router, self.token_manager)
+        register_oauth_rpc(self.router, self.token_manager)
         register_file_rpc(self.router, self.file_storage, self.token_manager)
         register_crud_rpc(self.router, self.crud)
         register_seo_rpc(
@@ -480,6 +482,10 @@ class PyFerroApp:
             proto.response_bytes(200, [_JSON_CONTENT_TYPE], resp_bytes or b"")
             return
 
+        if path == "/auth/callback" and method == "GET":
+            await self._handle_http_oauth_callback(proto)
+            return
+
         if path == "/upload" and method == "POST":
             await self._handle_http_upload(scope, proto, session_data)
             return
@@ -539,6 +545,27 @@ class PyFerroApp:
             [_JSON_CONTENT_TYPE],
             orjson.dumps({"error": "Not Found", "path": path}),
         )
+
+    async def _handle_http_oauth_callback(self, proto: Any) -> None:
+        """Легковесный HTML-callback для всплывающего окна (Popup) внешней авторизации."""
+        html = (
+            b'<!DOCTYPE html><html><head><meta charset="utf-8"><title>OAuth Callback</title></head><body>'
+            b'<p style="font-family:sans-serif;text-align:center;margin-top:20px;">'
+            b'\xd0\x90\xd0\xb2\xd1\x82\xd0\xbe\xd1\x80\xd0\xb8\xd0\xb7\xd0\xb0\xd1\x86\xd0\xb8\xd1\x8f \xd1\x83\xd1\x81\xd0\xbf\xd0\xb5\xd1\x88\xd0\xbd\xd0\xb0. \xd0\x97\xd0\xb0\xd0\xba\xd1\x80\xd1\x8b\xd1\x82\xd0\xb8\xd0\xb5 \xd0\xbe\xd0\xba\xd0\xbd\xd0\xb0...</p>'
+            b'<script>(function(){'
+            b'var p=new URLSearchParams(window.location.search);'
+            b'var payload={};'
+            b'p.forEach(function(v,k){payload[k]=v;});'
+            b'var c=p.get("code"),s=p.get("state")||"",e=p.get("error")||p.get("error_description");'
+            b'if(window.opener){'
+            b'window.opener.postMessage({type:"oauth_callback",code:c,state:s,error:e,payload:payload},window.location.origin);'
+            b'window.close();'
+            b'}else{'
+            b'window.location.href="/pyferro_admin";'
+            b'}'
+            b'})();</script></body></html>'
+        )
+        proto.response_bytes(200, [("content-type", "text/html; charset=utf-8")], html)
 
     async def _handle_http_admin_spa(self, path: str, proto: Any) -> None:
         """Раздает статическую сборку SPA панели управления `/pyferro_admin` zero-copy через Rust."""
