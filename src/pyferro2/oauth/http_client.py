@@ -47,15 +47,18 @@ def _sync_http_request(
         method=method.upper(),
     )
 
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = response.read()
-        if not body:
-            return {}
-        try:
-            return orjson.loads(body)
-        except Exception:
-            return {"raw": body.decode("utf-8", errors="replace")}
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read()
+    except urllib.error.HTTPError as err:
+        body = err.read()
 
+    if not body:
+        return {}
+    try:
+        return orjson.loads(body)
+    except Exception:
+        return {"raw": body.decode("utf-8", errors="replace")}
 
 async def async_http_json(
     url: str,

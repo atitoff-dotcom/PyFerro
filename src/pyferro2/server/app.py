@@ -479,7 +479,29 @@ class PyFerroApp:
             )
             resp_bytes = await self.router.handle_raw(body, session, db=self.db)
             _set_scope_session_data(scope, session.data)
-            proto.response_bytes(200, [_JSON_CONTENT_TYPE], resp_bytes or b"")
+
+            headers: list[tuple[str, str]] = [_JSON_CONTENT_TYPE]
+            if resp_bytes:
+                if b'"token"' in resp_bytes:
+                    try:
+                        res_obj = orjson.loads(resp_bytes)
+                        if isinstance(res_obj, dict):
+                            result = res_obj.get("result")
+                            if isinstance(result, dict) and "token" in result:
+                                tok = result["token"]
+                                headers.append((
+                                    "set-cookie",
+                                    f"{SESSION_COOKIE_NAME}={tok}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
+                                ))
+                    except Exception:
+                        pass
+                elif b'"logged_out"' in resp_bytes:
+                    headers.append((
+                        "set-cookie",
+                        f"{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
+                    ))
+
+            proto.response_bytes(200, headers, resp_bytes or b"")
             return
 
         if path == "/auth/callback" and method == "GET":
@@ -556,9 +578,9 @@ class PyFerroApp:
             b'var p=new URLSearchParams(window.location.search);'
             b'var payload={};'
             b'p.forEach(function(v,k){payload[k]=v;});'
-            b'var c=p.get("code"),s=p.get("state")||"",e=p.get("error")||p.get("error_description");'
+            b'var c=p.get("code"),s=p.get("state")||"",d=p.get("device_id")||"",ed=p.get("error_description")||"",e=ed||p.get("error");'
             b'if(window.opener){'
-            b'window.opener.postMessage({type:"oauth_callback",code:c,state:s,error:e,payload:payload},window.location.origin);'
+            b'window.opener.postMessage({type:"oauth_callback",code:c,state:s,device_id:d,error:e,error_description:ed,payload:payload},window.location.origin);'
             b'window.close();'
             b'}else{'
             b'window.location.href="/pyferro_admin";'

@@ -241,6 +241,8 @@ def register_oauth_rpc(router: RpcRouter, token_manager: TokenManager) -> None:
             provider: str,
             payload: dict[str, Any] | None = None,
             code: str | None = None,
+            state: str | None = None,
+            device_id: str | None = None,
             redirect_uri: str = "",
         ) -> dict[str, Any]:
             prov = PROVIDERS.get(provider)
@@ -254,6 +256,10 @@ def register_oauth_rpc(router: RpcRouter, token_manager: TokenManager) -> None:
             call_payload = dict(payload or {})
             if code:
                 call_payload["code"] = code
+            if state and "state" not in call_payload:
+                call_payload["state"] = state
+            if device_id and "device_id" not in call_payload:
+                call_payload["device_id"] = device_id
 
             profile = await prov.authenticate(p_cfg.config, call_payload, redirect_uri)
             user = await link_or_create_oauth_user(db, profile, session.data)

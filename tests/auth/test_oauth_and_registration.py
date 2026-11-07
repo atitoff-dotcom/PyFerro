@@ -215,7 +215,7 @@ async def test_oauth_admin_api(app: PyFerroApp) -> None:
 
 @pytest.mark.asyncio
 async def test_oauth_login_vk_flow(app: PyFerroApp) -> None:
-    """Проверка полного цикла авторизации через VK ID с получением токена и профиля."""
+    """Проверка полного цикла авторизации через VK ID (OAuth 2.1 + PKCE) с получением токена и профиля."""
     # Включаем провайдер VK
     async with app.db.session() as db:
         vk_cfg_stmt = select(AuthConfig).where(AuthConfig.key == "vk")
@@ -228,12 +228,36 @@ async def test_oauth_login_vk_flow(app: PyFerroApp) -> None:
         }
         await db.commit()
 
+    session = Session(session_id="s_vk", data=app.guest_session_data)
+    url_res = await app.router.call(
+        "oauth.get_auth_url",
+        session,
+        {"provider": "vk", "state": "vk_pkce_state_1"},
+        db=app.db,
+    )
+    assert "id.vk.com/authorize" in url_res["url"]
+    assert "code_challenge=" in url_res["url"]
+    assert "code_challenge_method=s256" in url_res["url"]
+
+    captured_token_data = {}
+
     async def mock_async_http_json(url: str, method: str = "GET", **kwargs):
-        if "access_token" in url:
+        if "id.vk.com/oauth2/auth" in url:
+            captured_token_data.update(kwargs.get("data") or {})
             return {
                 "access_token": "mock_vk_token_xyz",
                 "user_id": 77112233,
                 "email": "durov_vk@example.com",
+            }
+        if "id.vk.com/oauth2/user_info" in url:
+            return {
+                "user": {
+                    "user_id": "77112233",
+                    "first_name": "Павел",
+                    "last_name": "Дуров",
+                    "screen_name": "durov_vk",
+                    "avatar": "https://vk.com/photo200.jpg",
+                }
             }
         if "users.get" in url:
             return {
@@ -250,16 +274,21 @@ async def test_oauth_login_vk_flow(app: PyFerroApp) -> None:
         return {}
 
     with patch("pyferro2.oauth.providers.async_http_json", new=mock_async_http_json):
-        session = Session(session_id="s_vk", data=app.guest_session_data)
         res = await app.router.call(
             "oauth.login",
             session,
-            {"provider": "vk", "code": "valid_vk_auth_code"},
+            {
+                "provider": "vk",
+                "code": "valid_vk_auth_code",
+                "payload": {"state": "vk_pkce_state_1", "device_id": "vk_dev_999"},
+            },
             db=app.db,
         )
 
         assert res["user"]["username"] == "durov_vk"
         assert not session.data.is_guest
+        assert len(captured_token_data.get("code_verifier", "")) == 64
+        assert captured_token_data.get("device_id") == "vk_dev_999"
 
         # Проверяем связку в БД
         async with app.db.session() as db:
@@ -267,7 +296,6 @@ async def test_oauth_login_vk_flow(app: PyFerroApp) -> None:
             acc = (await db.execute(acc_stmt)).scalar_one()
             assert acc.provider_user_id == "77112233"
             assert acc.user_id == res["user"]["user_id"]
-
 
 @pytest.mark.asyncio
 async def test_oauth_login_telegram_flow(app: PyFerroApp) -> None:
@@ -372,9 +400,11 @@ async def test_oauth_get_auth_url_providers(app: PyFerroApp) -> None:
         {"provider": "vk", "state": "test_state_123"},
         db=app.db,
     )
-    assert "oauth.vk.com/authorize" in vk_url["url"]
+    assert "id.vk.com/authorize" in vk_url["url"]
     assert "client_id=12345" in vk_url["url"]
     assert "state=test_state_123" in vk_url["url"]
+    assert "code_challenge=" in vk_url["url"]
+    assert "code_challenge_method=s256" in vk_url["url"]
 
     ya_url = await app.router.call(
         "oauth.get_auth_url",

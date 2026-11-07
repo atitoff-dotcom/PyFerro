@@ -15,7 +15,7 @@ from pyferro2.seo import (
     register_sitemap_provider,
 )
 
-__version__ = "2.2.2"
+__version__ = "2.2.3"
 
 __all__ = [
     "__version__",

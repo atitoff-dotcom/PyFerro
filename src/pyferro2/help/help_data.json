@@ -15,7 +15,7 @@
     },
     {
       "slug": "rpc-and-auth",
-      "title": "RPC-маршрутизация и права доступа",
+      "title": "RPC-маршрутизация и авторизация",
       "order": 3,
       "filename": "03_rpc_and_auth.md"
     },
@@ -136,29 +136,49 @@
     },
     "rpc-and-auth": {
       "slug": "rpc-and-auth",
-      "title": "RPC-маршрутизация и права доступа",
+      "title": "RPC-маршрутизация и авторизация",
       "order": 3,
       "toc": [
         {
-          "id": "rpc-маршрутизация-и-права-доступа",
-          "text": "RPC-маршрутизация и права доступа",
+          "id": "rpc-маршрутизация-и-авторизация",
+          "text": "RPC-маршрутизация и авторизация",
           "level": 1
         },
         {
-          "id": "регистрация-метода",
-          "text": "Регистрация метода",
+          "id": "1-регистрация-rpc-методов-на-бэкенде",
+          "text": "1. Регистрация RPC-методов на бэкенде",
           "level": 2
         },
         {
-          "id": "системные-роли-adm",
-          "text": "Системные роли `adm_*`",
+          "id": "2-системные-роли-безопасности",
+          "text": "2. Системные роли безопасности",
           "level": 2
+        },
+        {
+          "id": "3-памятка-разработчика-клиентских-приложений-spa-web-mobile",
+          "text": "3. 📱 Памятка разработчика клиентских приложений (SPA / Web / Mobile)",
+          "level": 2
+        },
+        {
+          "id": "хранение-токена-и-работа-с-cookie",
+          "text": "🔑 Хранение токена и работа с Cookie",
+          "level": 3
+        },
+        {
+          "id": "подключение-по-websocket-ws",
+          "text": "🌐 Подключение по WebSocket (`/ws`)",
+          "level": 3
+        },
+        {
+          "id": "частые-архитектурные-ошибки-и-их-решение",
+          "text": "⚠️ Частые архитектурные ошибки и их решение",
+          "level": 3
         }
       ],
       "blocks": [
         {
           "type": "html",
-          "html": "<h1 id=\"rpc-маршрутизация-и-права-доступа\">RPC-маршрутизация и права доступа</h1>\n<p>Каждый метод API регистрируется через декоратор роутера с указанием необходимых системных ролей.</p>\n<h2 id=\"регистрация-метода\">Регистрация метода</h2>\n<pre><code class=\"language-python\"><span class=\"kn\">from</span><span class=\"w\"> </span><span class=\"nn\">pyferro2.core.constants</span><span class=\"w\"> </span><span class=\"kn\">import</span> <span class=\"n\">admRole</span>\n<span class=\"kn\">from</span><span class=\"w\"> </span><span class=\"nn\">pyferro2.core.session_data</span><span class=\"w\"> </span><span class=\"kn\">import</span> <span class=\"n\">SessionData</span>\n\n<span class=\"c1\"># доступно в соответствии с CRUD в админке</span>\n<span class=\"nd\">@router</span><span class=\"o\">.</span><span class=\"n\">rpc_method</span><span class=\"p\">()</span>\n<span class=\"k\">async</span> <span class=\"k\">def</span><span class=\"w\"> </span><span class=\"nf\">get_system_status_all</span><span class=\"p\">(</span><span class=\"n\">session</span><span class=\"p\">:</span> <span class=\"n\">SessionData</span><span class=\"p\">)</span> <span class=\"o\">-&gt;</span> <span class=\"nb\">dict</span><span class=\"p\">:</span>\n    <span class=\"k\">return</span> <span class=\"p\">{</span><span class=\"s2\">\"status\"</span><span class=\"p\">:</span> <span class=\"s2\">\"ok\"</span><span class=\"p\">,</span> <span class=\"s2\">\"user\"</span><span class=\"p\">:</span> <span class=\"n\">session</span><span class=\"o\">.</span><span class=\"n\">username</span><span class=\"p\">}</span>\n\n<span class=\"c1\"># доступно только ролям admin и adm_help, CRUD в админке уже не работает</span>\n<span class=\"nd\">@router</span><span class=\"o\">.</span><span class=\"n\">rpc_method</span><span class=\"p\">(</span><span class=\"n\">role</span><span class=\"o\">=</span><span class=\"p\">[</span><span class=\"n\">admRole</span><span class=\"o\">.</span><span class=\"n\">adm_help</span><span class=\"p\">])</span>\n<span class=\"k\">async</span> <span class=\"k\">def</span><span class=\"w\"> </span><span class=\"nf\">get_system_status</span><span class=\"p\">(</span><span class=\"n\">session</span><span class=\"p\">:</span> <span class=\"n\">SessionData</span><span class=\"p\">)</span> <span class=\"o\">-&gt;</span> <span class=\"nb\">dict</span><span class=\"p\">:</span>\n    <span class=\"k\">return</span> <span class=\"p\">{</span><span class=\"s2\">\"status\"</span><span class=\"p\">:</span> <span class=\"s2\">\"ok\"</span><span class=\"p\">,</span> <span class=\"s2\">\"user\"</span><span class=\"p\">:</span> <span class=\"n\">session</span><span class=\"o\">.</span><span class=\"n\">username</span><span class=\"p\">}</span>\n\n<span class=\"c1\"># доступно только ролям admin, CRUD в админке уже не работает</span>\n<span class=\"nd\">@router</span><span class=\"o\">.</span><span class=\"n\">rpc_method</span><span class=\"p\">(</span><span class=\"n\">role</span><span class=\"o\">=</span><span class=\"p\">[</span><span class=\"n\">admRole</span><span class=\"o\">.</span><span class=\"n\">admin</span><span class=\"p\">])</span>\n<span class=\"k\">async</span> <span class=\"k\">def</span><span class=\"w\"> </span><span class=\"nf\">get_system_status_admin</span><span class=\"p\">(</span><span class=\"n\">session</span><span class=\"p\">:</span> <span class=\"n\">SessionData</span><span class=\"p\">)</span> <span class=\"o\">-&gt;</span> <span class=\"nb\">dict</span><span class=\"p\">:</span>\n    <span class=\"k\">return</span> <span class=\"p\">{</span><span class=\"s2\">\"status\"</span><span class=\"p\">:</span> <span class=\"s2\">\"ok\"</span><span class=\"p\">,</span> <span class=\"s2\">\"user\"</span><span class=\"p\">:</span> <span class=\"n\">session</span><span class=\"o\">.</span><span class=\"n\">username</span><span class=\"p\">}</span>\n</code></pre>\n<h2 id=\"системные-роли-adm\">Системные роли <code>adm_*</code></h2>\n<ul>\n<li><code>admin</code> — суперпользователь, имеет доступ ко всем методам и разделам.</li>\n<li><code>adm_help</code> — доступ к разделу «Руководство для разработчиков» (<code>/pyferro_admin/help</code>).</li>\n<li><code>adm_crud</code> — доступ к просмотру и редактированию таблиц.</li>\n<li><code>adm_roles</code> — управление матрицей прав и ролей.</li>\n<li><code>adm_users</code> — управление учетными записями.</li>\n<li><code>adm_seo</code> — управление SEO-правилами и sitemap.</li>\n</ul>\n"
+          "html": "<h1 id=\"rpc-маршрутизация-и-авторизация\">RPC-маршрутизация и авторизация</h1>\n<p>Каждый метод API регистрируется через декоратор роутера с указанием необходимых системных ролей или публичного доступа.</p>\n<hr />\n<h2 id=\"1-регистрация-rpc-методов-на-бэкенде\">1. Регистрация RPC-методов на бэкенде</h2>\n<pre><code class=\"language-python\"><span class=\"kn\">from</span><span class=\"w\"> </span><span class=\"nn\">pyferro2.core.constants</span><span class=\"w\"> </span><span class=\"kn\">import</span> <span class=\"n\">admRole</span>\n<span class=\"kn\">from</span><span class=\"w\"> </span><span class=\"nn\">pyferro2.core.session_data</span><span class=\"w\"> </span><span class=\"kn\">import</span> <span class=\"n\">SessionData</span>\n\n<span class=\"c1\"># Публичный метод (доступен гостям)</span>\n<span class=\"nd\">@router</span><span class=\"o\">.</span><span class=\"n\">rpc_method</span><span class=\"p\">(</span><span class=\"n\">public</span><span class=\"o\">=</span><span class=\"kc\">True</span><span class=\"p\">)</span>\n<span class=\"k\">async</span> <span class=\"k\">def</span><span class=\"w\"> </span><span class=\"nf\">get_public_catalog</span><span class=\"p\">()</span> <span class=\"o\">-&gt;</span> <span class=\"nb\">dict</span><span class=\"p\">:</span>\n    <span class=\"k\">return</span> <span class=\"p\">{</span><span class=\"s2\">\"status\"</span><span class=\"p\">:</span> <span class=\"s2\">\"ok\"</span><span class=\"p\">,</span> <span class=\"s2\">\"items\"</span><span class=\"p\">:</span> <span class=\"p\">[]}</span>\n\n<span class=\"c1\"># Доступно авторизованным пользователям (роль user или admin)</span>\n<span class=\"nd\">@router</span><span class=\"o\">.</span><span class=\"n\">rpc_method</span><span class=\"p\">()</span>\n<span class=\"k\">async</span> <span class=\"k\">def</span><span class=\"w\"> </span><span class=\"nf\">get_profile</span><span class=\"p\">(</span><span class=\"n\">session_data</span><span class=\"p\">:</span> <span class=\"n\">SessionData</span><span class=\"p\">)</span> <span class=\"o\">-&gt;</span> <span class=\"nb\">dict</span><span class=\"p\">:</span>\n    <span class=\"k\">return</span> <span class=\"p\">{</span><span class=\"s2\">\"user_id\"</span><span class=\"p\">:</span> <span class=\"n\">session_data</span><span class=\"o\">.</span><span class=\"n\">user_id</span><span class=\"p\">,</span> <span class=\"s2\">\"username\"</span><span class=\"p\">:</span> <span class=\"n\">session_data</span><span class=\"o\">.</span><span class=\"n\">username</span><span class=\"p\">}</span>\n\n<span class=\"c1\"># Доступно только роли adm_help и главному admin</span>\n<span class=\"nd\">@router</span><span class=\"o\">.</span><span class=\"n\">rpc_method</span><span class=\"p\">(</span><span class=\"n\">role</span><span class=\"o\">=</span><span class=\"p\">[</span><span class=\"n\">admRole</span><span class=\"o\">.</span><span class=\"n\">adm_help</span><span class=\"p\">])</span>\n<span class=\"k\">async</span> <span class=\"k\">def</span><span class=\"w\"> </span><span class=\"nf\">get_help_articles</span><span class=\"p\">(</span><span class=\"n\">session_data</span><span class=\"p\">:</span> <span class=\"n\">SessionData</span><span class=\"p\">)</span> <span class=\"o\">-&gt;</span> <span class=\"nb\">dict</span><span class=\"p\">:</span>\n    <span class=\"k\">return</span> <span class=\"p\">{</span><span class=\"s2\">\"items\"</span><span class=\"p\">:</span> <span class=\"p\">[]}</span>\n\n<span class=\"c1\"># Доступно строго главному администратору (роль admin)</span>\n<span class=\"nd\">@router</span><span class=\"o\">.</span><span class=\"n\">rpc_method</span><span class=\"p\">(</span><span class=\"n\">role</span><span class=\"o\">=</span><span class=\"p\">[</span><span class=\"n\">admRole</span><span class=\"o\">.</span><span class=\"n\">admin</span><span class=\"p\">])</span>\n<span class=\"k\">async</span> <span class=\"k\">def</span><span class=\"w\"> </span><span class=\"nf\">get_system_metrics</span><span class=\"p\">(</span><span class=\"n\">session_data</span><span class=\"p\">:</span> <span class=\"n\">SessionData</span><span class=\"p\">)</span> <span class=\"o\">-&gt;</span> <span class=\"nb\">dict</span><span class=\"p\">:</span>\n    <span class=\"k\">return</span> <span class=\"p\">{</span><span class=\"s2\">\"cpu\"</span><span class=\"p\">:</span> <span class=\"mf\">12.5</span><span class=\"p\">,</span> <span class=\"s2\">\"memory_mb\"</span><span class=\"p\">:</span> <span class=\"mi\">256</span><span class=\"p\">}</span>\n</code></pre>\n<hr />\n<h2 id=\"2-системные-роли-безопасности\">2. Системные роли безопасности</h2>\n<ul>\n<li><strong><code>guest</code></strong> — неавторизованный посетитель.</li>\n<li><strong><code>user</code></strong> — базовый зарегистрированный пользователь платформы.</li>\n<li><strong><code>admin</code></strong> — главный суперпользователь, имеет доступ ко всем методам и разделам.</li>\n<li><strong><code>adm_*</code></strong> — гранулярный доступ к разделам панели управления (<code>/pyferro_admin</code>):\n<ul>\n<li><code>adm_crud</code> — просмотр и редактирование таблиц базы данных.</li>\n<li><code>adm_users</code> — управление учетными записями пользователей.</li>\n<li><code>adm_roles</code> — управление матрицей прав и ролей (RBAC).</li>\n<li><code>adm_settings</code> — глобальные конфигурации системы.</li>\n<li><code>adm_seo</code> — управление SEO-правилами, метатегами и sitemap.</li>\n<li><code>adm_help</code> — доступ к данному справочнику разработчика (<code>/pyferro_admin/help</code>).</li>\n</ul>\n</li>\n</ul>\n<hr />\n<h2 id=\"3-памятка-разработчика-клиентских-приложений-spa-web-mobile\">3. 📱 Памятка разработчика клиентских приложений (SPA / Web / Mobile)</h2>\n<p>Чтобы между панелью управления (<code>/pyferro_admin</code>), клиентским сайтом и внешними сервисами не возникало путаницы с авторизацией, следуйте стандартному контракту PyFerro.</p>\n<h3 id=\"хранение-токена-и-работа-с-cookie\">🔑 Хранение токена и работа с Cookie</h3>\n<ol>\n<li><strong>Основное имя ключа:</strong> <code>pyferro2_token</code>.</li>\n<li><strong>Сессионная кука:</strong> <code>ferro_session</code> (или <code>pyferro2_token</code>).</li>\n<li><strong>Синхронизация при входе:</strong>\nПри получении токета от <code>auth.login</code> клиент обязан записать его в <code>localStorage</code> и продублировать в <code>Cookie</code>:<pre><code class=\"language-javascript\"><span class=\"c1\">// 1. В локальное хранилище</span>\n<span class=\"nx\">localStorage</span><span class=\"p\">.</span><span class=\"nx\">setItem</span><span class=\"p\">(</span><span class=\"s2\">\"pyferro2_token\"</span><span class=\"p\">,</span><span class=\"w\"> </span><span class=\"nx\">token</span><span class=\"p\">);</span>\n\n<span class=\"c1\">// 2. В сессионную куку на весь домен (для бесшовного перехода между разделами)</span>\n<span class=\"nb\">document</span><span class=\"p\">.</span><span class=\"nx\">cookie</span><span class=\"w\"> </span><span class=\"o\">=</span><span class=\"w\"> </span><span class=\"sb\">`ferro_session=</span><span class=\"si\">${</span><span class=\"nb\">encodeURIComponent</span><span class=\"p\">(</span><span class=\"nx\">token</span><span class=\"p\">)</span><span class=\"si\">}</span><span class=\"sb\">; path=/; max-age=2592000; SameSite=Lax`</span><span class=\"p\">;</span>\n<span class=\"nb\">document</span><span class=\"p\">.</span><span class=\"nx\">cookie</span><span class=\"w\"> </span><span class=\"o\">=</span><span class=\"w\"> </span><span class=\"sb\">`pyferro2_token=</span><span class=\"si\">${</span><span class=\"nb\">encodeURIComponent</span><span class=\"p\">(</span><span class=\"nx\">token</span><span class=\"p\">)</span><span class=\"si\">}</span><span class=\"sb\">; path=/; max-age=2592000; SameSite=Lax`</span><span class=\"p\">;</span>\n</code></pre>\n</li>\n<li><strong>Сброс при выходе (<code>auth.logout</code>):</strong><pre><code class=\"language-javascript\"><span class=\"nx\">localStorage</span><span class=\"p\">.</span><span class=\"nx\">removeItem</span><span class=\"p\">(</span><span class=\"s2\">\"pyferro2_token\"</span><span class=\"p\">);</span>\n<span class=\"nb\">document</span><span class=\"p\">.</span><span class=\"nx\">cookie</span><span class=\"w\"> </span><span class=\"o\">=</span><span class=\"w\"> </span><span class=\"s2\">\"ferro_session=; path=/; max-age=0; SameSite=Lax\"</span><span class=\"p\">;</span>\n<span class=\"nb\">document</span><span class=\"p\">.</span><span class=\"nx\">cookie</span><span class=\"w\"> </span><span class=\"o\">=</span><span class=\"w\"> </span><span class=\"s2\">\"pyferro2_token=; path=/; max-age=0; SameSite=Lax\"</span><span class=\"p\">;</span>\n</code></pre>\n</li>\n</ol>\n<h3 id=\"подключение-по-websocket-ws\">🌐 Подключение по WebSocket (<code>/ws</code>)</h3>\n<ol>\n<li>\n<p>Клиент читает токен из <code>localStorage</code> либо из <code>document.cookie</code>.</p>\n</li>\n<li>\n<p>При открытии сокета токен передается query-параметром:</p>\n<pre><code class=\"language-javascript\"><span class=\"kd\">const</span><span class=\"w\"> </span><span class=\"nx\">token</span><span class=\"w\"> </span><span class=\"o\">=</span><span class=\"w\"> </span><span class=\"nx\">getStoredToken</span><span class=\"p\">();</span>\n<span class=\"kd\">const</span><span class=\"w\"> </span><span class=\"nx\">qs</span><span class=\"w\"> </span><span class=\"o\">=</span><span class=\"w\"> </span><span class=\"nx\">token</span><span class=\"w\"> </span><span class=\"o\">?</span><span class=\"w\"> </span><span class=\"sb\">`?token=</span><span class=\"si\">${</span><span class=\"nb\">encodeURIComponent</span><span class=\"p\">(</span><span class=\"nx\">token</span><span class=\"p\">)</span><span class=\"si\">}</span><span class=\"sb\">`</span><span class=\"w\"> </span><span class=\"o\">:</span><span class=\"w\"> </span><span class=\"s2\">\"\"</span><span class=\"p\">;</span>\n<span class=\"kd\">const</span><span class=\"w\"> </span><span class=\"nx\">ws</span><span class=\"w\"> </span><span class=\"o\">=</span><span class=\"w\"> </span><span class=\"ow\">new</span><span class=\"w\"> </span><span class=\"nx\">WebSocket</span><span class=\"p\">(</span><span class=\"sb\">`wss://</span><span class=\"si\">${</span><span class=\"nx\">location</span><span class=\"p\">.</span><span class=\"nx\">host</span><span class=\"si\">}</span><span class=\"sb\">/ws</span><span class=\"si\">${</span><span class=\"nx\">qs</span><span class=\"si\">}</span><span class=\"sb\">`</span><span class=\"p\">);</span>\n</code></pre>\n<p><em>Даже если токен не передан в query, браузер автоматически отправит куку <code>ferro_session</code> в заголовках HTTP Upgrade, и бэкенд PyFerro восстановит сессию.</em></p>\n</li>\n<li>\n<p>Сразу после открытия соединения клиент вызывает <code>auth.me</code> для получения актуального паспорта пользователя (<code>user_id</code>, <code>username</code>, <code>roles</code>, <code>permissions</code>, <code>is_admin</code>).</p>\n</li>\n</ol>\n<h3 id=\"частые-архитектурные-ошибки-и-их-решение\">⚠️ Частые архитектурные ошибки и их решение</h3>\n<ol>\n<li><strong>Разделение доменов (<code>www</code> vs <code>non-www</code>):</strong>\n<ul>\n<li>Браузер считает <code>domain.ru</code> и <code>www.domain.ru</code> разными источниками (<strong>Origins</strong>). У них полностью изолированный <code>localStorage</code>.</li>\n<li><strong>Решение:</strong> всегда настраивать жесткий HTTP 301-редирект с одного на другой на уровне Nginx (например, с <code>www.domain.ru</code> на <code>domain.ru</code>).</li>\n</ul>\n</li>\n<li><strong>Слепой отказ от сессии при пустом LocalStorage:</strong>\n<ul>\n<li>Нельзя сразу объявлять пользователя <code>guest</code>, если в <code>localStorage</code> нет токена — токен может находиться в Cookie (например, после входа в <code>/pyferro_admin</code>). Сначала проверьте Cookie <code>ferro_session</code>/<code>pyferro2_token</code>, либо вызовите <code>auth.me</code> через сокет.</li>\n</ul>\n</li>\n<li><strong>Хэширование паролей:</strong>\n<ul>\n<li>PyFerro 2 использует стандартный криптостойкий алгоритм <strong>scrypt</strong> (OpenSSL). Все пароли в таблице <code>pf_auth_user</code> должны иметь формат <code>scrypt$&lt;salt_hex&gt;$&lt;digest_hex&gt;</code>.</li>\n</ul>\n</li>\n</ol>\n"
         }
       ]
     },
@@ -302,27 +322,59 @@
     },
     {
       "slug": "rpc-and-auth",
-      "article_title": "RPC-маршрутизация и права доступа",
-      "section_title": "RPC-маршрутизация и права доступа",
-      "section_id": "rpc-маршрутизация-и-права-доступа",
-      "text": "RPC-маршрутизация и права доступа Каждый метод API регистрируется через декоратор роутера с указанием необходимых системных ролей.",
+      "article_title": "RPC-маршрутизация и авторизация",
+      "section_title": "RPC-маршрутизация и авторизация",
+      "section_id": "rpc-маршрутизация-и-авторизация",
+      "text": "RPC-маршрутизация и авторизация Каждый метод API регистрируется через декоратор роутера с указанием необходимых системных ролей или публичного доступа.",
       "code": ""
     },
     {
       "slug": "rpc-and-auth",
-      "article_title": "RPC-маршрутизация и права доступа",
-      "section_title": "Регистрация метода",
-      "section_id": "регистрация-метода",
-      "text": "Регистрация метода",
-      "code": "from pyferro2.core.constants import admRole\nfrom pyferro2.core.session_data import SessionData\n\n# доступно в соответствии с CRUD в админке\n@router.rpc_method()\nasync def get_system_status_all(session: SessionData) -> dict:\n    return {\"status\": \"ok\", \"user\": session.username}\n\n# доступно только ролям admin и adm_help, CRUD в админке уже не работает\n@router.rpc_method(role=[admRole.adm_help])\nasync def get_system_status(session: SessionData) -> dict:\n    return {\"status\": \"ok\", \"user\": session.username}\n\n# доступно только ролям admin, CRUD в админке уже не работает\n@router.rpc_method(role=[admRole.admin])\nasync def get_system_status_admin(session: SessionData) -> dict:\n    return {\"status\": \"ok\", \"user\": session.username}"
+      "article_title": "RPC-маршрутизация и авторизация",
+      "section_title": "1. Регистрация RPC-методов на бэкенде",
+      "section_id": "1-регистрация-rpc-методов-на-бэкенде",
+      "text": "1. Регистрация RPC-методов на бэкенде",
+      "code": "from pyferro2.core.constants import admRole\nfrom pyferro2.core.session_data import SessionData\n\n# Публичный метод (доступен гостям)\n@router.rpc_method(public=True)\nasync def get_public_catalog() -> dict:\n    return {\"status\": \"ok\", \"items\": []}\n\n# Доступно авторизованным пользователям (роль user или admin)\n@router.rpc_method()\nasync def get_profile(session_data: SessionData) -> dict:\n    return {\"user_id\": session_data.user_id, \"username\": session_data.username}\n\n# Доступно только роли adm_help и главному admin\n@router.rpc_method(role=[admRole.adm_help])\nasync def get_help_articles(session_data: SessionData) -> dict:\n    return {\"items\": []}\n\n# Доступно строго главному администратору (роль admin)\n@router.rpc_method(role=[admRole.admin])\nasync def get_system_metrics(session_data: SessionData) -> dict:\n    return {\"cpu\": 12.5, \"memory_mb\": 256}"
     },
     {
       "slug": "rpc-and-auth",
-      "article_title": "RPC-маршрутизация и права доступа",
-      "section_title": "Системные роли `adm_*`",
-      "section_id": "системные-роли-adm",
-      "text": "Системные роли `adm_*` `admin` — суперпользователь, имеет доступ ко всем методам и разделам. `adm_help` — доступ к разделу «Руководство для разработчиков» (`/pyferro_admin/help`). `adm_crud` — доступ к просмотру и редактированию таблиц. `adm_roles` — управление матрицей прав и ролей. `adm_users` — управление учетными записями. `adm_seo` — управление SEO-правилами и sitemap.",
-      "code": "adm_*\nadmin\nadm_help\n/pyferro_admin/help\nadm_crud\nadm_roles\nadm_users\nadm_seo"
+      "article_title": "RPC-маршрутизация и авторизация",
+      "section_title": "2. Системные роли безопасности",
+      "section_id": "2-системные-роли-безопасности",
+      "text": "2. Системные роли безопасности **`guest`** — неавторизованный посетитель. **`user`** — базовый зарегистрированный пользователь платформы. **`admin`** — главный суперпользователь, имеет доступ ко всем методам и разделам. **`adm_*`** — гранулярный доступ к разделам панели управления (`/pyferro_admin`): `adm_crud` — просмотр и редактирование таблиц базы данных. `adm_users` — управление учетными записями пользователей. `adm_roles` — управление матрицей прав и ролей (RBAC). `adm_settings` — глобальные конфигурации системы. `adm_seo` — управление SEO-правилами, метатегами и sitemap. `adm_help` — доступ к данному справочнику разработчика (`/pyferro_admin/help`).",
+      "code": "guest\nuser\nadmin\nadm_*\n/pyferro_admin\nadm_crud\nadm_users\nadm_roles\nadm_settings\nadm_seo\nadm_help\n/pyferro_admin/help"
+    },
+    {
+      "slug": "rpc-and-auth",
+      "article_title": "RPC-маршрутизация и авторизация",
+      "section_title": "3. 📱 Памятка разработчика клиентских приложений (SPA / Web / Mobile)",
+      "section_id": "3-памятка-разработчика-клиентских-приложений-spa-web-mobile",
+      "text": "3. 📱 Памятка разработчика клиентских приложений (SPA / Web / Mobile) Чтобы между панелью управления (`/pyferro_admin`), клиентским сайтом и внешними сервисами не возникало путаницы с авторизацией, следуйте стандартному контракту PyFerro.",
+      "code": "/pyferro_admin"
+    },
+    {
+      "slug": "rpc-and-auth",
+      "article_title": "RPC-маршрутизация и авторизация",
+      "section_title": "🔑 Хранение токена и работа с Cookie",
+      "section_id": "хранение-токена-и-работа-с-cookie",
+      "text": "🔑 Хранение токена и работа с Cookie **Основное имя ключа:** `pyferro2_token`. **Сессионная кука:** `ferro_session` (или `pyferro2_token`). **Синхронизация при входе:**\nПри получении токета от `auth.login` клиент обязан записать его в `localStorage` и продублировать в `Cookie`: **Сброс при выходе (`auth.logout`):**",
+      "code": "pyferro2_token\nferro_session\npyferro2_token\nauth.login\nlocalStorage\nCookie\n// 1. В локальное хранилище\nlocalStorage.setItem(\"pyferro2_token\", token);\n\n// 2. В сессионную куку на весь домен (для бесшовного перехода между разделами)\ndocument.cookie = `ferro_session=${encodeURIComponent(token)}; path=/; max-age=2592000; SameSite=Lax`;\ndocument.cookie = `pyferro2_token=${encodeURIComponent(token)}; path=/; max-age=2592000; SameSite=Lax`;\nauth.logout\nlocalStorage.removeItem(\"pyferro2_token\");\ndocument.cookie = \"ferro_session=; path=/; max-age=0; SameSite=Lax\";\ndocument.cookie = \"pyferro2_token=; path=/; max-age=0; SameSite=Lax\";"
+    },
+    {
+      "slug": "rpc-and-auth",
+      "article_title": "RPC-маршрутизация и авторизация",
+      "section_title": "🌐 Подключение по WebSocket (`/ws`)",
+      "section_id": "подключение-по-websocket-ws",
+      "text": "🌐 Подключение по WebSocket (`/ws`) Клиент читает токен из `localStorage` либо из `document.cookie`. При открытии сокета токен передается query-параметром: *Даже если токен не передан в query, браузер автоматически отправит куку `ferro_session` в заголовках HTTP Upgrade, и бэкенд PyFerro восстановит сессию.* Сразу после открытия соединения клиент вызывает `auth.me` для получения актуального паспорта пользователя (`user_id`, `username`, `roles`, `permissions`, `is_admin`).",
+      "code": "/ws\nlocalStorage\ndocument.cookie\nconst token = getStoredToken();\nconst qs = token ? `?token=${encodeURIComponent(token)}` : \"\";\nconst ws = new WebSocket(`wss://${location.host}/ws${qs}`);\nferro_session\nauth.me\nuser_id\nusername\nroles\npermissions\nis_admin"
+    },
+    {
+      "slug": "rpc-and-auth",
+      "article_title": "RPC-маршрутизация и авторизация",
+      "section_title": "⚠️ Частые архитектурные ошибки и их решение",
+      "section_id": "частые-архитектурные-ошибки-и-их-решение",
+      "text": "⚠️ Частые архитектурные ошибки и их решение **Разделение доменов (`www` vs `non-www`):** Браузер считает `domain.ru` и `www.domain.ru` разными источниками (**Origins**). У них полностью изолированный `localStorage`. **Решение:** всегда настраивать жесткий HTTP 301-редирект с одного на другой на уровне Nginx (например, с `www.domain.ru` на `domain.ru`). **Слепой отказ от сессии при пустом LocalStorage:** Нельзя сразу объявлять пользователя `guest`, если в `localStorage` нет токена — токен может находиться в Cookie (например, после входа в `/pyferro_admin`). Сначала проверьте Cookie `ferro_session`/`pyferro2_token`, либо вызовите `auth.me` через сокет. **Хэширование паролей:** PyFerro 2 использует стандартный криптостойкий алгоритм **scrypt** (OpenSSL). Все пароли в таблице `pf_auth_user` должны иметь формат `scrypt$<salt_hex>$<digest_hex>`.",
+      "code": "www\nnon-www\ndomain.ru\nwww.domain.ru\nlocalStorage\nwww.domain.ru\ndomain.ru\nguest\nlocalStorage\n/pyferro_admin\nferro_session\npyferro2_token\nauth.me\npf_auth_user\nscrypt$<salt_hex>$<digest_hex>"
     },
     {
       "slug": "demo-and-examples",
