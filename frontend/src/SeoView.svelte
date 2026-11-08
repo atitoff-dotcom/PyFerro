@@ -1,17 +1,37 @@
 <script>
   import { onMount } from "svelte";
   import { rpc } from "./rpc.js";
-  import { Button, Input, Select, Card, Badge, Checkbox } from "./ui/index.js";
+  import {
+    Button,
+    Input,
+    Card,
+    Badge,
+    Checkbox,
+    Modal,
+  } from "./ui/index.js";
+  import {
+    Plus,
+    Trash2,
+    Save,
+    Settings,
+    Zap,
+    ExternalLink,
+    Search,
+    ChevronRight,
+    ChevronDown,
+    CheckCircle2,
+    AlertCircle,
+    Code,
+  } from "@lucide/svelte";
 
   let { onnotify = () => {} } = $props();
 
   let isLoading = $state(true);
   let isSaving = $state(false);
   let isPinging = $state(false);
-  let isPreviewLoading = $state(false);
-  let showPresetsModal = $state(false);
+  let showSettingsModal = $state(false);
 
-  // Глобальные настройки SEO (хранятся в pf_seo_config)
+  // Глобальные настройки SEO (pf_seo_config)
   let siteName = $state("PyFerro 2.0 Application");
   let siteUrl = $state("http://localhost:8080");
   let defaultTitle = $state("PyFerro 2.0 Application");
@@ -21,7 +41,6 @@
   let sitemapTtl = $state(3600);
 
   // Справочники с бэкенда
-  let availablePresets = $state([]);
   let availableModels = $state([]);
   let botRoutes = $state([]);
 
@@ -35,7 +54,7 @@
     meta_title: "{site_name}",
     meta_description: "",
     og_image: "",
-    schema_type: "WebPage",
+    schema_type: "WebSite",
     sitemap_enabled: true,
     sitemap_priority: 1.0,
     sitemap_changefreq: "daily",
@@ -43,16 +62,19 @@
   });
 
   let selectedNodeId = $state("root");
-  let activeField = $state("meta_title");
+  let activeField = $state("template"); // "template" | "meta_title" | "meta_description" | "url_pattern" | "title"
 
-  // Валидация шаблона Jinja2 и превью
+  // Валидация шаблона Jinja2
   let templateValid = $state(true);
   let templateError = $state(null);
-  let previewTab = $state("google"); // "google" | "telegram" | "robot"
-  let previewData = $state(null);
-
-  let previewTimer = null;
   let validateTimer = null;
+
+  // DOM ref редактора
+  let textareaEl = $state(null);
+
+  // Шпаргалка моделей
+  let modelSearch = $state("");
+  let expandedModels = $state({}); // { [key]: boolean }
 
   function findNodeAndParents(node, targetId, parents = []) {
     if (!node) return null;
@@ -70,8 +92,18 @@
   let currentNode = $derived(currentSelection ? currentSelection.node : siteTree);
   let currentParents = $derived(currentSelection ? currentSelection.parents : []);
 
-  let selectedModelSchema = $derived(
-    availableModels.find((m) => m.key === currentNode?.model_key) || null
+  // Показываем ТОЛЬКО те модели, к которым у роли guest есть доступ на чтение
+  let allowedModels = $derived(availableModels.filter((m) => m.seo_allowed));
+
+  let filteredModels = $derived(
+    allowedModels.filter((m) => {
+      const q = modelSearch.trim().toLowerCase();
+      if (!q) return true;
+      const matchKey = (m.key || "").toLowerCase().includes(q);
+      const matchVerbose = (m.verbose_name || "").toLowerCase().includes(q);
+      const matchField = (m.fields || []).some((f) => (f.name || "").toLowerCase().includes(q));
+      return matchKey || matchVerbose || matchField;
+    })
   );
 
   onMount(async () => {
@@ -93,9 +125,8 @@
       indexnowKey = data.indexnow_key || "";
       sitemapTtl = data.sitemap_ttl || 3600;
       availableModels = data.available_models || [];
-      availablePresets = data.presets || [];
       botRoutes = data.bot_routes || [];
-      await refreshPreview();
+      triggerValidateDebounced();
     } catch (e) {
       onnotify(e.message, "error");
     } finally {
@@ -116,7 +147,7 @@
         indexnow_key: indexnowKey,
         sitemap_ttl: sitemapTtl,
       });
-      onnotify("Дерево сайта и SEO настройки успешно сохранены в БД!", "info");
+      onnotify("Дерево сайта и SEO настройки успешно сохранены!", "info");
     } catch (e) {
       onnotify(e.message, "error");
     } finally {
@@ -130,7 +161,7 @@
       const res = await rpc.call("seo.ping_indexnow");
       if (res.status === 200 || res.status === 202) {
         onnotify(
-          `IndexNow успешно отправлен (${res.url_count} URL передано в поисковики)`,
+          `IndexNow успешно отправлен (${res.url_count || res.pushed_urls?.length || 1} URL передано)`,
           "info"
         );
       } else {
@@ -143,40 +174,13 @@
     }
   }
 
-  async function toggleGuestRead(modelKey, enabled) {
-    try {
-      const res = await rpc.call("seo.toggle_model_read", {
-        model_key: modelKey,
-        enabled,
-      });
-      const m = availableModels.find((x) => x.key === modelKey);
-      if (m) m.seo_allowed = res.seo_allowed;
-      onnotify(
-        `Право .read для роли guest на модель ${modelKey}: ${res.seo_allowed ? "включено" : "выключено"}`,
-        "info"
-      );
-      triggerPreviewDebounced();
-    } catch (e) {
-      onnotify(e.message, "error");
-    }
-  }
-
-  async function applyPreset(presetKey) {
-    try {
-      const res = await rpc.call("seo.apply_preset", { preset_key: presetKey });
-      siteTree = res.tree;
-      selectedNodeId = "root";
-      showPresetsModal = false;
-      onnotify(`Применен готовый шаблон структуры: ${presetKey}`, "info");
-      triggerPreviewDebounced();
-    } catch (e) {
-      onnotify(e.message, "error");
-    }
+  function toggleModelAccordion(modelKey) {
+    expandedModels[modelKey] = !expandedModels[modelKey];
   }
 
   function selectNode(id) {
     selectedNodeId = id;
-    triggerPreviewDebounced();
+    triggerValidateDebounced();
   }
 
   function addChildNode(parentNode) {
@@ -189,19 +193,19 @@
       title: "Новая страница",
       url_pattern: `${basePattern}/page-${parentNode.children.length + 1}`,
       node_type: "static",
-      template: "",
-      meta_title: "{site_name}",
+      template: "<h1>{{ title }}</h1>\n<p>{{ description }}</p>\n",
+      meta_title: "{title} | {site_name}",
       meta_description: "",
       og_image: "",
       schema_type: "WebPage",
       sitemap_enabled: true,
-      sitemap_priority: 0.7,
-      sitemap_changefreq: "weekly",
+      sitemap_priority: 0.8,
+      sitemap_changefreq: "daily",
       children: [],
     };
     parentNode.children.push(newNode);
     selectedNodeId = newId;
-    triggerPreviewDebounced();
+    triggerValidateDebounced();
   }
 
   function removeNodeById(node, targetId) {
@@ -225,43 +229,97 @@
         : "root";
     if (removeNodeById(siteTree, selectedNodeId)) {
       selectedNodeId = parentId;
-      triggerPreviewDebounced();
-    }
-  }
-
-  function insertChip(tokenExpr) {
-    if (!currentNode) return;
-    if (activeField === "template") {
-      currentNode.template =
-        (currentNode.template || "") + `{{ ${tokenExpr} }}`;
       triggerValidateDebounced();
-    } else if (activeField === "url_pattern") {
-      const clean = tokenExpr.replace(/^record\./, "");
-      const base = (currentNode.url_pattern || "/").replace(/\/$/, "");
-      currentNode.url_pattern = `${base}/{${clean}}`;
-    } else if (activeField === "meta_title") {
-      const clean = tokenExpr.replace(/^record\./, "");
-      currentNode.meta_title =
-        (currentNode.meta_title || "") +
-        (currentNode.meta_title ? " " : "") +
-        `{${clean}}`;
-    } else if (activeField === "meta_description") {
-      const clean = tokenExpr.replace(/^record\./, "");
-      currentNode.meta_description =
-        (currentNode.meta_description || "") +
-        (currentNode.meta_description ? " " : "") +
-        `{${clean}}`;
     }
-    triggerPreviewDebounced();
   }
 
-  function insertModelLoop(modelKey) {
+  // Вставка текста в позицию курсора редактора шаблона
+  function insertIntoTemplate(text) {
     if (!currentNode) return;
-    const loopSnippet = `\n<ul>\n{% for item in ${modelKey} %}\n  <li><a href="/${modelKey}/{{ item.id }}">{{ item.title or item.name or item.id }}</a></li>\n{% endfor %}\n</ul>\n`;
-    currentNode.template = (currentNode.template || "") + loopSnippet;
-    activeField = "template";
+    const currentTpl = currentNode.template || "";
+    if (!textareaEl) {
+      currentNode.template = currentTpl + text;
+      triggerValidateDebounced();
+      return;
+    }
+
+    const start = textareaEl.selectionStart ?? currentTpl.length;
+    const end = textareaEl.selectionEnd ?? currentTpl.length;
+    currentNode.template =
+      currentTpl.substring(0, start) + text + currentTpl.substring(end);
     triggerValidateDebounced();
-    triggerPreviewDebounced();
+
+    setTimeout(() => {
+      textareaEl.focus();
+      const newPos = start + text.length;
+      textareaEl.setSelectionRange(newPos, newPos);
+    }, 0);
+  }
+
+  // Вставка цикла перебора по модели
+  function insertModelLoop(modelKey) {
+    const loopSnippet = `\n<ul>\n  {% for item in ${modelKey}.order_by("-id")[:20] %}\n    <li><a href="/${modelKey.toLowerCase()}/{{ item.id }}">{{ item.title or item.name or item.id }}</a></li>\n  {% endfor %}\n</ul>\n`;
+    insertIntoTemplate(loopSnippet);
+  }
+
+  // Вставка поля в активный инпут или в Jinja2-шаблон
+  function insertFieldToken(fieldName, prefix = "item") {
+    if (!currentNode) return;
+
+    if (activeField === "template") {
+      insertIntoTemplate(`{{ ${prefix}.${fieldName} }}`);
+      return;
+    }
+
+    const token = `{${fieldName}}`;
+    if (activeField === "meta_title") {
+      currentNode.meta_title = (currentNode.meta_title || "") + (currentNode.meta_title ? " " : "") + token;
+    } else if (activeField === "meta_description") {
+      currentNode.meta_description = (currentNode.meta_description || "") + (currentNode.meta_description ? " " : "") + token;
+    } else if (activeField === "url_pattern") {
+      const base = (currentNode.url_pattern || "/").replace(/\/$/, "");
+      currentNode.url_pattern = `${base}/${token}`;
+    } else if (activeField === "title") {
+      currentNode.title = (currentNode.title || "") + " " + token;
+    }
+  }
+
+  // Вставка глобальных токенов
+  function insertGlobalToken(tokenName) {
+    if (activeField === "template") {
+      insertIntoTemplate(`{{ ${tokenName} }}`);
+    } else if (activeField === "meta_title") {
+      currentNode.meta_title = (currentNode.meta_title || "") + (currentNode.meta_title ? " " : "") + `{${tokenName}}`;
+    } else if (activeField === "meta_description") {
+      currentNode.meta_description = (currentNode.meta_description || "") + (currentNode.meta_description ? " " : "") + `{${tokenName}}`;
+    }
+  }
+
+  // Обработка клавиш в редакторе (Tab = 2 пробела, Ctrl+S = Сохранить)
+  function handleTextareaKeyDown(e) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const start = e.currentTarget.selectionStart;
+      const end = e.currentTarget.selectionEnd;
+      const val = currentNode.template || "";
+      currentNode.template = val.substring(0, start) + "  " + val.substring(end);
+      triggerValidateDebounced();
+      setTimeout(() => {
+        e.currentTarget.setSelectionRange(start + 2, start + 2);
+      }, 0);
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      saveSeoData();
+    }
+  }
+
+  function handleGlobalKeyDown(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      saveSeoData();
+    }
   }
 
   function triggerValidateDebounced() {
@@ -284,249 +342,285 @@
       }
     }, 250);
   }
-
-  function triggerPreviewDebounced() {
-    clearTimeout(previewTimer);
-    previewTimer = setTimeout(() => {
-      refreshPreview();
-    }, 300);
-  }
-
-  async function refreshPreview() {
-    if (!currentNode) return;
-    isPreviewLoading = true;
-    try {
-      previewData = await rpc.call("seo.preview_node", {
-        node: currentNode,
-        parents: currentParents,
-      });
-    } catch (e) {
-      // Игнорируем промежуточные ошибки при вводе
-    } finally {
-      isPreviewLoading = false;
-    }
-  }
 </script>
 
+<svelte:window onkeydown={handleGlobalKeyDown} />
+
+<!-- ВЕРХНЯЯ ПАНЕЛЬ ДЕЙСТВИЙ -->
 <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
   <div>
-    <h2 class="m-0 text-lg font-bold text-text-bright">🌲 SEO, Дерево сайта и Dynamic Rendering</h2>
-    <small class="text-muted">
-      Единое дерево URL, метатеги OpenGraph / JSON-LD, песочница Jinja2 и карта сайта <code class="text-accent">/sitemap.xml</code>
+    <h2 class="m-0 text-lg font-bold text-text-bright flex items-center gap-2">
+      <span>🌲 SEO & Дерево сайта</span>
+      <Badge variant="accent" class="text-xs font-mono">Jinja2 Sandbox</Badge>
+    </h2>
+    <small class="text-muted block mt-0.5">
+      Структура URL, метатеги и прямой серверный рендеринг страниц для поисковых ботов
     </small>
   </div>
   <div class="flex gap-2 flex-wrap items-center">
-    <Button variant="outline" onclick={() => (showPresetsModal = true)}>
-      📐 Шаблоны структуры
+    <Button
+      variant="outline"
+      size="sm"
+      onclick={() => (showSettingsModal = true)}
+      title="Глобальные параметры сайта, IndexNow и домен"
+    >
+      <Settings size={14} class="mr-1.5" />
+      Настройки сайта
     </Button>
+
     <a
-      class="inline-flex items-center justify-center min-h-8 h-8 px-3.5 rounded text-sm font-medium border border-border text-text hover:bg-panel-alt hover:text-text-bright no-underline transition-all"
+      class="inline-flex items-center justify-center min-h-8 h-8 px-3 rounded text-xs font-medium border border-border text-text hover:bg-panel-alt hover:text-text-bright no-underline transition-all"
       href="/sitemap.xml"
       target="_blank"
       rel="noreferrer"
+      title="Открыть живой XML файл карты сайта"
     >
       🗺️ /sitemap.xml ↗
     </a>
+
     <a
-      class="inline-flex items-center justify-center min-h-8 h-8 px-3.5 rounded text-sm font-medium border border-success text-success hover:bg-success-subtle no-underline transition-all"
-      href="{currentNode?.url_pattern && !currentNode.url_pattern.includes('{')
-        ? currentNode.url_pattern
-        : '/'}?bot=1"
+      class="inline-flex items-center justify-center min-h-8 h-8 px-3 rounded text-xs font-semibold border border-success/40 text-success bg-success/5 hover:bg-success/15 no-underline transition-all shadow-xs"
+      href="{currentNode?.url_pattern ? (currentNode.url_pattern.includes('{') ? '/' : currentNode.url_pattern) : '/'}?bot=1"
       target="_blank"
       rel="noreferrer"
+      title="Открыть страницу в браузере с флагом бота (?bot=1) для проверки готового HTML"
     >
-      🤖 Открыть как бот (?bot=1) ↗
+      <ExternalLink size={13} class="mr-1.5" />
+      Открыть как бот (?bot=1) ↗
     </a>
+
     <Button
       variant="outline"
+      size="sm"
       disabled={isPinging}
       onclick={pingIndexNow}
+      title="Отправить мгновенный push в поисковики Яндекс и Bing"
     >
-      ⚡ {isPinging ? "Отправка..." : "IndexNow Ping"}
+      <Zap size={14} class="mr-1.5 text-accent" />
+      {isPinging ? "Отправка..." : "IndexNow"}
     </Button>
-    <Button variant="primary" disabled={isSaving} onclick={saveSeoData}>
-      💾 {isSaving ? "Сохранение..." : "Сохранить в БД"}
+
+    <Button
+      variant="primary"
+      size="sm"
+      disabled={isSaving}
+      onclick={saveSeoData}
+      title="Сохранить всё дерево и шаблоны в БД (Ctrl+S)"
+    >
+      <Save size={14} class="mr-1.5" />
+      {isSaving ? "Сохранение..." : "Сохранить в БД"}
     </Button>
   </div>
 </div>
 
-{#if showPresetsModal}
-  <Card class="mb-5 border-accent">
-    <div class="flex items-center justify-between pb-3 mb-3 border-b border-border-subtle font-bold text-sm text-text-bright">
-      <span>Выберите готовый шаблон структуры дерева сайта</span>
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={() => (showPresetsModal = false)}
-      >
-        ✕ Закрыть
-      </Button>
-    </div>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {#each availablePresets as p}
-        <Card class="bg-bg">
-          <div class="font-bold text-sm text-text-bright mb-1.5">
-            {p.icon} {p.title}
-          </div>
-          <p class="text-xs text-muted mt-0 mb-3">
-            {p.description}
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onclick={() => applyPreset(p.key)}
-          >
-            Применить шаблон
-          </Button>
-        </Card>
-      {/each}
-    </div>
-  </Card>
-{/if}
-
 {#if isLoading}
-  <Card class="text-muted">Загрузка дерева сайта и конфигурации SEO из БД...</Card>
+  <Card class="text-muted p-8 text-center text-sm">
+    Загрузка структуры дерева сайта и конфигурации SEO из базы данных...
+  </Card>
 {:else}
-  <div class="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-5 items-start">
-    <!-- ЛЕВАЯ КОЛОНКА: Дерево сайта, глобальные настройки и доступ гостей к таблицам -->
+  <!-- ОСНОВНОЙ РАБОЧИЙ ЛЕЙАУТ (Две колонки) -->
+  <div class="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 items-start">
+    
+    <!-- ЛЕВАЯ КОЛОНКА: Дерево сайта + Шпаргалка моделей для Jinja2 -->
     <div class="flex flex-col gap-4">
-      <!-- 1. Живое дерево сайта -->
-      <Card>
-        <div class="flex items-center justify-between pb-3 mb-3 border-b border-border-subtle font-bold text-sm text-text-bright">
-          <span>Дерево страниц сайта</span>
+      
+      <!-- 1. Дерево страниц сайта -->
+      <Card class="p-3.5">
+        <div class="flex items-center justify-between pb-2.5 mb-2.5 border-b border-border-subtle">
+          <span class="font-bold text-xs uppercase tracking-wide text-text-bright">Дерево страниц</span>
           <Button
             variant="outline"
             size="sm"
+            class="h-7 text-xs px-2"
             onclick={() => addChildNode(currentNode)}
+            title="Добавить дочерний подраздел к выбранному"
           >
-            + Подраздел
+            <Plus size={13} class="mr-1" />
+            Подраздел
           </Button>
         </div>
 
-        {#snippet treeItem(node, depth)}
-          <button
-            type="button"
-            class="w-full text-left mb-1.5 p-2 rounded cursor-pointer flex items-center justify-between border transition-colors {selectedNodeId === node.id ? 'border-accent bg-accent-subtle text-text-bright' : 'border-border-subtle bg-bg hover:bg-panel-hover text-text'}"
-            style="margin-left: {depth * 14}px;"
-            onclick={() => selectNode(node.id)}
-          >
-            <div class="overflow-hidden text-ellipsis whitespace-nowrap mr-2">
-              <span class="mr-1.5">
-                {#if node.node_type === "collection"}📁{:else if node.node_type === "detail"}🏷️{:else}📄{/if}
-              </span>
-              <b class="text-xs font-semibold">{node.title}</b>
-              <div class="text-[0.72rem] text-muted font-mono">
-                {node.url_pattern}
+        <div class="max-h-[360px] overflow-y-auto pr-1">
+          {#snippet treeItem(node, depth)}
+            <button
+              type="button"
+              class="w-full text-left mb-1 p-2 rounded cursor-pointer flex items-center justify-between border transition-all text-xs {selectedNodeId === node.id ? 'border-accent bg-accent-subtle/80 text-text-bright shadow-xs font-semibold' : 'border-border-subtle bg-bg hover:bg-panel-alt text-text'}"
+              style="margin-left: {depth * 14}px;"
+              onclick={() => selectNode(node.id)}
+            >
+              <div class="overflow-hidden text-ellipsis whitespace-nowrap mr-2">
+                <span class="mr-1.5 opacity-80">
+                  {node.children && node.children.length > 0 ? "📁" : "📄"}
+                </span>
+                <span>{node.title}</span>
+                <div class="text-[0.7rem] text-muted font-mono truncate">
+                  {node.url_pattern}
+                </div>
               </div>
-            </div>
-            {#if node.model_key}
-              <Badge variant="accent">{node.model_key}</Badge>
-            {/if}
-          </button>
-          {#each node.children || [] as child}
-            {@render treeItem(child, depth + 1)}
-          {/each}
-        {/snippet}
+              <div class="flex items-center gap-1 shrink-0">
+                {#if node.sitemap_enabled}
+                  <span class="text-[0.65rem] text-muted" title="Включен в sitemap">🗺️</span>
+                {/if}
+              </div>
+            </button>
+            {#each node.children || [] as child}
+              {@render treeItem(child, depth + 1)}
+            {/each}
+          {/snippet}
 
-        {@render treeItem(siteTree, 0)}
+          {@render treeItem(siteTree, 0)}
+        </div>
       </Card>
 
-      <!-- 2. Публичный доступ таблиц (guest -> Model.read) -->
-      <Card>
-        <div class="flex items-center justify-between pb-2 mb-2 border-b border-border-subtle font-bold text-sm text-text-bright">
-          <span>Доступ таблиц для ботов (guest)</span>
-          <Badge variant="default">Model.read</Badge>
-        </div>
-        <small class="text-muted block mb-3 text-xs">
-          Поисковые роботы индексируют только те таблицы, для которых у роли
-          <code class="text-accent">guest</code> включено право <code class="text-accent">.read</code>:
-        </small>
-        {#if availableModels.length === 0}
-          <div class="text-xs text-muted">
-            Нет зарегистрированных прикладных таблиц
+      <!-- 2. Интерактивная шпаргалка открытых моделей (Jinja2 Cheat Sheet) -->
+      <Card class="p-3.5">
+        <div class="flex items-center justify-between pb-2 mb-2 border-b border-border-subtle">
+          <div>
+            <span class="font-bold text-xs uppercase tracking-wide text-text-bright">Модели для Jinja2</span>
+            <small class="text-muted block text-[0.7rem]">Открытые для ботов таблицы</small>
           </div>
-        {:else}
-          <div class="flex flex-col gap-2">
-            {#each availableModels as m}
-              <div class="flex items-center justify-between p-2 rounded bg-bg border border-border-subtle text-xs">
-                <span>
-                  <b class="text-text-bright">{m.key}</b>
-                  <small class="text-muted">({m.verbose_name})</small>
-                </span>
-                <Checkbox
-                  checked={m.seo_allowed}
-                  onchange={(e) =>
-                    toggleGuestRead(m.key, e.currentTarget.checked)}
-                />
+          <Badge variant="accent" class="text-xs font-mono">{allowedModels.length}</Badge>
+        </div>
+
+        <!-- Поиск моделей и полей -->
+        <div class="relative mb-2.5">
+          <Input
+            class="w-full text-xs h-7 min-h-7 pl-7"
+            placeholder="Поиск по таблицам и колонкам..."
+            bind:value={modelSearch}
+          />
+          <Search size={12} class="absolute left-2.5 top-2 text-muted pointer-events-none" />
+        </div>
+
+        <!-- Список доступных моделей -->
+        <div class="max-h-[460px] overflow-y-auto pr-1 flex flex-col gap-2">
+          {#if filteredModels.length === 0}
+            <div class="text-xs text-muted text-center py-4">
+              {#if allowedModels.length === 0}
+                Нет таблиц с доступом guest.read
+              {:else}
+                Таблицы по запросу не найдены
+              {/if}
+            </div>
+          {:else}
+            {#each filteredModels as m}
+              <div class="border border-border-subtle rounded bg-bg overflow-hidden text-xs">
+                <!-- Заголовок модели -->
+                <div class="p-2 flex items-center justify-between gap-1.5 bg-panel-alt/50 border-b border-border-subtle">
+                  <button
+                    type="button"
+                    class="flex items-center gap-1 font-semibold text-text-bright hover:text-accent cursor-pointer truncate text-left"
+                    onclick={() => toggleModelAccordion(m.key)}
+                    title="Раскрыть список полей"
+                  >
+                    {#if expandedModels[m.key]}
+                      <ChevronDown size={14} class="shrink-0 text-muted" />
+                    {:else}
+                      <ChevronRight size={14} class="shrink-0 text-muted" />
+                    {/if}
+                    <span class="font-mono">{m.key}</span>
+                    {#if m.verbose_name && m.verbose_name !== m.key}
+                      <small class="text-muted font-normal truncate">({m.verbose_name})</small>
+                    {/if}
+                  </button>
+
+                  <!-- Кнопка быстрой вставки цикла for -->
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="h-6 text-[0.7rem] px-2 py-0"
+                    onclick={() => insertModelLoop(m.key)}
+                    title="Вставить цикл: &#123;% for item in {m.key}.order_by('-id')[:20] %&#125;"
+                  >
+                    + цикл
+                  </Button>
+                </div>
+
+                <!-- Раскрывающийся список колонок и связей -->
+                {#if expandedModels[m.key]}
+                  <div class="p-2 bg-bg flex flex-col gap-1.5 animate-in fade-in duration-100">
+                    <div class="text-[0.68rem] text-muted uppercase font-semibold">Поля модели:</div>
+                    <div class="flex flex-wrap gap-1">
+                      {#each m.fields || [] as f}
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.7rem] font-mono border border-border bg-panel hover:bg-accent-subtle hover:border-accent hover:text-text-bright transition-colors cursor-pointer"
+                          onclick={() => insertFieldToken(f.name, "item")}
+                          title="Клик: вставить в редактор &#123;&#123; item.{f.name} &#125;&#125;"
+                        >
+                          <span>{f.name}</span>
+                          <span class="text-[0.62rem] text-muted">({f.type || "str"})</span>
+                        </button>
+                      {/each}
+                    </div>
+
+                    {#if m.relations && m.relations.length > 0}
+                      <div class="text-[0.68rem] text-muted uppercase font-semibold mt-1">Связи (FK):</div>
+                      <div class="flex flex-wrap gap-1">
+                        {#each m.relations as rel}
+                          {#each rel.fields || [] as rf}
+                            <button
+                              type="button"
+                              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.7rem] font-mono border border-accent/40 bg-accent-subtle/40 hover:bg-accent-subtle hover:border-accent hover:text-text-bright transition-colors cursor-pointer text-accent"
+                              onclick={() => insertFieldToken(rf.chip || `${rel.relation_name}.${rf.name}`, "item")}
+                              title="Клик: вставить &#123;&#123; item.{rf.chip || `${rel.relation_name}.${rf.name}`} &#125;&#125;"
+                            >
+                              <span>{rf.chip || `${rel.relation_name}.${rf.name}`}</span>
+                            </button>
+                          {/each}
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
               </div>
             {/each}
-          </div>
-        {/if}
-      </Card>
-
-      <!-- 3. Глобальные настройки домена и IndexNow -->
-      <Card>
-        <div class="pb-2 mb-3 border-b border-border-subtle font-bold text-sm text-text-bright">
-          <span>Глобальные параметры сайта</span>
-        </div>
-        <div class="flex flex-col gap-3 text-xs">
-          <div>
-            <div class="text-muted block mb-1">Название сайта (og:site_name)</div>
-            <Input class="w-full" bind:value={siteName} />
-          </div>
-          <div>
-            <div class="text-muted block mb-1">Базовый URL (для канонических ссылок и Sitemap)</div>
-            <Input class="w-full" bind:value={siteUrl} />
-          </div>
-          <div>
-            <div class="text-muted block mb-1">Ключ IndexNow (раздается на /&lt;key&gt;.txt)</div>
-            <Input
-              class="w-full"
-              placeholder="Например: my-indexnow-key-123"
-              bind:value={indexnowKey}
-            />
-          </div>
-          <div>
-            <div class="text-muted block mb-1">Картинка соцсетей по умолчанию (og:image)</div>
-            <Input
-              class="w-full"
-              placeholder="https://example.com/og.png"
-              bind:value={defaultOgImage}
-            />
-          </div>
+          {/if}
         </div>
       </Card>
 
+      <!-- 3. Кодовые маршруты @bot_page (если есть) -->
       {#if botRoutes.length > 0}
-        <Card>
-          <div class="flex items-center justify-between pb-2 mb-2 border-b border-border-subtle font-bold text-sm text-text-bright">
+        <Card class="p-3">
+          <div class="flex items-center justify-between pb-1.5 mb-1.5 border-b border-border-subtle text-xs font-semibold text-text-bright">
             <span>Кодовые маршруты (@bot_page)</span>
-            <Badge variant="default">{botRoutes.length}</Badge>
+            <Badge variant="default" class="text-xs">{botRoutes.length}</Badge>
           </div>
-          <div class="flex flex-wrap gap-1.5">
+          <div class="flex flex-wrap gap-1">
             {#each botRoutes as br}
-              <Badge variant="accent">{br}</Badge>
+              <code class="text-[0.7rem] font-mono px-1.5 py-0.5 rounded bg-panel-alt text-accent border border-border-subtle">
+                {br}
+              </code>
             {/each}
           </div>
         </Card>
       {/if}
     </div>
 
-    <!-- ПРАВАЯ КОЛОНКА: Редактор выбранного узла + Чипсы + Живой симулятор (Google / Telegram / Бот) -->
+    <!-- ПРАВАЯ КОЛОНКА: Настройки узла + Центральный редактор шаблона Jinja2 -->
     {#if currentNode}
       <div class="flex flex-col gap-4">
-        <Card>
-          <div class="flex items-center justify-between pb-3 mb-3 border-b border-border-subtle font-bold text-sm text-text-bright flex-wrap gap-2">
-            <span class="flex items-center gap-2">
-              <span>Редактирование узла: <b>{currentNode.title}</b></span>
-              <code class="text-xs font-mono bg-bg px-1.5 py-0.5 rounded text-accent">{currentNode.url_pattern}</code>
-            </span>
+        
+        <!-- Карточка 1: Основные параметры страницы (Лаконично и компактно) -->
+        <Card class="p-4">
+          <div class="flex items-center justify-between pb-3 mb-3 border-b border-border-subtle flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-sm text-text-bright">
+                Страница: <b>{currentNode.title}</b>
+              </span>
+              <code class="text-xs font-mono bg-bg px-2 py-0.5 rounded border border-border-subtle text-accent">
+                {currentNode.url_pattern}
+              </code>
+            </div>
+
             {#if selectedNodeId !== "root"}
               <Button
                 variant="danger"
                 size="sm"
                 onclick={deleteSelectedNode}
+                title="Удалить данный узел и его подразделы"
               >
+                <Trash2 size={13} class="mr-1" />
                 Удалить узел
               </Button>
             {/if}
@@ -534,308 +628,213 @@
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
             <div>
-              <div class="text-xs text-muted block mb-1">Название в хлебных крошках</div>
+              <div class="text-xs text-muted block mb-1">Название страницы (хлебные крошки)</div>
               <Input
-                class="w-full"
+                class="w-full text-xs"
                 bind:value={currentNode.title}
-                oninput={triggerPreviewDebounced}
+                onfocus={() => (activeField = "title")}
               />
             </div>
 
             <div>
-              <div class="text-xs text-muted block mb-1">Шаблон URL (например /books/&#123;id&#125;)</div>
+              <div class="text-xs text-muted block mb-1">Шаблон URL (например: /forum, /forum/&#123;id&#125;)</div>
               <Input
-                class="w-full font-mono"
+                class="w-full font-mono text-xs"
                 bind:value={currentNode.url_pattern}
                 disabled={selectedNodeId === "root"}
                 onfocus={() => (activeField = "url_pattern")}
-                oninput={triggerPreviewDebounced}
               />
-            </div>
-
-            <div>
-              <div class="text-xs text-muted block mb-1">Тип узла</div>
-              <Select
-                class="w-full"
-                bind:value={currentNode.node_type}
-                onchange={triggerPreviewDebounced}
-              >
-                <option value="static">📄 Статическая страница (static)</option>
-                <option value="collection">📁 Раздел / список записей (collection)</option>
-                <option value="detail">🏷️ Детальная карточка из БД (detail)</option>
-              </Select>
-            </div>
-
-            <div>
-              <div class="text-xs text-muted block mb-1">Привязка к таблице БД (CRUD)</div>
-              <Select
-                class="w-full"
-                bind:value={currentNode.model_key}
-                onchange={triggerPreviewDebounced}
-              >
-                <option value={null}>— Без привязки к таблице —</option>
-                {#each availableModels as m}
-                  <option value={m.key}>
-                    {m.key} ({m.verbose_name}) {m.seo_allowed ? "✓" : "🔒"}
-                  </option>
-                {/each}
-              </Select>
             </div>
           </div>
 
-          <!-- Панель быстрых чипсов для подстановки полей БД и циклов -->
-          <div class="bg-bg border border-border-subtle rounded-md p-3 mb-3">
-            <div class="flex items-center justify-between flex-wrap gap-2">
-              <small class="text-xs text-muted">
-                Быстрая вставка в поле <code class="text-accent">{activeField}</code>:
-              </small>
-              <div class="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  class="cursor-pointer"
-                  onclick={() => insertChip("site_name")}
-                >
-                  <Badge variant="accent">+ &#123;site_name&#125;</Badge>
-                </button>
-                {#if selectedModelSchema}
-                  {#each selectedModelSchema.fields as f}
-                    <button
-                      type="button"
-                      class="cursor-pointer"
-                      onclick={() => insertChip(f.name)}
-                    >
-                      <Badge variant="default">+ &#123;{f.name}&#125;</Badge>
-                    </button>
-                  {/each}
-                  {#each selectedModelSchema.relations || [] as rel}
-                    {#each rel.fields as rf}
-                      <button
-                        type="button"
-                        class="cursor-pointer"
-                        onclick={() => insertChip(rf.chip)}
-                      >
-                        <Badge variant="accent">+ &#123;{rf.chip}&#125;</Badge>
-                      </button>
-                    {/each}
-                  {/each}
-                {/if}
-              </div>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-            <div>
-              <div class="text-xs text-muted block mb-1">SEO Заголовок (Title / og:title)</div>
-              <Input
-                class="w-full"
-                bind:value={currentNode.meta_title}
-                onfocus={() => (activeField = "meta_title")}
-                oninput={triggerPreviewDebounced}
-              />
-            </div>
-
-            <div>
-              <div class="text-xs text-muted block mb-1">Тип микроразметки Schema.org (@type)</div>
-              <Select
-                class="w-full"
-                bind:value={currentNode.schema_type}
-                onchange={triggerPreviewDebounced}
-              >
-                <option value="WebPage">WebPage</option>
-                <option value="WebSite">WebSite</option>
-                <option value="CollectionPage">CollectionPage</option>
-                <option value="Article">Article (Статья / Новость)</option>
-                <option value="Book">Book (Книга)</option>
-                <option value="Product">Product (Товар)</option>
-                <option value="DiscussionForumPosting">DiscussionForumPosting (Форум)</option>
-                <option value="AboutPage">AboutPage</option>
-                <option value="ContactPage">ContactPage</option>
-              </Select>
-            </div>
+          <div class="mb-3">
+            <div class="text-xs text-muted block mb-1">SEO Title (meta_title, og:title)</div>
+            <Input
+              class="w-full text-xs"
+              placeholder="&#123;title&#125; — &#123;site_name&#125;"
+              bind:value={currentNode.meta_title}
+              onfocus={() => (activeField = "meta_title")}
+            />
           </div>
 
           <div class="mb-3">
             <div class="text-xs text-muted block mb-1">Мета-описание (meta description / og:description)</div>
             <textarea
-              class="w-full min-h-[64px] px-3 py-2 rounded bg-bg text-text border border-border text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-subtle resize-y"
+              class="w-full min-h-[54px] px-3 py-1.5 rounded bg-bg text-text border border-border text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-y"
               rows="2"
+              placeholder="Краткое описание страницы для сниппетов поисковиков..."
               bind:value={currentNode.meta_description}
               onfocus={() => (activeField = "meta_description")}
-              oninput={triggerPreviewDebounced}
             ></textarea>
           </div>
 
-          {#if currentNode.node_type === "collection"}
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3 p-3 rounded-md bg-bg border border-border-subtle">
-              <div>
-                <div class="text-xs text-muted block mb-1">Шаблон ссылки элемента</div>
-                <Input
-                  class="w-full font-mono text-xs"
-                  placeholder="/books/&#123;id&#125;"
-                  bind:value={currentNode.item_link_pattern}
-                  oninput={triggerPreviewDebounced}
-                />
-              </div>
-              <div>
-                <div class="text-xs text-muted block mb-1">Заголовок элемента</div>
-                <Input
-                  class="w-full text-xs"
-                  placeholder="&#123;title&#125;"
-                  bind:value={currentNode.item_title_pattern}
-                  oninput={triggerPreviewDebounced}
-                />
-              </div>
-              <div>
-                <div class="text-xs text-muted block mb-1">Описание элемента</div>
-                <Input
-                  class="w-full text-xs"
-                  placeholder="&#123;author&#125;"
-                  bind:value={currentNode.item_desc_pattern}
-                  oninput={triggerPreviewDebounced}
-                />
-              </div>
-            </div>
-          {/if}
-
-          <!-- Кастомный шаблон Jinja2 (опционально) -->
-          <div class="mb-3">
-            <div class="flex items-center justify-between mb-1.5 flex-wrap gap-2">
-              <small class="text-xs text-muted">
-                Кастомный HTML-шаблон Jinja2 для бота (оставьте пустым для авто-генерации):
-              </small>
-              <div class="flex gap-1.5 flex-wrap">
-                {#each availableModels as m}
-                  <button
-                    type="button"
-                    class="cursor-pointer"
-                    onclick={() => insertModelLoop(m.key)}
-                  >
-                    <Badge variant="accent">+ Цикл &#123;% for item in {m.key} %&#125;</Badge>
-                  </button>
-                {/each}
-              </div>
-            </div>
-            <textarea
-              class="w-full min-h-[120px] px-3 py-2 rounded bg-bg text-text border border-border text-xs font-mono outline-none focus:border-accent focus:ring-2 focus:ring-accent-subtle"
-              rows="6"
-              placeholder="<h1>&#123;&#123; title &#125;&#125;</h1>&#10;<p>&#123;&#123; description &#125;&#125;</p>"
-              bind:value={currentNode.template}
-              onfocus={() => (activeField = "template")}
-              oninput={() => {
-                triggerValidateDebounced();
-                triggerPreviewDebounced();
-              }}
-            ></textarea>
-            {#if !templateValid && templateError}
-              <div class="text-danger text-xs mt-1">
-                ⚠️ {templateError}
-              </div>
-            {/if}
-          </div>
-
-          <!-- Параметры Sitemap для узла -->
-          <div class="flex items-center gap-5 flex-wrap pt-3 border-t border-border-subtle text-xs">
+          <!-- Единственный переключатель Sitemap: Включить / Выключить -->
+          <div class="pt-3 border-t border-border-subtle text-xs bg-panel-alt/30 -mx-4 -mb-4 px-4 py-2.5 rounded-b flex items-center justify-between">
             <Checkbox
               bind:checked={currentNode.sitemap_enabled}
-              label="Включить в /sitemap.xml"
+              label="Включить страницу в /sitemap.xml"
             />
-            <div class="flex items-center gap-2">
-              <span class="text-muted">Приоритет:</span>
-              <Input
-                type="number"
-                step="0.1"
-                min="0.1"
-                max="1.0"
-                class="w-20 h-7 min-h-7 text-xs py-0"
-                bind:value={currentNode.sitemap_priority}
-              />
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="text-muted">Частота:</span>
-              <Select
-                class="h-7 min-h-7 text-xs py-0"
-                bind:value={currentNode.sitemap_changefreq}
-                options={["always", "hourly", "daily", "weekly", "monthly"]}
-              />
-            </div>
+            <small class="text-muted text-[0.7rem]">
+              URL будет автоматически включен в карту сайта для поисковиков
+            </small>
           </div>
         </Card>
 
-        <!-- ЖИВОЙ СИМУЛЯТОР ПРЕВЬЮ (Google / Telegram / Семантический HTML робота) -->
-        <Card>
-          <div class="flex items-center justify-between pb-3 mb-3 border-b border-border-subtle font-bold text-sm text-text-bright flex-wrap gap-2">
-            <span>
-              👁️ Живой симулятор: как страницу видит поисковик и мессенджер
-              {#if isPreviewLoading}
-                <small class="text-muted font-normal">(обновление...)</small>
+        <!-- Карточка 2: Центральный редактор шаблона Jinja2 -->
+        <Card class="p-4 flex flex-col flex-1">
+          <div class="flex items-center justify-between pb-3 mb-2 border-b border-border-subtle flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+              <Code size={16} class="text-accent" />
+              <span class="font-bold text-sm text-text-bright">Тело страницы (HTML / Jinja2 Sandbox)</span>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <!-- Индикатор валидации Jinja2 в реальном времени -->
+              {#if templateValid}
+                <span class="inline-flex items-center gap-1 text-xs text-success font-medium">
+                  <CheckCircle2 size={13} />
+                  Синтаксис корректен
+                </span>
+              {:else}
+                <span class="inline-flex items-center gap-1 text-xs text-danger font-medium animate-pulse" title={templateError}>
+                  <AlertCircle size={13} />
+                  Ошибка синтаксиса
+                </span>
               {/if}
-            </span>
-            <div class="flex gap-1.5">
-              <Button
-                variant={previewTab === 'google' ? 'primary' : 'outline'}
-                size="sm"
-                onclick={() => (previewTab = "google")}
-              >
-                🔍 Google / Яндекс
-              </Button>
-              <Button
-                variant={previewTab === 'telegram' ? 'primary' : 'outline'}
-                size="sm"
-                onclick={() => (previewTab = "telegram")}
-              >
-                💬 Telegram / Соцсети
-              </Button>
-              <Button
-                variant={previewTab === 'robot' ? 'primary' : 'outline'}
-                size="sm"
-                onclick={() => (previewTab = "robot")}
-              >
-                🤖 Семантический HTML бота
-              </Button>
+
+              <span class="text-[0.7rem] text-muted hidden sm:inline">
+                [Tab] 2 пробела • [Ctrl+S] сохранить
+              </span>
             </div>
           </div>
 
-          {#if previewData}
-            {#if previewTab === "google"}
-              <!-- Точный симулятор сниппета выдачи Google -->
-              <div class="bg-white text-[#202124] p-4 rounded-lg max-w-2xl border border-gray-200 shadow-sm">
-                <div class="text-xs text-[#4d5156] mb-1">
-                  {siteUrl.replace(/\/$/, "")}{previewData.url || "/"}
-                </div>
-                <div class="text-lg text-[#1a0dab] font-medium mb-1 hover:underline cursor-pointer">
-                  {previewData.title || "Без заголовка"}
-                </div>
-                <div class="text-sm text-[#4d5156] leading-relaxed">
-                  {previewData.description || "Описание не указано"}
-                </div>
-                {#if previewData.breadcrumbs && previewData.breadcrumbs.length > 0}
-                  <div class="mt-2 text-xs text-[#5f6368]">
-                    Хлебные крошки Schema.org:
-                    {previewData.breadcrumbs.map((b) => b.title).join(" › ")}
-                  </div>
-                {/if}
-              </div>
-            {:else if previewTab === "telegram"}
-              <!-- Точный симулятор превью в Telegram -->
-              <div class="bg-[#182533] border-l-4 border-[#38bdf8] p-3.5 rounded max-w-lg shadow-sm">
-                <div class="text-xs text-[#38bdf8] font-bold mb-1">
-                  {siteName}
-                </div>
-                <div class="font-bold text-[#f8fafc] text-sm mb-1">
-                  {previewData.title || "Без заголовка"}
-                </div>
-                <div class="text-xs text-[#cbd5e1] leading-relaxed">
-                  {previewData.description || ""}
-                </div>
-              </div>
-            {:else}
-              <div class="bg-bg border border-border-subtle rounded-md p-3 font-mono text-xs text-text whitespace-pre-wrap max-h-80 overflow-y-auto">
-                {previewData.body_html || ""}
+          <!-- Панель быстрых глобальных токенов -->
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2 pb-2 border-b border-border-subtle text-xs">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-muted text-[0.72rem]">Быстрая вставка:</span>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded text-[0.7rem] font-mono border border-border bg-bg hover:bg-panel-alt hover:border-accent cursor-pointer transition-colors"
+                onclick={() => insertGlobalToken("site_name")}
+              >
+                + &#123;&#123; site_name &#125;&#125;
+              </button>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded text-[0.7rem] font-mono border border-border bg-bg hover:bg-panel-alt hover:border-accent cursor-pointer transition-colors"
+                onclick={() => insertIntoTemplate("{{ title }}")}
+              >
+                + &#123;&#123; title &#125;&#125;
+              </button>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded text-[0.7rem] font-mono border border-border bg-bg hover:bg-panel-alt hover:border-accent cursor-pointer transition-colors"
+                onclick={() => insertIntoTemplate("{{ description }}")}
+              >
+                + &#123;&#123; description &#125;&#125;
+              </button>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded text-[0.7rem] font-mono border border-border bg-bg hover:bg-panel-alt hover:border-accent cursor-pointer transition-colors"
+                onclick={() => insertIntoTemplate("{{ request.path }}")}
+              >
+                + &#123;&#123; request.path &#125;&#125;
+              </button>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded text-[0.7rem] font-mono border border-border bg-bg hover:bg-panel-alt hover:border-accent cursor-pointer transition-colors"
+                onclick={() => insertIntoTemplate("{{ request.query }}")}
+              >
+                + &#123;&#123; request.query &#125;&#125;
+              </button>
+            </div>
+          </div>
+
+          <!-- Текстовое поле шаблона -->
+          <div class="relative flex-1 flex flex-col">
+            <textarea
+              bind:this={textareaEl}
+              class="w-full min-h-[380px] p-3 rounded bg-bg text-text border border-border text-xs font-mono outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-y leading-relaxed"
+              placeholder="<h1>&#123;&#123; title &#125;&#125;</h1>&#10;<p>&#123;&#123; description &#125;&#125;</p>&#10;&#10;<ul>&#10;  &#123;% for item in ModelName.order_by('-id')[:20] %&#125;&#10;    <li><a href='/model/&#123;&#123; item.id &#125;&#125;'>&#123;&#123; item.title &#125;&#125;</a></li>&#10;  &#123;% endfor %&#125;&#10;</ul>"
+              bind:value={currentNode.template}
+              onfocus={() => (activeField = "template")}
+              onkeydown={handleTextareaKeyDown}
+              oninput={triggerValidateDebounced}
+            ></textarea>
+
+            {#if !templateValid && templateError}
+              <div class="mt-2 p-2.5 rounded bg-danger-subtle/50 border border-danger/40 text-danger text-xs font-mono">
+                <b>⚠️ Ошибка компиляции Jinja2:</b> {templateError}
               </div>
             {/if}
-          {/if}
+          </div>
         </Card>
       </div>
     {/if}
   </div>
 {/if}
+
+<!-- МОДАЛЬНОЕ ОКНО: ГЛОБАЛЬНЫЕ НАСТРОЙКИ САЙТА И INDEXNOW -->
+<Modal
+  open={showSettingsModal}
+  title="⚙️ Глобальные параметры сайта и поисковой оптимизации"
+  maxWidth="max-w-xl"
+  onclose={() => (showSettingsModal = false)}
+>
+  <div class="flex flex-col gap-3 text-xs p-1">
+    <div>
+      <div class="text-muted block mb-1">Название проекта / сайта (og:site_name, &#123;site_name&#125;)</div>
+      <Input class="w-full text-xs" bind:value={siteName} />
+    </div>
+
+    <div>
+      <div class="text-muted block mb-1">Базовый доменный URL (для канонических ссылок и sitemap.xml)</div>
+      <Input class="w-full font-mono text-xs" bind:value={siteUrl} />
+    </div>
+
+    <div>
+      <div class="text-muted block mb-1">Ключ протокола IndexNow (раздается на /&lt;key&gt;.txt)</div>
+      <Input
+        class="w-full font-mono text-xs"
+        placeholder="Например: a1b2c3d4e5f6..."
+        bind:value={indexnowKey}
+      />
+      <small class="text-muted block mt-0.5">
+        Используется для мгновенной отправки новых URL в Яндекс и Bing по кнопке IndexNow.
+      </small>
+    </div>
+
+    <div>
+      <div class="text-muted block mb-1">Изображение для соцсетей по умолчанию (og:image)</div>
+      <Input
+        class="w-full text-xs"
+        placeholder="https://example.com/assets/og-image.png"
+        bind:value={defaultOgImage}
+      />
+    </div>
+
+    <div>
+      <div class="text-muted block mb-1">TTL кэширования карты сайта sitemap.xml (секунд)</div>
+      <Input
+        type="number"
+        class="w-full text-xs"
+        bind:value={sitemapTtl}
+      />
+    </div>
+  </div>
+
+  {#snippet footer()}
+    <div class="flex items-center justify-between w-full">
+      <small class="text-muted text-[0.7rem]">
+        Изменения сохраняются в БД по кнопке «Сохранить в БД»
+      </small>
+      <Button
+        variant="primary"
+        size="sm"
+        onclick={() => (showSettingsModal = false)}
+      >
+        Готово
+      </Button>
+    </div>
+  {/snippet}
+</Modal>
