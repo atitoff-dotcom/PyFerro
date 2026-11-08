@@ -504,3 +504,92 @@ class TestMigrationV210:
                 assert res_after.scalar_one_or_none() is None
         finally:
             await db.close()
+
+
+class TestMarkdownFilterAndQueryRouting:
+    """Проверка Jinja-фильтра | markdown и маршрутизации query-параметров в SEO."""
+
+    def test_markdown_filter_comprehensive(self) -> None:
+        from pyferro2.seo.jinja_engine import render_markdown_filter
+        from markupsafe import Markup
+
+        md = (
+            "# Заголовок 1\n"
+            "## Заголовок 2\n"
+            "### Заголовок 3\n"
+            "Обычный текст с **жирным** и *курсивом* и `кодом`.\n"
+            "\n"
+            "![Пример картинки](https://example.com/pic.webp)\n"
+            "\n"
+            "---\n"
+            "\n"
+            "- Элемент списка 1\n"
+            "- Элемент списка 2\n"
+            "\n"
+            "| Колонка 1 | Колонка 2 |\n"
+            "| --- | --- |\n"
+            "| Значение 1 | Значение 2 |\n"
+            "\n"
+            "```python\n"
+            "print('hello')\n"
+            "```\n"
+            "\n"
+            "> Цитата автора"
+        )
+        res = render_markdown_filter(md)
+        assert isinstance(res, Markup)
+        html = str(res)
+        assert "<h2" in html and "Заголовок 1</h2>" in html
+        assert "<h3" in html and "Заголовок 2</h3>" in html
+        assert "<h4" in html and "Заголовок 3</h4>" in html
+        assert "<strong>жирным</strong>" in html
+        assert "<em>курсивом</em>" in html
+        assert "<code>" in html
+        assert "<figure" in html and '<img src="https://example.com/pic.webp"' in html
+        assert "<figcaption" in html and "Пример картинки</figcaption>" in html
+        assert "<hr" in html
+        assert "<ul" in html and "Элемент списка 1</li>" in html
+        assert "<table" in html and "Колонка 1</th>" in html and "Значение 1</td>" in html
+        assert "<pre" in html and "print(" in html
+        assert "<blockquote" in html and "Цитата автора" in html
+
+    async def test_site_tree_query_params_and_cache(self) -> None:
+        from pyferro2.seo.site_tree import set_cached_site_tree, match_and_render_site_tree
+        from pyferro2.seo import clear_seo_cache
+        from pyferro2.crud import CrudEngine
+
+        clear_seo_cache()
+        db = Database("sqlite+aiosqlite:///:memory:")
+        crud = CrudEngine()
+        try:
+            tree = {
+                "id": "root",
+                "title": "Поиск",
+                "url_pattern": "/search",
+                "node_type": "static",
+                "model_key": None,
+                "template": "<p>Запрос: {{ query.get('q') }}</p>",
+                "children": [],
+            }
+            set_cached_site_tree(tree)
+            res1 = await match_and_render_site_tree(
+                path="/search",
+                db=db,
+                crud_engine=crud,
+                query_params={"q": "apples"},
+            )
+            assert res1 is not None
+            assert res1.title == "Поиск"
+            assert "Запрос: apples" in res1.body_html
+
+            res2 = await match_and_render_site_tree(
+                path="/search",
+                db=db,
+                crud_engine=crud,
+                query_params={"q": "oranges"},
+            )
+            assert res2 is not None
+            assert res2.title == "Поиск"
+            assert "Запрос: oranges" in res2.body_html
+        finally:
+            await db.close()

@@ -216,7 +216,14 @@ async def handle_bot_http(
         return True
 
     # 2. Проверяем кэш для Site Tree Engine
-    found, cached = get_cached(path)
+    cache_query = {k: v for k, v in query.items() if k not in ("bot", "pf_bot_mode")}
+    if cache_query:
+        sorted_qs = "&".join(f"{k}={cache_query[k]}" for k in sorted(cache_query))
+        cache_key = f"{path}?{sorted_qs}"
+    else:
+        cache_key = path
+
+    found, cached = get_cached(cache_key)
     if found:
         if cached is None:
             return False
@@ -235,9 +242,10 @@ async def handle_bot_http(
                 db=db,
                 crud_engine=crud_engine,
                 guest_permissions=guest_permissions,
+                query_params=query,
             )
             if page_data is not None:
-                set_cached(path, ("site-tree", page_data))
+                set_cached(cache_key, ("site-tree", page_data))
                 host = extract_header(scope, "host")
                 html_content = render_seo_page(
                     page_data, current_path=path, host=host, is_emulation=is_emulation
@@ -249,6 +257,6 @@ async def handle_bot_http(
             logger.error("[SEO] Ошибка обработки дерева сайта для %s: %s", path, exc)
 
         if not had_error:
-            set_cached(path, None)
+            set_cached(cache_key, None)
 
     return False

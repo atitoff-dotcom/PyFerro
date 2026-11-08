@@ -282,6 +282,17 @@ class ModelQueryWrapper:
             return self._clone(offset_val=start)
         raise TypeError("ModelQueryWrapper поддерживает только срезы [:N] или [A:B]")
 
+    @staticmethod
+    def _coerce_filter_val(col: Any, v: Any) -> Any:
+        if v is None:
+            return None
+        try:
+            if hasattr(col, "type") and hasattr(col.type, "python_type") and col.type.python_type is int:
+                return int(v)
+        except Exception:
+            pass
+        return v
+
     async def count(self) -> int:
         if not self._is_allowed:
             return 0
@@ -291,7 +302,8 @@ class ModelQueryWrapper:
             for k, v in self.filters.items():
                 col = getattr(model_cls, k, None)
                 if col is not None:
-                    stmt = stmt.where(col.is_(None) if v is None else col == v)
+                    c_val = self._coerce_filter_val(col, v)
+                    stmt = stmt.where(col.is_(None) if c_val is None else col == c_val)
             val = (await session.execute(stmt)).scalar() or 0
             return int(val)
 
@@ -307,8 +319,8 @@ class ModelQueryWrapper:
                 for k, v in self.filters.items():
                     col = getattr(model_cls, k, None)
                     if col is not None:
-                        stmt = stmt.where(col.is_(None) if v is None else col == v)
-
+                        c_val = self._coerce_filter_val(col, v)
+                        stmt = stmt.where(col.is_(None) if c_val is None else col == c_val)
                 for fld in self.order_by_fields:
                     desc_order = fld.startswith("-")
                     clean_fld = fld[1:] if desc_order else fld
@@ -363,15 +375,228 @@ class ModelQueryWrapper:
         return _generator()
 
 
+import html as _html
+import re as _re
+from markupsafe import Markup
+
+
+def render_markdown_filter(md_text: Any) -> Markup:
+    """
+    Конвертирует Markdown в чистый семантический HTML5 для поисковых ботов:
+    - Заголовки: # -> <h2>, ## -> <h3>, ### -> <h4>
+    - Картинки: ![alt](url) -> <figure><img src="url" alt="alt" ... /><figcaption>alt</figcaption></figure>
+    - Ссылки: [text](url) -> <a href="url">text</a>
+    - Выделение: **bold**, *italic*, `code`
+    - Списки: - пункт
+    - Таблицы: | col1 | col2 |
+    - Цитаты: > цитата
+    """
+    if not md_text:
+        return Markup("")
+    raw = str(md_text)
+
+    # 1. Извлекаем блоки кода ```lang\ncode\n```
+    code_blocks: list[str] = []
+
+    def _save_code(m: _re.Match[str]) -> str:
+        code_body = _html.escape(m.group(2))
+        idx = len(code_blocks)
+        code_blocks.append(
+            f'<pre style="background:#1e293b;color:#f8fafc;padding:14px;border-radius:8px;overflow-x:auto;"><code>{code_body}</code></pre>'
+        )
+        return f"__CODE_BLOCK_{idx}__"
+
+    text = _re.sub(r"```([a-zA-Z0-9_-]*)\n([\s\S]*?)```", _save_code, raw)
+
+    # 2. Инлайн-элементы (картинки, ссылки, стили)
+    def _format_inline(s: str) -> str:
+        def _img(m: _re.Match[str]) -> str:
+            alt = _html.escape(m.group(1), quote=True)
+            src = _html.escape(m.group(2), quote=True)
+            caption = (
+                f'<figcaption style="font-size:13px;color:#64748b;margin-top:6px;">{alt}</figcaption>'
+                if alt
+                else ""
+            )
+            return (
+                f'<figure style="margin:18px 0;text-align:center;">'
+                f'<img src="{src}" alt="{alt}" loading="lazy" style="max-width:100%;height:auto;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.06);" />'
+                f"{caption}</figure>"
+            )
+
+        s = _re.sub(r"!\[(.*?)\]\((.*?)\)", _img, s)
+
+        def _link(m: _re.Match[str]) -> str:
+            t = _html.escape(m.group(1))
+            u = _html.escape(m.group(2), quote=True)
+            return f'<a href="{u}" style="color:#0f766e;text-decoration:underline;">{t}</a>'
+
+        s = _re.sub(r"\[(.*?)\]\((.*?)\)", _link, s)
+        s = _re.sub(r"\*\*(.*?)\*\*", lambda m: f"<strong>{m.group(1)}</strong>", s)
+        s = _re.sub(r"__(.*?)__", lambda m: f"<strong>{m.group(1)}</strong>", s)
+        s = _re.sub(r"\*(.*?)\*", lambda m: f"<em>{m.group(1)}</em>", s)
+        s = _re.sub(r"(?<![a-zA-Z0-9])_(.*?)_(?![a-zA-Z0-9])", lambda m: f"<em>{m.group(1)}</em>", s)
+        s = _re.sub(
+            r"`(.*?)`",
+            lambda m: f'<code style="background:#f1f5f9;color:#0f766e;padding:2px 6px;border-radius:4px;font-size:14px;">{_html.escape(m.group(1))}</code>',
+            s,
+        )
+        return s
+
+    lines = text.splitlines()
+    out_parts: list[str] = []
+    in_list = False
+    in_table = False
+    table_rows: list[list[str]] = []
+    para_lines: list[str] = []
+
+    def _flush_para() -> None:
+        nonlocal para_lines
+        if para_lines:
+            joined = " ".join(para_lines).strip()
+            if joined:
+                out_parts.append(
+                    f'<p style="margin-bottom:14px;line-height:1.75;">{_format_inline(joined)}</p>'
+                )
+            para_lines = []
+
+    def _flush_list() -> None:
+        nonlocal in_list
+        if in_list:
+            out_parts.append("</ul>")
+            in_list = False
+
+    def _flush_table() -> None:
+        nonlocal in_table, table_rows
+        if in_table and table_rows:
+            html_t = [
+                '<table style="width:100%;border-collapse:collapse;margin:18px 0;font-size:14px;">'
+            ]
+            html_t.append('<thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">')
+            for cell in table_rows[0]:
+                html_t.append(
+                    f'<th style="padding:10px 12px;text-align:left;font-weight:600;">{_format_inline(cell)}</th>'
+                )
+            html_t.append("</tr></thead><tbody>")
+            for row in table_rows[1:]:
+                html_t.append('<tr style="border-bottom:1px solid #f1f5f9;">')
+                for cell in row:
+                    html_t.append(f'<td style="padding:8px 12px;">{_format_inline(cell)}</td>')
+                html_t.append("</tr>")
+            html_t.append("</tbody></table>")
+            out_parts.append("".join(html_t))
+            table_rows = []
+            in_table = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        if stripped.startswith("__CODE_BLOCK_"):
+            _flush_para()
+            _flush_list()
+            _flush_table()
+            out_parts.append(stripped)
+            continue
+
+        if not stripped:
+            _flush_para()
+            _flush_list()
+            _flush_table()
+            continue
+
+        if stripped.startswith("|") and stripped.endswith("|"):
+            _flush_para()
+            _flush_list()
+            if _re.match(r"^\|[\s\-:|]+\|$", stripped):
+                continue
+            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            table_rows.append(cells)
+            in_table = True
+            continue
+        elif in_table:
+            _flush_table()
+
+        if stripped.startswith("#### "):
+            _flush_para()
+            _flush_list()
+            out_parts.append(
+                f'<h5 style="margin-top:20px;margin-bottom:8px;font-size:16px;">{_format_inline(stripped[5:])}</h5>'
+            )
+            continue
+        if stripped.startswith("### "):
+            _flush_para()
+            _flush_list()
+            out_parts.append(
+                f'<h4 style="margin-top:22px;margin-bottom:10px;font-size:18px;">{_format_inline(stripped[4:])}</h4>'
+            )
+            continue
+        if stripped.startswith("## "):
+            _flush_para()
+            _flush_list()
+            out_parts.append(
+                f'<h3 style="margin-top:26px;margin-bottom:12px;font-size:20px;color:#0f766e;">{_format_inline(stripped[3:])}</h3>'
+            )
+            continue
+        if stripped.startswith("# "):
+            _flush_para()
+            _flush_list()
+            out_parts.append(
+                f'<h2 style="margin-top:30px;margin-bottom:14px;font-size:24px;border-bottom:1px solid #e2e8f0;padding-bottom:6px;">{_format_inline(stripped[2:])}</h2>'
+            )
+            continue
+
+        if stripped.startswith("> "):
+            _flush_para()
+            _flush_list()
+            q_txt = _format_inline(stripped[2:])
+            out_parts.append(
+                f'<blockquote style="border-left:4px solid #0f766e;padding:8px 14px;margin:16px 0;background:#f8fafc;color:#334155;border-radius:0 8px 8px 0;"><p style="margin:0;">{q_txt}</p></blockquote>'
+            )
+            continue
+
+        if stripped.startswith(("- ", "* ", "+ ")):
+            _flush_para()
+            if not in_list:
+                out_parts.append('<ul style="padding-left:22px;margin-bottom:16px;">')
+                in_list = True
+            out_parts.append(f'<li style="margin-bottom:6px;">{_format_inline(stripped[2:])}</li>')
+            continue
+        else:
+            _flush_list()
+
+        if stripped in ("---", "***", "___"):
+            _flush_para()
+            out_parts.append('<hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;" />')
+            continue
+
+        if stripped.startswith("![") and stripped.endswith(")"):
+            _flush_para()
+            out_parts.append(_format_inline(stripped))
+            continue
+
+        para_lines.append(stripped)
+    _flush_para()
+    _flush_list()
+    _flush_table()
+
+    res = "\n".join(out_parts)
+    for idx, c_html in enumerate(code_blocks):
+        res = res.replace(f"__CODE_BLOCK_{idx}__", c_html)
+
+    return Markup(res)
+
+
 def get_jinja_env() -> SandboxedEnvironment:
     """Создает безопасное асинхронное окружение Jinja2."""
-    return SandboxedEnvironment(
+    env = SandboxedEnvironment(
         enable_async=True,
         autoescape=True,
         trim_blocks=True,
         lstrip_blocks=True,
     )
-
+    env.filters["markdown"] = render_markdown_filter
+    env.filters["md"] = render_markdown_filter
+    return env
 
 def validate_jinja_template(template_str: str) -> dict[str, Any]:
     """

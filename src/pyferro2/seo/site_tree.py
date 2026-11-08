@@ -556,6 +556,7 @@ async def render_static_node(
     db: Database | None = None,
     crud_engine: CrudEngine | None = None,
     guest_permissions: frozenset[str] | None = None,
+    query_params: dict[str, str] | None = None,
 ) -> SeoPageData:
     """Рендерит статический узел (например `/` или `/about`) со ссылками на дочерние разделы."""
     raw_title = node.get("meta_title") or node.get("title", "")
@@ -580,7 +581,13 @@ async def render_static_node(
             breadcrumbs=breadcrumbs,
             site_url=current_path,
             site_name=title,
-            extra={"title": title, "description": description, "current_path": current_path},
+            extra={
+                "title": title,
+                "description": description,
+                "current_path": current_path,
+                "query": query_params or {},
+                "request": {"query": query_params or {}, "path": current_path},
+            },
         )
         try:
             body_html = await render_jinja_template(template_str, ctx)
@@ -636,6 +643,7 @@ async def render_collection_node(
     db: Database,
     crud_engine: CrudEngine,
     guest_permissions: frozenset[str] | None = None,
+    query_params: dict[str, str] | None = None,
 ) -> SeoPageData | None:
     """
     Рендерит хаб/раздел коллекций (например `/books` или `/catalog/{parent.slug}`).
@@ -652,6 +660,7 @@ async def render_collection_node(
                 db=db,
                 crud_engine=crud_engine,
                 guest_permissions=guest_permissions,
+                query_params=query_params,
             )
         return None
 
@@ -767,6 +776,8 @@ async def render_collection_node(
                 "description": resolved_desc,
                 "current_path": current_path,
                 "extracted_params": extracted_params,
+                "query": query_params or {},
+                "request": {"query": query_params or {}, "path": current_path},
             },
         )
         try:
@@ -857,6 +868,7 @@ async def render_detail_node(
     db: Database,
     crud_engine: CrudEngine,
     guest_permissions: frozenset[str] | None = None,
+    query_params: dict[str, str] | None = None,
 ) -> SeoPageData | None:
     """
     Рендерит детальную страницу записи (книга, товар, статья, публикация).
@@ -994,6 +1006,8 @@ async def render_detail_node(
                 "description": resolved_desc,
                 "current_path": current_path,
                 "extracted_params": extracted_params,
+                "query": query_params or {},
+                "request": {"query": query_params or {}, "path": current_path},
             },
         )
         try:
@@ -1029,6 +1043,7 @@ async def match_and_render_site_tree(
     db: Database,
     crud_engine: CrudEngine,
     guest_permissions: frozenset[str] | None = None,
+    query_params: dict[str, str] | None = None,
 ) -> SeoPageData | None:
     """
     Проверяет, соответствует ли запрошенный ботом путь какому-либо узлу дерева сайта,
@@ -1061,6 +1076,7 @@ async def match_and_render_site_tree(
                     db=db,
                     crud_engine=crud_engine,
                     guest_permissions=guest_permissions,
+                    query_params=query_params,
                 )
             elif node_type == "collection":
                 res = await render_collection_node(
@@ -1072,6 +1088,7 @@ async def match_and_render_site_tree(
                     db=db,
                     crud_engine=crud_engine,
                     guest_permissions=guest_permissions,
+                    query_params=query_params,
                 )
             elif node_type == "detail":
                 res = await render_detail_node(
@@ -1083,9 +1100,12 @@ async def match_and_render_site_tree(
                     db=db,
                     crud_engine=crud_engine,
                     guest_permissions=guest_permissions,
+                    query_params=query_params,
                 )
             if res is not None:
                 return res
+        except Exception as exc:
+            logger.error("[SEO Tree] Ошибка рендеринга узла %s (%s): %s", node.get("title"), pattern, exc)
         except Exception as exc:
             logger.error("[SEO Tree] Ошибка рендеринга узла %s (%s): %s", node.get("title"), pattern, exc)
 
