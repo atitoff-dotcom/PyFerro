@@ -357,3 +357,48 @@ class TestCrudEngineAndPermissionsMatrix:
         # При этом маршрут /admin свободен (404 у ядра, не перехватывается фреймворком)
         app_status, _, _, _ = await call_rsgi_http(app, "GET", "/admin")
         assert app_status == 404
+
+    @pytest.mark.asyncio
+    async def test_admin_verify_access_stream(self, app: PyFerroApp) -> None:
+        """Сквозная проверка матрицы прав через streaming RPC метод admin.verify_access."""
+        admin_session = Session(
+            session_id="s-admin",
+            data=SessionData(
+                user_id=1,
+                username="admin_user",
+                roles=frozenset({admRole.admin.value, admRole.adm_roles.value, admRole.adm_rpc.value}),
+            ),
+        )
+
+        async with app.db.session() as db_session:
+            chunks = [
+                chunk
+                async for chunk in app.router.stream(
+                    "admin.verify_access",
+                    admin_session,
+                    params={"delay_ms": 0},
+                    db=db_session,
+                )
+            ]
+
+        assert len(chunks) > 0
+        progress_chunks = [c for c in chunks if not c["done"]]
+        final_chunk = chunks[-1]
+
+        # Проверяем структуру промежуточных чанков
+        assert len(progress_chunks) > 0
+        first_prog = progress_chunks[0]
+        assert "progress" in first_prog
+        assert "current_role" in first_prog
+        assert "current_method" in first_prog
+        assert "issues_count" in first_prog
+        assert first_prog["done"] is False
+
+        # Проверяем финальный чанк
+        assert final_chunk["done"] is True
+        assert final_chunk["progress"] == 100
+        assert "total_checks" in final_chunk
+        assert final_chunk["total_checks"] > 0
+        assert "issues" in final_chunk
+        assert isinstance(final_chunk["issues"], list)
+        assert len(final_chunk["issues"]) == 0

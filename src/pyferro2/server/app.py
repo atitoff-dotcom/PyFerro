@@ -425,7 +425,8 @@ class PyFerroApp:
         spec = self.router.get_spec(method_name) if type(method_name) is str else None
 
         # Если метод — мультиретурн (`async def ... yield`), стримим каждый yield с тем же id
-        if spec is not None and spec.is_stream:
+        is_dry = isinstance(packet.get("params"), dict) and packet.get("params").get("_dry") is True
+        if spec is not None and spec.is_stream and not is_dry:
             req_id = packet.get("id")
             raw_params = packet.get("params")
 

@@ -56,6 +56,88 @@
   let roleToDelete = $state(null);
   let isDeletingRole = $state(false);
 
+  // Модальное окно сквозной верификации прав доступа
+  let showVerifyModal = $state(false);
+  let verifyDelayMs = $state(10);
+  let isVerifying = $state(false);
+  let verifyProgress = $state(0);
+  let currentVerifyRole = $state("");
+  let currentVerifyMethod = $state("");
+  let verifyIssuesCount = $state(0);
+  let verifyResult = $state(null);
+  let stopVerifyStream = null;
+
+  function openVerifyModal() {
+    showVerifyModal = true;
+    verifyProgress = 0;
+    currentVerifyRole = "";
+    currentVerifyMethod = "";
+    verifyIssuesCount = 0;
+    verifyResult = null;
+    isVerifying = false;
+  }
+
+  function closeVerifyModal() {
+    if (isVerifying && stopVerifyStream) {
+      stopVerifyStream();
+      stopVerifyStream = null;
+    }
+    isVerifying = false;
+    showVerifyModal = false;
+  }
+
+  function startVerification() {
+    if (isVerifying) {
+      if (stopVerifyStream) {
+        stopVerifyStream();
+        stopVerifyStream = null;
+      }
+      isVerifying = false;
+      return;
+    }
+
+    isVerifying = true;
+    verifyProgress = 0;
+    currentVerifyRole = "";
+    currentVerifyMethod = "";
+    verifyIssuesCount = 0;
+    verifyResult = null;
+
+    const delay = Math.max(Number(verifyDelayMs) || 10, 10);
+
+    stopVerifyStream = rpc.stream("admin.verify_access", { delay_ms: delay }, {
+      onItem: (item) => {
+        if (!item) return;
+        if (item.done) {
+          verifyProgress = 100;
+          verifyResult = item;
+          verifyIssuesCount = item.issues?.length || 0;
+          isVerifying = false;
+          stopVerifyStream = null;
+        } else {
+          verifyProgress = item.progress ?? 0;
+          currentVerifyRole = item.current_role || "";
+          currentVerifyMethod = item.current_method || "";
+          verifyIssuesCount = item.issues_count ?? 0;
+        }
+      },
+      onError: (err) => {
+        toast.error(err.message || "Ошибка верификации доступа");
+        isVerifying = false;
+        stopVerifyStream = null;
+      },
+      onDone: (finalItem) => {
+        if (finalItem && finalItem.done) {
+          verifyResult = finalItem;
+          verifyProgress = 100;
+          verifyIssuesCount = finalItem.issues?.length || 0;
+        }
+        isVerifying = false;
+        stopVerifyStream = null;
+      },
+    });
+  }
+
   // Стандартные пояснения к действиям CRUD
   const ACTION_LABELS = {
     read: "Чтение и получение записей",
@@ -528,6 +610,11 @@
       </p>
     </div>
     <div class="flex items-center gap-2">
+      <Button variant="outline" onclick={openVerifyModal}>
+        <ShieldCheck size={16} />
+        <span>Проверить доступ пользователей</span>
+      </Button>
+
       <Button variant="outline" onclick={openCreateModal}>
         <Plus size={16} />
         <span>Создать роль</span>
@@ -839,6 +926,122 @@
         disabled={isDeletingRole}
       >
         {isDeletingRole ? "Удаление..." : "Удалить роль"}
+      </Button>
+    {/snippet}
+  </Modal>
+  <!-- Модальное окно верификации прав доступа -->
+  <Modal
+    open={showVerifyModal}
+    onclose={closeVerifyModal}
+    title="Сквозная проверка прав доступа (Dry-run RPC)"
+    maxWidth="max-w-2xl"
+  >
+    <div class="space-y-4">
+      <div>
+        <label for="verify-delay" class="block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5">
+          Пауза между методами (мс)
+        </label>
+        <Input
+          id="verify-delay"
+          type="number"
+          min="10"
+          bind:value={verifyDelayMs}
+          disabled={isVerifying}
+          placeholder="10"
+        />
+        <small class="text-muted text-[11px] block mt-1">
+          Минимальная задержка: 10 мс для плавной анимации и контроля нагрузки
+        </small>
+      </div>
+
+      {#if isVerifying || verifyProgress > 0}
+        <div class="space-y-2 p-3 bg-panel-alt rounded-lg border border-border-subtle">
+          <div class="flex items-center justify-between text-xs text-muted">
+            <span class="font-medium">Прогресс: {verifyProgress}%</span>
+            <span class={verifyIssuesCount > 0 ? "text-danger font-semibold" : ""}>
+              Найдено расхождений: {verifyIssuesCount}
+            </span>
+          </div>
+          <div class="w-full bg-panel rounded-full h-2.5 overflow-hidden border border-border-subtle">
+            <div
+              class="bg-accent h-2.5 rounded-full transition-all duration-150"
+              style="width: {verifyProgress}%"
+            ></div>
+          </div>
+          {#if isVerifying && (currentVerifyRole || currentVerifyMethod)}
+            <div class="text-xs font-mono text-muted flex items-center gap-1.5 truncate">
+              <span>Проверка:</span>
+              <span class="text-text-bright font-semibold">[Роль: {currentVerifyRole}]</span>
+              <span>-&gt;</span>
+              <span class="text-accent">{currentVerifyMethod}</span>
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      {#if verifyResult?.done}
+        {#if verifyResult.issues.length === 0}
+          <div class="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm flex items-center gap-2.5">
+            <ShieldCheck size={22} class="text-emerald-400 flex-shrink-0" />
+            <span>✓ Все права доступа ({verifyResult.total_checks} проверок) строго соответствуют матрице БД</span>
+          </div>
+        {:else}
+          <div class="space-y-3">
+            <div class="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm flex items-center gap-2">
+              <ShieldX size={20} class="text-amber-400 flex-shrink-0" />
+              <span>Обнаружено расхождений: <b>{verifyResult.issues.length}</b> (из {verifyResult.total_checks} проверок)</span>
+            </div>
+
+            <div class="max-h-60 overflow-y-auto border border-border-subtle rounded-lg">
+              <table class="w-full text-xs text-left">
+                <thead class="bg-panel-alt text-muted uppercase text-[10px] sticky top-0 border-b border-border-subtle">
+                  <tr>
+                    <th class="p-2.5">Роль</th>
+                    <th class="p-2.5">Метод</th>
+                    <th class="p-2.5">Ожидалось</th>
+                    <th class="p-2.5">Фактически</th>
+                    <th class="p-2.5">Причина</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border-subtle font-mono">
+                  {#each verifyResult.issues as issue}
+                    <tr class="hover:bg-panel-hover">
+                      <td class="p-2.5 text-text font-semibold">{issue.role}</td>
+                      <td class="p-2.5 text-accent">{issue.method}</td>
+                      <td class="p-2.5">
+                        <Badge variant={issue.expected ? "success" : "default"}>
+                          {issue.expected ? "Разрешено" : "Запрещено"}
+                        </Badge>
+                      </td>
+                      <td class="p-2.5">
+                        <Badge variant={issue.actual ? "danger" : "default"}>
+                          {issue.actual ? "Разрешено" : "Запрещено"}
+                        </Badge>
+                      </td>
+                      <td class="p-2.5 font-sans text-muted">{issue.reason}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        {/if}
+      {/if}
+    </div>
+
+    {#snippet footer()}
+      <Button
+        variant="outline"
+        onclick={closeVerifyModal}
+        disabled={isVerifying}
+      >
+        Закрыть
+      </Button>
+      <Button
+        variant={isVerifying ? "danger" : "primary"}
+        onclick={startVerification}
+      >
+        {isVerifying ? "Остановить" : "Запустить проверку"}
       </Button>
     {/snippet}
   </Modal>

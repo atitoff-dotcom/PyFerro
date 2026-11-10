@@ -313,6 +313,10 @@ class RpcRouter:
         if spec is None:
             raise MethodNotFoundError(f"Метод '{method_name}' не зарегистрирован")
 
+        is_dry = isinstance(params, dict) and params.get("_dry") is True
+        if is_dry:
+            return spec, {}
+
         if not check_rpc_access(spec, session.data):
             if session.data.is_guest:
                 raise UnauthorizedError()
@@ -339,6 +343,11 @@ class RpcRouter:
         Если в процессе работы у сессии запрошен дисконнект (`session.is_closing`),
         аккуратно закрывает генератор через `await gen.aclose()`.
         """
+        is_dry = isinstance(params, dict) and params.get("_dry") is True
+        if is_dry:
+            yield await self.call(method_name, session, params, db=db)
+            return
+
         spec, call_kwargs = self._prepare_call(method_name, session, params)
 
         if not spec.is_stream:
@@ -397,11 +406,17 @@ class RpcRouter:
         Выполняет проверку прав, внедряет зависимости и вызывает обработчик RPC-метода.
         Сессия БД открывается лениво — только если обработчик явно запросил аргумент `db`.
         """
+        is_dry = isinstance(params, dict) and params.get("_dry") is True
+        if is_dry:
+            spec = self._methods.get(method_name)
+            if spec is None:
+                raise MethodNotFoundError(f"Метод '{method_name}' не зарегистрирован")
+            return check_rpc_access(spec, session.data)
+
         spec, call_kwargs = self._prepare_call(method_name, session, params)
 
         if spec.is_stream:
             return [item async for item in self.stream(method_name, session, params, db=db)]
-
         session.begin_rpc()
         try:
             if spec.db_arg is not None:
@@ -448,6 +463,27 @@ class RpcRouter:
         if_none_match = packet.get("$if_none_match")
         idempotency_key = packet.get("$idempotency_key")
 
+        is_dry = isinstance(raw_params, dict) and raw_params.get("_dry") is True
+        if is_dry:
+            try:
+                result = await self.call(method_name, session, raw_params, db=db)
+            except RpcError as rpc_err:
+                if is_notification:
+                    return None
+                return encode_error(req_id, rpc_err.code, rpc_err.message, rpc_err.data)
+            except Exception:
+                if is_notification:
+                    return None
+                return encode_error(req_id, JsonRpcErrorCode.INTERNAL_ERROR, "Внутренняя ошибка сервера")
+
+            if is_notification:
+                return None
+
+            return orjson.dumps({
+                "jsonrpc": "2.0",
+                "result": result,
+                "id": req_id,
+            })
         try:
             if isinstance(idempotency_key, str) and idempotency_key:
                 self._prepare_call(method_name, session, raw_params)

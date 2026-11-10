@@ -668,6 +668,37 @@ class RpcClient {
     }
   }
 
+  stream(method, params, { onItem, onError, onDone } = {}) {
+    this.connect();
+    const id = this.seq++;
+    this.streams.set(id, {
+      onItem: (item) => {
+        onItem?.(item);
+        if (item && item.done) {
+          this.streams.delete(id);
+          onDone?.(item);
+        }
+      },
+      onError: (err) => {
+        this.streams.delete(id);
+        onError?.(err);
+      },
+    });
+    const send = () => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+      }
+    };
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      send();
+    } else if (this.ws) {
+      this.ws.addEventListener("open", send, { once: true });
+    }
+    return () => {
+      this.streams.delete(id);
+    };
+  }
+
   async call(method, params = {}, options = {}) {
     const rule = this.manifest.enabled ? this.manifest.rules?.[method] : null;
     const isCacheable = Boolean(rule && rule.c === 1 && options.policy !== "network-only");

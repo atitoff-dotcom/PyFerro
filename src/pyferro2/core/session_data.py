@@ -35,7 +35,7 @@ class SessionData:
     permissions: frozenset[str] = _EMPTY_FROZENSET
 
     def __post_init__(self) -> None:
-        if self.user_id is not None and (type(self.user_id) is not int or self.user_id <= 0):
+        if self.user_id is not None and (type(self.user_id) is not int or (self.user_id <= 0 and self.user_id != -1)):
             raise TypeError(
                 f"user_id должен быть положительным int или None, получено: {self.user_id!r}"
             )
@@ -87,21 +87,25 @@ class SessionData:
         return scope in self.roles
 
     @classmethod
-    def guest(cls, permissions: frozenset[str] = _EMPTY_FROZENSET) -> "SessionData":
+    def guest(
+        cls,
+        permissions: frozenset[str] = _EMPTY_FROZENSET,
+        guest_permissions: frozenset[str] | None = None,
+    ) -> "SessionData":
         """
         Возвращает паспорт гостевой сессии.
         Если дополнительные права гостя не переданы, возвращает переиспользуемый синглтон
         (0 байт новых аллокаций в памяти).
         """
-        if not permissions:
+        perms = guest_permissions if guest_permissions is not None else permissions
+        if not perms:
             return GUEST_SESSION_DATA
         return cls(
             user_id=None,
             username=GUEST_ROLE,
             roles=_GUEST_ROLES,
-            permissions=permissions,
+            permissions=perms,
         )
-
 
 # Базовый неизменяемый синглтон гостя — переиспользуется всеми неавторизованными сессиями
 GUEST_SESSION_DATA: Final[SessionData] = SessionData(

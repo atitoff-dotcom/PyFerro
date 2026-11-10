@@ -9,6 +9,8 @@ JSON-RPC обработчики для подсистемы CRUD и раздел
   `class admin: async def get_permissions_matrix`) — без параметра `name=...`.
 """
 
+import asyncio
+from collections.abc import AsyncIterator
 from typing import Any
 
 from sqlalchemy import select
@@ -17,11 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pyferro2.auth.models import Role, User
 from pyferro2.auth.passwords import hash_password
 from pyferro2.core.constants import USER_ROLE, admRole
+from pyferro2.core.session import Session
 from pyferro2.core.session_data import SessionData
 from pyferro2.crud.engine import CrudEngine
 from pyferro2.rpc.errors import InvalidParamsError
 from pyferro2.rpc.router import RpcRouter
-
 
 def register_crud_rpc(router: RpcRouter, crud_engine: CrudEngine) -> None:
     """Привязывает `CrudEngine` к `RpcRouter` и регистрирует методы управления."""
@@ -54,6 +56,100 @@ def register_crud_rpc(router: RpcRouter, crud_engine: CrudEngine) -> None:
                     for r in roles
                 ],
                 "methods": router.business_methods(),
+            }
+
+        @router.rpc_method(role=[admRole.adm_roles, admRole.adm_rpc])
+        async def verify_access(
+            session: Session,
+            db: AsyncSession,
+            delay_ms: int = 10,
+        ) -> AsyncIterator[dict[str, Any]]:
+            """
+            Сквозная верификация матрицы прав через Dry-run RPC со стримингом прогресса.
+            """
+            delay_sec = 0.0 if delay_ms <= 0 else max(delay_ms, 10) / 1000.0
+
+            roles = (await db.execute(select(Role).order_by(Role.id))).scalars().all()
+            methods = router.business_methods()
+
+            # Формирование контекстов (только в ОЗУ, без записи в БД)
+            contexts: list[tuple[str, SessionData]] = [
+                ("guest", SessionData.guest(guest_permissions=frozenset())),
+            ]
+            for role in roles:
+                if role.name == "guest":
+                    if role.get_permissions():
+                        contexts[0] = (
+                            "guest",
+                            SessionData.guest(guest_permissions=frozenset(role.get_permissions())),
+                        )
+                    continue
+                contexts.append((
+                    role.name,
+                    SessionData(
+                        user_id=-1,
+                        username=f"__check_{role.name}",
+                        roles=frozenset([role.name]),
+                        permissions=frozenset(role.get_permissions()),
+                    ),
+                ))
+
+            total_checks = len(contexts) * len(methods)
+            completed = 0
+            issues: list[dict[str, Any]] = []
+
+            test_session = Session(session_id="verify_access_check", data=contexts[0][1])
+
+            for role_name, context_data in contexts:
+                test_session.data = context_data
+
+                for method_name in methods:
+                    spec = router.get_spec(method_name)
+                    if spec is None:
+                        completed += 1
+                        continue
+
+                    actual_access = await router.call(
+                        method_name,
+                        test_session,
+                        params={"_dry": True},
+                        db=db,
+                    )
+
+                    expected_access = False
+                    if spec.public or context_data.is_admin:
+                        expected_access = True
+                    elif spec.required_roles is not None and not context_data.roles.isdisjoint(spec.required_roles):
+                        expected_access = True
+                    elif spec.allowed_permissions and not context_data.permissions.isdisjoint(spec.allowed_permissions):
+                        expected_access = True
+
+                    if actual_access != expected_access:
+                        issues.append({
+                            "role": role_name,
+                            "method": method_name,
+                            "expected": expected_access,
+                            "actual": actual_access,
+                            "reason": "Публичный метод закрыт" if expected_access else "Метод доступен без прав",
+                        })
+
+                    completed += 1
+                    yield {
+                        "done": False,
+                        "progress": int((completed / total_checks) * 100) if total_checks > 0 else 100,
+                        "current_role": role_name,
+                        "current_method": method_name,
+                        "issues_count": len(issues),
+                    }
+
+                    if delay_sec > 0:
+                        await asyncio.sleep(delay_sec)
+
+            yield {
+                "done": True,
+                "progress": 100,
+                "total_checks": total_checks,
+                "issues": issues,
             }
 
         @router.rpc_method(role=[admRole.adm_roles, admRole.adm_rpc])

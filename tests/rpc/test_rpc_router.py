@@ -1,12 +1,12 @@
 """
 Модульные тесты Этапа 3: диспетчер JSON-RPC 2.0, Smart DI, Lazy DB и авторизация (`pyferro2/rpc/`).
 """
+from typing import Any
 
 import orjson
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from pyferro2.core import JsonRpcErrorCode, Session, SessionData, USER_ROLE, admRole
 from pyferro2.db import Database
 from pyferro2.rpc import (
@@ -291,3 +291,97 @@ class TestClassNestingAndRouterInclude:
         )
         res = await local_router.call("Note.call", session)
         assert res == {"note": "created"}
+
+
+class TestDryRunAccessCheck:
+    """Проверка функциональности сухого прогона прав доступа (_dry: True)."""
+
+    @pytest.mark.asyncio
+    async def test_dry_run_bypasses_params_validation_and_handler_call(self, router: RpcRouter) -> None:
+        handler_called = False
+
+        class demo:
+            @router.rpc_method
+            async def strict_action(a: int, b: str) -> dict[str, Any]:
+                nonlocal handler_called
+                handler_called = True
+                return {"result": f"{a}:{b}"}
+
+        # 1. Сессия с доступом к методу demo.strict_action
+        allowed_session = Session(
+            session_id="s-allowed",
+            data=SessionData(
+                user_id=1,
+                username="editor",
+                roles=frozenset({USER_ROLE}),
+                permissions=frozenset({"demo.strict_action"}),
+            ),
+        )
+
+        # 2. Сессия без доступа к методу demo.strict_action
+        denied_session = Session(
+            session_id="s-denied",
+            data=SessionData(
+                user_id=2,
+                username="stranger",
+                roles=frozenset({USER_ROLE}),
+                permissions=frozenset(),
+            ),
+        )
+
+        # Вызов с _dry: True не требует передачи параметров `a` и `b` и не выбрасывает InvalidParamsError
+        res_allowed = await router.call("demo.strict_action", allowed_session, params={"_dry": True})
+        assert res_allowed is True
+        assert handler_called is False
+
+        res_denied = await router.call("demo.strict_action", denied_session, params={"_dry": True})
+        assert res_denied is False
+        assert handler_called is False
+
+        # Проверка через handle_packet (JSON-RPC ответ)
+        packet_allowed = {
+            "jsonrpc": "2.0",
+            "method": "demo.strict_action",
+            "params": {"_dry": True},
+            "id": 42,
+        }
+        resp_allowed_bytes = await router.handle_packet(packet_allowed, allowed_session)
+        assert resp_allowed_bytes is not None
+        assert orjson.loads(resp_allowed_bytes) == {"jsonrpc": "2.0", "result": True, "id": 42}
+
+        packet_denied = {
+            "jsonrpc": "2.0",
+            "method": "demo.strict_action",
+            "params": {"_dry": True},
+            "id": 43,
+        }
+        resp_denied_bytes = await router.handle_packet(packet_denied, denied_session)
+        assert resp_denied_bytes is not None
+        assert orjson.loads(resp_denied_bytes) == {"jsonrpc": "2.0", "result": False, "id": 43}
+        assert handler_called is False
+
+    @pytest.mark.asyncio
+    async def test_dry_run_for_stream_method(self, router: RpcRouter) -> None:
+        gen_called = False
+
+        class stream_demo:
+            @router.rpc_method
+            async def generate_items(count: int):
+                nonlocal gen_called
+                gen_called = True
+                for i in range(count):
+                    yield i
+
+        sess = Session(
+            session_id="s-stream",
+            data=SessionData(
+                user_id=1,
+                username="streamer",
+                roles=frozenset({USER_ROLE}),
+                permissions=frozenset({"stream_demo.generate_items"}),
+            ),
+        )
+
+        res = await router.call("stream_demo.generate_items", sess, params={"_dry": True})
+        assert res is True
+        assert gen_called is False
