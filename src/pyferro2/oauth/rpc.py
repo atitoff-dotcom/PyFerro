@@ -22,6 +22,7 @@ from pyferro2.oauth.models import AuthConfig, OAuthAccount
 from pyferro2.oauth.providers import PROVIDERS
 from pyferro2.rpc.errors import ForbiddenError, NotFoundError, UnauthorizedError, ValidationError
 from pyferro2.rpc.router import RpcRouter
+from pyferro2.cache.manager import cache_manager
 from pyferro2.server.auth_rpc import serialize_session_data
 from pyferro2.server.tokens import TokenManager
 
@@ -54,8 +55,8 @@ def register_oauth_rpc(router: RpcRouter, token_manager: TokenManager) -> None:
                 "allow_registration": reg_cfg.config.get("allow_registration", True) and reg_cfg.is_enabled,
                 "require_email_verification": reg_cfg.config.get("require_email_verification", False),
                 "providers": prov_list,
+                "cache_manifest": cache_manager.config.to_public_manifest(),
             }
-
     class auth:
         @router.rpc_method(public=True)
         async def register(

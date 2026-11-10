@@ -29,6 +29,7 @@ import orjson
 from sqlalchemy import select
 
 from pyferro2.auth.seeder import ensure_admin_user, load_guest_session_data, seed_system_roles
+from pyferro2.cache import cache_manager, load_cache_from_db, register_cache_rpc
 from pyferro2.core.constants import JsonRpcErrorCode, WsCloseCode
 from pyferro2.core.session import Session
 from pyferro2.core.session_data import GUEST_SESSION_DATA, SessionData
@@ -152,6 +153,16 @@ class PyFerroApp:
             lambda: self.guest_session_data.permissions,
         )
         register_help_rpc(self.router, self.docs_help_dir)
+        register_cache_rpc(self.router)
+        cache_manager.set_broadcast_callback(self.broadcast_notification)
+
+    async def broadcast_notification(self, event: str, payload: Any) -> None:
+        """Рассылает серверное JSON-RPC уведомление всем активным WebSocket-сессиям."""
+        for sess in list(self._sessions):
+            try:
+                await sess.notify(event, payload)
+            except Exception:
+                pass
 
     def _update_guest_permissions(self, permissions: frozenset[str]) -> None:
         """Обновляет in-memory кэш прав роли `guest` при изменении матрицы прав."""
@@ -176,13 +187,14 @@ class PyFerroApp:
                 await sess.request_disconnect(code)
 
     async def startup(self) -> None:
-        """Инициализирует таблицы БД, системные роли, кэш разрешений гостя и дерево SEO."""
+        """Инициализирует таблицы БД, системные роли, кэш разрешений гостя, дерево SEO и правила кеша."""
         self.router.include(default_router)
         await self.db.create_tables()
         async with self.db.session() as session:
             await seed_system_roles(session)
             self.guest_session_data = await load_guest_session_data(session)
             await load_seo_from_db(session)
+            await load_cache_from_db(session)
 
     async def shutdown(self) -> None:
         """Корректно закрывает активные сессии и соединения с БД."""

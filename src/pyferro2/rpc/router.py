@@ -26,6 +26,11 @@ from typing import Any, get_type_hints
 import orjson
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pyferro2.cache.manager import (
+    cache_manager,
+    start_table_tracking,
+    stop_table_tracking,
+)
 from pyferro2.core.constants import JsonRpcErrorCode
 from pyferro2.core.session import Session
 from pyferro2.core.session_data import SessionData
@@ -429,7 +434,8 @@ class RpcRouter:
         db: Database | AsyncSession | None = None,
     ) -> bytes | None:
         """
-        Выполняет валидированный пакет JSON-RPC 2.0 (словарь) и возвращает ответ в `bytes`.
+        Выполняет валидированный пакет JSON-RPC 2.0 (словарь) с поддержкой L1-кеша,
+        ETag (`$if_none_match` / `$not_modified`), авто-трекинга таблиц и `$idempotency_key`.
         """
         method_name = packet.get("method")
         is_notification = "id" not in packet
@@ -439,9 +445,78 @@ class RpcRouter:
             return encode_error(req_id, JsonRpcErrorCode.INVALID_REQUEST, "Отсутствует строковое поле 'method'")
 
         raw_params = packet.get("params")
+        if_none_match = packet.get("$if_none_match")
+        idempotency_key = packet.get("$idempotency_key")
 
         try:
+            if isinstance(idempotency_key, str) and idempotency_key:
+                self._prepare_call(method_name, session, raw_params)
+                is_dup, dup_res = cache_manager.check_idempotency(idempotency_key)
+                if is_dup:
+                    if is_notification:
+                        return None
+                    return orjson.dumps({
+                        "jsonrpc": "2.0",
+                        "result": dup_res,
+                        "id": req_id,
+                    })
+
+            rule = cache_manager.get_rule(method_name)
+            if rule is not None and rule.cache_enabled and not is_notification:
+                spec, _ = self._prepare_call(method_name, session, raw_params)
+                if not spec.is_stream:
+                    scope = (
+                        "public"
+                        if (spec.public and spec.session_data_arg is None and spec.session_arg is None)
+                        else "user"
+                    )
+                    cache_key = cache_manager.build_cache_key(
+                        method_name, scope, session.data.user_id, raw_params
+                    )
+                    entry = cache_manager.get_entry(cache_key)
+                    if entry is None:
+                        tracked_tables, token = start_table_tracking()
+                        try:
+                            result = await self.call(method_name, session, raw_params, db=db)
+                        finally:
+                            stop_table_tracking(token)
+                        entry = cache_manager.put_entry(
+                            cache_key=cache_key,
+                            method_name=method_name,
+                            scope=scope,
+                            user_id=session.data.user_id,
+                            result=result,
+                            tables=tracked_tables,
+                            ttl_sec=rule.ttl_sec,
+                        )
+
+                    cache_meta = {
+                        "etag": entry.etag,
+                        "scope": scope,
+                        "strategy": rule.strategy,
+                        "ttl": rule.ttl_sec,
+                        "prefetch_media": rule.prefetch_media,
+                        "epoch": cache_manager.config.cache_epoch,
+                    }
+                    if isinstance(if_none_match, str) and if_none_match == entry.etag:
+                        cache_manager.not_modified_hits += 1
+                        return orjson.dumps({
+                            "jsonrpc": "2.0",
+                            "result": {"$not_modified": True},
+                            "$cache": cache_meta,
+                            "id": req_id,
+                        })
+
+                    return orjson.dumps({
+                        "jsonrpc": "2.0",
+                        "result": entry.result,
+                        "$cache": cache_meta,
+                        "id": req_id,
+                    })
+
             result = await self.call(method_name, session, raw_params, db=db)
+            if isinstance(idempotency_key, str) and idempotency_key:
+                cache_manager.save_idempotency(idempotency_key, result)
         except RpcError as rpc_err:
             if is_notification:
                 return None

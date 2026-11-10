@@ -2,6 +2,12 @@
 PyFerro 2.0 — высокопроизводительный веб-фреймворк с минимальным потреблением CPU и zero-boilerplate.
 """
 
+from pyferro2.cache import (
+    CacheConfig,
+    CacheManager,
+    CacheRule,
+    cache_manager,
+)
 from pyferro2.db.pagination import decode_cursor, encode_cursor, paginate_tabular
 from pyferro2.seo import (
     HtmlBuilder,
@@ -15,7 +21,7 @@ from pyferro2.seo import (
     register_sitemap_provider,
 )
 
-__version__ = "2.2.5"
+__version__ = "2.3.0"
 
 __all__ = [
     "__version__",
@@ -31,4 +37,8 @@ __all__ = [
     "bot_page",
     "register_sitemap_provider",
     "notify_indexnow",
+    "CacheConfig",
+    "CacheRule",
+    "CacheManager",
+    "cache_manager",
 ]

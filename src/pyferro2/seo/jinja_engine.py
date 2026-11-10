@@ -29,12 +29,15 @@ SYSTEM_SECURITY_MODELS: frozenset[str] = frozenset({
     "RolePermission",
     "StoredFile",
     "SeoConfigRecord",
+    "CacheConfigRecord",
+    "CacheRuleRecord",
 })
 
 SYSTEM_SECURITY_PREFIXES: tuple[str, ...] = (
     "pf_auth_",
     "pf_file_",
     "pf_seo_",
+    "pf_cache_",
     "pf_system_",
 )
 

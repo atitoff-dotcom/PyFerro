@@ -10,6 +10,7 @@
   } from "./auth.svelte.js";
   import { rpc } from "./rpc.js";
   import SeoView from "./SeoView.svelte";
+  import CacheView from "./CacheView.svelte";
   import HelpView from "./HelpView.svelte";
   import UsersView from "./UsersView.svelte";
   import OAuthView from "./OAuthView.svelte";
@@ -33,6 +34,7 @@
     Users,
     Database,
     Network,
+    HardDrive,
     BookOpen,
     LogOut,
     Plus,
@@ -254,6 +256,8 @@
       activeTab = "crud";
     } else if (hasAdminSection("seo")) {
       activeTab = "seo";
+    } else if (hasAdminSection("cache") || hasAdminSection("settings")) {
+      activeTab = "cache";
     } else if (hasAdminSection("help")) {
       activeTab = "help";
     }
@@ -677,6 +681,16 @@
         </button>
       {/if}
 
+      {#if hasAdminSection("cache") || hasAdminSection("settings") || hasAdminSection("rpc")}
+        <button
+          class="nav-btn {activeTab === 'cache' ? 'active' : ''}"
+          onclick={() => selectTab("cache")}
+        >
+          <HardDrive size={17} />
+          <span>Кеш и Оффлайн</span>
+        </button>
+      {/if}
+
       {#if hasAdminSection("help")}
         <button
           class="nav-btn {activeTab === 'help' ? 'active' : ''}"
@@ -795,6 +809,8 @@
         {/if}
       {:else if activeTab === "seo"}
         <SeoView onnotify={handleNotify} />
+      {:else if activeTab === "cache"}
+        <CacheView onnotify={handleNotify} />
       {:else if activeTab === "help"}
         <HelpView currentSlug={helpSlug} onNavigate={handleHelpNavigate} />
       {/if}

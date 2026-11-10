@@ -25,6 +25,7 @@ class admRole(StrEnum):
     adm_rpc = "adm_rpc"
     adm_help = "adm_help"
     adm_seo = "adm_seo"
+    adm_cache = "adm_cache"
 
 
 # Базовые роли пользователей в системе

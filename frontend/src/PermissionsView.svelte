@@ -421,11 +421,28 @@
           {/if}
         </div>
 
-        <span class="font-bold text-sm text-text-bright truncate">{cardName}</span>
+        <span class="font-bold text-sm text-text-bright shrink-0">{cardName}</span>
 
-        <Badge variant={cardAllowedCount > 0 ? "accent" : "default"}>
-          {cardAllowedCount}/{methods.length}
-        </Badge>
+        {#if collapsed}
+          {@const allowedMethods = methods.filter((m) => isMethodAllowed(m.full))}
+          {#if allowedMethods.length > 0}
+            <div class="flex items-center gap-1.5 flex-wrap min-w-0 ml-1">
+              {#each allowedMethods as m, i}
+                <span class="inline-flex items-center text-xs">
+                  <span class="font-mono text-text-bright/90">.{m.action}</span>
+                  {#if isMethodOwnOnly(m.full)}
+                    <Badge variant="warning" class="text-[9px] px-1 py-0 ml-1 leading-none">
+                      только свои
+                    </Badge>
+                  {/if}
+                  {#if i < allowedMethods.length - 1}
+                    <span class="text-muted/60 ml-1">,</span>
+                  {/if}
+                </span>
+              {/each}
+            </div>
+          {/if}
+        {/if}
       </div>
 
       <div class="flex items-center gap-1 flex-shrink-0">
